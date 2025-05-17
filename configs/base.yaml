@@ -1,0 +1,2 @@
+model_name: gpt2  # Open-source Qwen model
+max_tokens: 200    

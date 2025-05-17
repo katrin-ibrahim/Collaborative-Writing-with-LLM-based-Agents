@@ -9,4 +9,5 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 export PYTHONPATH=${PYTHONPATH}:./
+export HF_TOKEN=<your Hugging Face API token>
 ```

@@ -1,0 +1,12 @@
+# Prompt template and dataset settings
+prompt_template: |
+  Write a thoughtful continuation for the following text:
+  """
+  {input}
+  """
+
+dataset:
+  name: YuchengJiang/WildSeek            # Hugging Face dataset name
+  config: null                # Optional dataset config name
+  split: train                # Which split to load
+  text_field: topic           # Field containing the raw text
