@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+
 
 class WriterConfig:
     def __init__(
@@ -9,7 +9,7 @@ class WriterConfig:
         top_p: float = 0.9,
         retrieve_top_k: int = 10,
         knowledge_organization_enabled: bool = True,
-        section_drafting_style: str = "informative"  # Could be "informative", "narrative", etc.
+        section_drafting_style: str = "informative",  # Could be "informative", "narrative", etc.
     ):
         self.hf_token = os.getenv("HF_TOKEN")
         self.max_tokens = max_tokens

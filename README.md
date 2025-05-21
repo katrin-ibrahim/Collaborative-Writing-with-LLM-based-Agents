@@ -11,7 +11,9 @@ pip install -r requirements.txt
 export PYTHONPATH=${PYTHONPATH}:./
 export HF_TOKEN=<your Hugging Face API token>
 ```
+
 ## TODO
+
 - [ ] clean up configs (move to folder)
 - [ ] make model name configurable
 - [ ] text size configurable
@@ -27,4 +29,3 @@ export HF_TOKEN=<your Hugging Face API token>
 - [ ] add unit tests
 - [ ] add cli support
 - [ ] use section drafting style (cli)
-

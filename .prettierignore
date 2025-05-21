@@ -1,0 +1,25 @@
+# Dependency directories
+node_modules/
+venv/
+env/
+
+# Distribution directories
+dist/
+build/
+
+# Cache directories
+__pycache__/
+.cache/
+
+# Data directories
+data/
+
+# Results
+results/
+
+# IDE directories
+.idea/
+.vscode/
+
+# Misc
+.DS_Store

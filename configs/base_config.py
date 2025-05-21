@@ -6,7 +6,7 @@ class RunnerArgument:
         retrieve_top_k: int = 10,
         research_phase_enabled: bool = True,
         outline_generation_enabled: bool = True,
-        brainstorming_enabled: bool = True
+        brainstorming_enabled: bool = True,
     ):
         self.topic = topic
         self.corpus_embeddings_path = corpus_embeddings_path
