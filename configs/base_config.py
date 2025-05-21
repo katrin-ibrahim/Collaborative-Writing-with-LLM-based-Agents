@@ -1,12 +1,16 @@
-import os
-from dataclasses import dataclass
-
-@dataclass
 class RunnerArgument:
-    """Arguments for controlling the pipeline"""
-    topic: str
-    corpus_embeddings_path: str  # path to persisted FAISS index
-    dataset_name: str = "YuchengJiang/WildSeek"
-    retrieve_top_k: int = 5
-    research_phase_enabled: bool = True
-    outline_generation_enabled: bool = True
+    def __init__(
+        self,
+        topic: str,
+        corpus_embeddings_path: str,
+        retrieve_top_k: int = 10,
+        research_phase_enabled: bool = True,
+        outline_generation_enabled: bool = True,
+        brainstorming_enabled: bool = True
+    ):
+        self.topic = topic
+        self.corpus_embeddings_path = corpus_embeddings_path
+        self.retrieve_top_k = retrieve_top_k
+        self.research_phase_enabled = research_phase_enabled
+        self.outline_generation_enabled = outline_generation_enabled
+        self.brainstorming_enabled = brainstorming_enabled
