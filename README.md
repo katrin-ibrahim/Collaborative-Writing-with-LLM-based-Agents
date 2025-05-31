@@ -50,23 +50,16 @@ export PYTHONPATH=${PYTHONPATH}:./
 ### Usage
 
 ```bash
-# Run with default settings (RAG Writer, first topic)
-python main.py
 
 # Run with a specific approach
-python main.py --approach direct_prompt
-python main.py --approach writer_only
-python main.py --approach rag_writer
-python main.py --approach co_storm
+python main.py --method direct --num_topics 5
+python main.py --method writer_only --num_topics 5
+python main.py --method rag --num_topics 5
 
-# Run with the collaborative approach (includes review)
-python main.py --approach collaborative --review
+# Run all baselines
+python main.py --method all --num_topics 5
 
-# Select a specific topic by index
-python main.py --topic_index 3
 
-# Configure the revision process
-python main.py --approach collaborative --review --iterations 5 --convergence 0.8
 ```
 
 
@@ -81,82 +74,14 @@ The system evaluates content quality using several metrics:
 
 ## TODO
 
-- [ ] clean up configs (move to folder)
 - [ ] make model name configurable
 - [ ] text size configurable
 - [ ] prompt template for writer
-- [ ] evaluator prompt template
 - [ ] add web search knowledge source
-- [ ] explore scientific articles knowledge source
-- [ ] add user goal
-- [ ] testing loop (10-20 wildseek topics)
-- [ ] organize utils
-- [ ] add a unified logging system
-- [ ] create /knowledge folder to organize kbs
+- [x] organize utils
+- [x] add a unified logging system
+- [x] create /knowledge folder to organize kbs
 - [ ] add unit tests
-- [ ] add cli support
+- [x] add cli support
 - [ ] use section drafting style (cli)
 
-
-content_generation_system/
-├── src/
-│   ├── agents/
-│   │   ├── init.py
-│   │   ├── base_agent.py          # Abstract base for all agents
-│   │   ├── writer/
-│   │   │   ├── init.py
-│   │   │   ├── writer_agent.py    # Main writer implementation
-│   │   │   └── outline_generator.py
-│   │   └── reviewer/              # Future: review team agents
-│   │       ├── init.py
-│   │       ├── fact_checker.py
-│   │       ├── structure_advisor.py
-│   │       └── review_leader.py
-│   ├── workflows/
-│   │   ├── init.py
-│   │   ├── base_workflow.py       # Abstract workflow interface
-│   │   ├── direct_prompting.py    # Baseline 1
-│   │   ├── writer_only.py         # Baseline 2
-│   │   ├── rag_writer.py          # Baseline 3
-│   │   └── full_system.py         # Future: complete system
-│   ├── evaluation/
-│   │   ├── init.py
-│   │   ├── evaluator.py           # Main evaluation orchestrator
-│   │   ├── metrics/
-│   │   │   ├── init.py
-│   │   │   ├── heading_metrics.py # HSR, HER
-│   │   │   ├── rouge_metrics.py   # ROUGE-1/2/L
-│   │   │   └── entity_metrics.py  # AER
-│   │   └── benchmarks/
-│   │       ├── init.py
-│   │       └── freshwiki_loader.py
-│   ├── retrieval/
-│   │   ├── init.py
-│   │   ├── search_engine.py       # External search interface
-│   │   └── passage_ranker.py      # Top-k passage selection
-│   ├── memory/
-│   │   ├── init.py
-│   │   ├── shared_memory.py       # Future: agent communication
-│   │   └── revision_tracker.py    # Future: iteration management
-│   └── utils/
-│       ├── init.py
-│       ├── config.py
-│       ├── logging_setup.py
-│       └── data_models.py         # Pydantic models
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── fixtures/
-├── experiments/
-│   ├── baselines/
-│   │   ├── run_direct_prompting.py
-│   │   ├── run_writer_only.py
-│   │   └── run_rag_writer.py
-│   └── results/
-├── configs/
-│   ├── base_config.yaml
-│   ├── baseline_configs/
-│   └── model_configs/
-├── requirements.txt
-├── setup.py
-└── README.md
