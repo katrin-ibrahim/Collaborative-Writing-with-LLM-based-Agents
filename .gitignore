@@ -3,5 +3,6 @@
 /multirun
 /venv
 __pycache__
-/co-storm
 .DS_Store
+.idea
+.vscode
