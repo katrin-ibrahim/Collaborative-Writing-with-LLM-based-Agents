@@ -2,8 +2,8 @@
 import requests
 from typing import List, Dict, Any, Optional
 import logging
-from ..utils.data_models import SearchResult
-from ..knowledge.knowledge_base import WikipediaRetriever
+from utils.data_models import SearchResult
+from knowledge.knowledge_base import WikipediaRetriever
 from sentence_transformers import SentenceTransformer
 import numpy as np
 

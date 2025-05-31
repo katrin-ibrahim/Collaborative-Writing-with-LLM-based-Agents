@@ -1,6 +1,6 @@
 from typing import List
 import logging
-from ..utils.data_models import SearchResult
+from utils.data_models import SearchResult
 
 logger = logging.getLogger(__name__)
 

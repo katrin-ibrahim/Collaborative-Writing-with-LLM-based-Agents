@@ -1,13 +1,15 @@
 # src/knowledge/knowledge_base.py - Enhanced and restructured version
 import re
-
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
+from knowledge.wikipedia_retriever import WikipediaRetriever
+
 # Import our SearchResult type for integration with SearchEngine
-from ..utils.data_models import SearchResult
+from utils.data_models import SearchResult
 
 
 

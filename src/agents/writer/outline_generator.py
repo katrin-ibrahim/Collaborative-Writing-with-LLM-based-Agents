@@ -1,18 +1,26 @@
 # src/agents/writer/outline_generator.py
-from typing import List
+import os
+from typing import Dict, Any
 import logging
-from ..base_agent import BaseAgent
-from ...utils.data_models import Outline
+from utils.api import APIClient
+from utils.data_models import Outline
 
 logger = logging.getLogger(__name__)
 
-class OutlineGenerator(BaseAgent):
-    """Generates hierarchical outlines for articles."""
+class OutlineGenerator:
+    """Utility for generating structured article outlines."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Get API client - same one used throughout the system
+        api_token = os.getenv('HF_TOKEN') or os.getenv('API_TOKEN')
+        self.api_client = APIClient(api_token=api_token)
     
     def generate_outline(self, topic: str, context: str = "") -> Outline:
         """Generate a hierarchical outline for the given topic."""
         
-        # Create prompt for outline generation
         outline_prompt = f"""
         Generate a detailed outline for an article about: {topic}
         
@@ -35,13 +43,13 @@ class OutlineGenerator(BaseAgent):
         ...
         """
         
-        # Call language model
-        response = self.call_api(outline_prompt)
+        # Use the API client directly
+        response = self.api_client.call_api(outline_prompt)
         
         # Parse the response into structured outline
         outline = self._parse_outline_response(response, topic)
         
-        logger.info(f"Generated outline with {len(outline.headings)} main headings")
+        self.logger.info(f"Generated outline with {len(outline.headings)} main headings")
         return outline
     
     def _parse_outline_response(self, response: str, topic: str) -> Outline:

@@ -1,7 +1,7 @@
 from typing import Dict
 import logging
-from .base_workflow import BaseWorkflow
-from ..utils.data_models import Article
+from workflows.base_workflow import BaseWorkflow
+from utils.data_models import Article
 
 logger = logging.getLogger(__name__)
 

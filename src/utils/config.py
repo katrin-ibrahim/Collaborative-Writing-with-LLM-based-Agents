@@ -1,3 +1,4 @@
+import logging
 import yaml
 from typing import Dict, Any
 
@@ -44,3 +45,18 @@ class Config:
             else:
                 return default
         return value
+    
+    def load_config(config_path: str) -> Dict[str, Any]:
+        """
+        Load configuration from file path - expected by experiment scripts.
+        
+        This function bridges the gap between your Config class and the
+        experiment scripts that expect a simple loading function.
+        """
+        try:
+            config_instance = Config(config_path)
+            return config_instance.config
+        except Exception as e:
+            logging.warning(f"Failed to load config from {config_path}: {e}")
+            # Return default configuration that enables basic functionality
+            return Config()._get_default_config()

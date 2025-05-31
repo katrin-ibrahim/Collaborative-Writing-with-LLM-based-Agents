@@ -2,6 +2,8 @@ import wikipedia
 import hashlib
 import json
 import os
+from typing import List, Dict, Any, Optional
+
 class WikipediaRetriever:
     """
     Specialized retriever for Wikipedia content.
