@@ -1,114 +1,159 @@
+# src/evaluation/evaluator.py - Clean orchestration with modular metrics
 import logging
 from typing import Dict, Any
 from utils.data_models import Article, EvaluationResult
 from evaluation.benchmarks.freshwiki_loader import FreshWikiEntry
+from evaluation.metrics.rouge_metrics import ROUGEMetrics
+from evaluation.metrics.entity_metrics import EntityMetrics
+from evaluation.metrics.heading_metrics import HeadingMetrics
 
 logger = logging.getLogger(__name__)
 
 class ArticleEvaluator:
     """
-    Basic evaluator for comparing generated articles against reference content.
+    Clean evaluator that orchestrates modular metric components.
     
-    This implementation provides essential metrics for baseline comparison
-    while maintaining the structure for more sophisticated evaluation later.
+    This design separates concerns:
+    - Each metric is independently testable
+    - Easy to add new metrics for collaboration research
+    - Clear interfaces for each evaluation dimension
+    - Simple to debug when metrics fail
     """
     
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Initialize metric calculators
+        self.rouge_metrics = ROUGEMetrics()
+        self.entity_metrics = EntityMetrics()
+        self.heading_metrics = HeadingMetrics()
+        
+        self.logger.info("ArticleEvaluator initialized with modular metrics")
     
     def evaluate_article(self, article: Article, reference: FreshWikiEntry) -> Dict[str, float]:
         """
-        Evaluate generated article against reference content.
+        Comprehensive evaluation using modular metric components.
         
-        Returns basic but meaningful metrics that allow comparison between
-        different generation approaches and track improvement over time.
+        Each metric component is responsible for its own domain:
+        - ROUGE: Content overlap and fluency
+        - Entity: Factual accuracy and completeness
+        - Heading: Structure and topic coverage
         """
         try:
             metrics = {}
             
-            # Content-based metrics
-            metrics['content_length_ratio'] = self._calculate_length_ratio(article.content, reference.reference_content)
-            metrics['section_coverage'] = self._calculate_section_coverage(article, reference)
+            # 1. Content Overlap Metrics (ROUGE family)
+            rouge_scores = self.rouge_metrics.calculate_all_rouge(
+                article.content, reference.reference_content
+            )
+            metrics.update(rouge_scores)
             
-            # Basic ROUGE-like overlap (simplified implementation)
-            metrics['word_overlap'] = self._calculate_word_overlap(article.content, reference.reference_content)
+            # 2. Structural Metrics (Storm HSR, coverage, etc.)
+            heading_scores = self.heading_metrics.analyze_heading_quality(
+                article.content, reference.reference_outline
+            )
+            metrics.update(heading_scores)
             
-            # Structure similarity
-            metrics['heading_similarity'] = self._calculate_heading_similarity(article, reference)
+            # 3. Factual Content Metrics (Storm AER, HER)
+            entity_scores = self.entity_metrics.calculate_entity_recall(
+                article.content, reference.reference_content
+            )
+            metrics.update(entity_scores)
             
-            self.logger.info(f"Evaluation completed for article: {article.title}")
+            # 4. Overall Entity Recall (AER from Storm)
+            metrics['article_entity_recall'] = self.entity_metrics.calculate_overall_entity_recall(
+                article.content, reference.reference_content
+            )
+            
+            # 5. Research-Specific Storm Metrics
+            storm_metrics = self._calculate_storm_specific_metrics(article, reference)
+            metrics.update(storm_metrics)
+            
+            # 6. Content Quality Indicators
+            quality_metrics = self._calculate_content_quality(article, reference)
+            metrics.update(quality_metrics)
+            
+            self.logger.info(f"Evaluation completed with {len(metrics)} metrics")
             return metrics
             
         except Exception as e:
             self.logger.error(f"Evaluation failed: {e}")
             return {"evaluation_error": 1.0}
     
-    def _calculate_length_ratio(self, generated: str, reference: str) -> float:
-        """Calculate how the generated content length compares to reference."""
-        if not reference:
-            return 0.0
-        gen_words = len(generated.split())
-        ref_words = len(reference.split())
-        # Return ratio capped at 2.0 to handle very long generated content
-        return min(gen_words / ref_words, 2.0) if ref_words > 0 else 0.0
-    
-    def _calculate_section_coverage(self, article: Article, reference: FreshWikiEntry) -> float:
-        """Calculate what portion of reference topics are covered."""
-        if not reference.reference_outline:
-            return 0.5  # Default score when no reference outline available
+    def _calculate_storm_specific_metrics(self, article: Article, reference: FreshWikiEntry) -> Dict[str, float]:
+        """
+        Calculate the specific metrics from the Storm paper.
         
-        article_sections = set(article.sections.keys()) if article.sections else set()
-        reference_sections = set(reference.reference_outline)
+        These are the exact metrics mentioned in your research paper for RQ1/RQ2.
+        """
+        metrics = {}
         
-        if not reference_sections:
-            return 0.5
+        # Extract headings for heading-specific analysis
+        generated_headings = self.heading_metrics.extract_headings_from_content(article.content)
         
-        # Calculate overlap between section topics (case-insensitive)
-        article_sections_lower = {s.lower() for s in article_sections}
-        reference_sections_lower = {s.lower() for s in reference_sections}
+        # HSR: Heading Soft Recall (already calculated in heading_metrics as heading_soft_recall)
+        # This measures topic coverage using semantic similarity
         
-        overlap = len(article_sections_lower.intersection(reference_sections_lower))
-        return overlap / len(reference_sections_lower)
-    
-    def _calculate_word_overlap(self, generated: str, reference: str) -> float:
-        """Calculate basic word-level overlap between generated and reference content."""
-        if not generated or not reference:
-            return 0.0
-        
-        gen_words = set(generated.lower().split())
-        ref_words = set(reference.lower().split())
-        
-        if not ref_words:
-            return 0.0
-        
-        overlap = len(gen_words.intersection(ref_words))
-        return overlap / len(ref_words)
-    
-    def _calculate_heading_similarity(self, article: Article, reference: FreshWikiEntry) -> float:
-        """Calculate similarity between generated and reference headings."""
-        if not reference.reference_outline:
-            return 0.5
-        
-        if article.outline:
-            gen_headings = article.outline.headings
-        elif article.sections:
-            gen_headings = list(article.sections.keys())
+        # HER: Heading Entity Recall (entities specifically in headings)
+        if reference.reference_outline and generated_headings:
+            heading_text_ref = ' '.join(reference.reference_outline)
+            heading_text_gen = ' '.join(generated_headings)
+            
+            # Calculate entity recall specifically for headings
+            ref_entities = self.entity_metrics.extract_entities(heading_text_ref)
+            gen_entities = self.entity_metrics.extract_entities(heading_text_gen)
+            
+            all_ref_heading_entities = set()
+            all_gen_heading_entities = set()
+            
+            for entity_type in ref_entities:
+                all_ref_heading_entities.update(ref_entities[entity_type])
+                all_gen_heading_entities.update(gen_entities[entity_type])
+            
+            if all_ref_heading_entities:
+                metrics['heading_entity_recall'] = (
+                    len(all_ref_heading_entities.intersection(all_gen_heading_entities)) 
+                    / len(all_ref_heading_entities)
+                )
+            else:
+                metrics['heading_entity_recall'] = 1.0
         else:
-            return 0.0
+            metrics['heading_entity_recall'] = 0.0
         
-        # Simple heading similarity based on word overlap
-        total_similarity = 0.0
-        for ref_heading in reference.reference_outline:
-            best_match = 0.0
-            ref_words = set(ref_heading.lower().split())
-            
-            for gen_heading in gen_headings:
-                gen_words = set(gen_heading.lower().split())
-                if ref_words and gen_words:
-                    overlap = len(ref_words.intersection(gen_words))
-                    similarity = overlap / len(ref_words.union(gen_words))
-                    best_match = max(best_match, similarity)
-            
-            total_similarity += best_match
+        return metrics
+    
+    def _calculate_content_quality(self, article: Article, reference: FreshWikiEntry) -> Dict[str, float]:
+        """Calculate general content quality metrics."""
+        gen_words = len(article.content.split())
+        ref_words = len(reference.reference_content.split()) if reference.reference_content else 0
         
-        return total_similarity / len(reference.reference_outline) if reference.reference_outline else 0.0
+        return {
+            'content_length_ratio': min(gen_words / ref_words, 2.0) if ref_words > 0 else 0.0,
+            'content_word_count': gen_words
+        }
+    
+    def evaluate_outline_only(self, outline_headings: list, reference: FreshWikiEntry) -> Dict[str, float]:
+        """
+        Evaluate outline quality separately from full article.
+        
+        This supports iterative evaluation during the writing process
+        and is useful for your collaboration research.
+        """
+        return self.heading_metrics.analyze_heading_quality(
+            '\n'.join([f'## {h}' for h in outline_headings]), 
+            reference.reference_outline
+        )
+    
+    def get_metric_descriptions(self) -> Dict[str, str]:
+        """Get descriptions of all available metrics for research analysis."""
+        return {
+            'rouge_1': 'Unigram overlap - measures content similarity',
+            'rouge_2': 'Bigram overlap - measures fluency and coherence', 
+            'rouge_l': 'Longest common subsequence - measures structural similarity',
+            'heading_soft_recall': 'Storm HSR - semantic topic coverage',
+            'heading_entity_recall': 'Storm HER - named entity coverage in headings',
+            'article_entity_recall': 'Storm AER - overall factual content coverage',
+            'heading_coverage': 'Percentage of reference topics covered',
+            'structure_similarity': 'Structural organization quality',
+            'content_length_ratio': 'Generated vs reference content length'
+        }
