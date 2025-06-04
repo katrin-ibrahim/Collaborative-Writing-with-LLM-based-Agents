@@ -31,15 +31,24 @@ class WriterAgent(BaseAgent):
         self.use_knowledge_base = config.get('writer.use_knowledge_base', True)
         self.knowledge_organization_depth = config.get('writer.knowledge_depth', 'semantic_hierarchical')
         
-        # Initialize retrieval components only if needed
         if self.use_external_knowledge:
-            self.search_engine = SearchEngine()
-            self.passage_ranker = PassageRanker(top_k=config.get('retrieval.top_k', 5))
-        else:
-            self.search_engine = None
-            self.passage_ranker = None
+            try:
+                from retrieval.search_engine import SearchEngine
+                from retrieval.passage_ranker import PassageRanker
+                
+                self.search_engine = SearchEngine()
+                self.passage_ranker = PassageRanker(top_k=config.get('retrieval.top_k', 5))
+                logger.info("External knowledge components initialized successfully")
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize external knowledge components: {e}")
+                logger.warning("Falling back to internal knowledge only")
+                self.use_external_knowledge = False
+                self.use_knowledge_base = False
         
-        logger.info(f"WriterAgent initialized with external_knowledge={self.use_external_knowledge}, knowledge_base={self.use_knowledge_base}")
+        logger.info(f"WriterAgent initialized: external_knowledge={self.use_external_knowledge}")
+    
+        
     
     def process(self, topic: str) -> Article:
         """

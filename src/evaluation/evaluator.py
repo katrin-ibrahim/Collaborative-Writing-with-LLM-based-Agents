@@ -84,7 +84,6 @@ class ArticleEvaluator:
         """
         Calculate the specific metrics from the Storm paper.
         
-        These are the exact metrics mentioned in your research paper for RQ1/RQ2.
         """
         metrics = {}
         

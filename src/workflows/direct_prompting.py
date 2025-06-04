@@ -1,4 +1,4 @@
-# src/workflows/direct_prompting.py - FIXED VERSION
+# src/workflows/direct_prompting.py
 from typing import Dict
 import logging
 import os
@@ -10,10 +10,8 @@ logger = logging.getLogger(__name__)
 
 class DirectPromptingWorkflow(BaseWorkflow):
     """
-    Fixed Direct Prompting Workflow with proper API integration.
+    Direct Prompting Workflow with proper API integration.
     
-    CRITICAL FIX: This now uses the real API client instead of the
-    placeholder implementation that was returning 8-word responses.
     """
     
     def __init__(self, config: Dict):
@@ -28,7 +26,6 @@ class DirectPromptingWorkflow(BaseWorkflow):
         
         logger.info(f"Generating content via direct prompting for: {topic}")
         
-        # Enhanced prompt for better content generation
         prompt = f"""
         Write a comprehensive, well-structured article about: {topic}
 
@@ -52,7 +49,6 @@ class DirectPromptingWorkflow(BaseWorkflow):
         Write the complete article now with proper markdown formatting:
         """
         
-        # CRITICAL FIX: Use real API client instead of placeholder
         try:
             content = self.api_client.call_api(prompt)
             logger.info(f"API returned {len(content)} characters")
@@ -114,7 +110,7 @@ class DirectPromptingWorkflow(BaseWorkflow):
             content=content,
             sections=sections,
             metadata={
-                "method": "direct_prompting_fixed",
+                "method": "direct_prompting",
                 "word_count": word_count,
                 "section_count": len(sections),
                 "api_used": "real_api_client"

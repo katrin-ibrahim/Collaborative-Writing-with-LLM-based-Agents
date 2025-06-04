@@ -218,8 +218,7 @@ class KnowledgeBase:
         """
 
         try:
-            # This would call your LLM API - for now, we'll use a structured fallback
-            # In your actual implementation, replace this with your API call
+    
             organization_response = self._call_llm_for_organization(organization_prompt)
             
             # Parse LLM response and create new knowledge structure
@@ -238,6 +237,7 @@ class KnowledgeBase:
             self._create_fallback_structure(all_snippets)
 
     def _call_llm_for_organization(self, prompt: str) -> str:
+        # TODO: Implement actual LLM API call here
         """
         Call LLM for knowledge organization.
         

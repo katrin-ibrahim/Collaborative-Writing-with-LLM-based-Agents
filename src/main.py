@@ -15,7 +15,8 @@ from utils.logging_setup import setup_logging
 
 def create_results_directory(args):
     """Create an expressive results directory name based on experiment parameters."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
     # Build descriptive directory name
     dir_parts = []

@@ -21,7 +21,7 @@ class WikipediaRetriever:
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
         
-        # Configure Wikipedia API for respectful usage
+        # Configure Wikipedia API 
         wikipedia.set_rate_limiting(True)
         
         print(f"WikipediaRetriever initialized with cache at: {cache_dir}")
@@ -51,7 +51,7 @@ class WikipediaRetriever:
         ).hexdigest()
         cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
 
-        # Check cache first - this is a common optimization pattern
+        # Check cache first 
         if os.path.exists(cache_file):
             try:
                 with open(cache_file, "r", encoding="utf-8") as f:
@@ -85,7 +85,6 @@ class WikipediaRetriever:
         """
         try:
             # Generate search variations to improve hit rate
-            # This technique helps handle different ways people might phrase topics
             search_variations = [
                 topic,
                 topic.replace("-", " "),  # "machine-learning" → "machine learning"
@@ -129,7 +128,7 @@ class WikipediaRetriever:
                 try:
                     page = wikipedia.page(page_title, auto_suggest=True)
 
-                    # Add page summary - this is usually the most important content
+                    # Add page summary 
                     snippets.append({
                         "title": page.title,
                         "section": "Summary",

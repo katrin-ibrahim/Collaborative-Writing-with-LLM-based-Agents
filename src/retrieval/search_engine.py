@@ -24,7 +24,7 @@ class SearchEngine:
         self.config = config
         self.session = requests.Session()
         
-        # Initialize your Wikipedia retriever for knowledge gathering
+        # Initialize Wikipedia retriever for encyclopedic knowledge
         self.wiki_retriever = WikipediaRetriever()
         
         # Initialize embedder for semantic similarity (for knowledge organization)
@@ -47,6 +47,7 @@ class SearchEngine:
         all_results.extend(wiki_results)
         
         # Strategy 2: Mock web search (replace with real API when available)
+        # TODO: Integrate actual web search APIs like DuckDuckGo, Bing, Google
         if len(all_results) < num_results:
             remaining = num_results - len(all_results)
             web_results = self._mock_web_search(query, remaining)
@@ -60,19 +61,19 @@ class SearchEngine:
     
     def _search_wikipedia(self, query: str, max_results: int) -> List[SearchResult]:
         """
-        Search Wikipedia using your existing retriever.
+        Search Wikipedia using existing retriever.
         
         This provides factual, encyclopedic knowledge for content generation.
         """
         try:
-            # Use your existing wiki retriever to get content
+            # Use existing wiki retriever to get content
             wiki_snippets = self.wiki_retriever.get_wiki_content(
                 query, max_articles=max_results, max_sections=3
             )
             
             search_results = []
             for snippet in wiki_snippets:
-                # Convert your snippet format to SearchResult
+                # Convert snippet format to SearchResult
                 content = snippet.get('content', '')
                 title = snippet.get('title', '')
                 section = snippet.get('section', '')

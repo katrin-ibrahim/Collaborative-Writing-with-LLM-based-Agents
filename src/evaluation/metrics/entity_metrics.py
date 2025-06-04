@@ -33,7 +33,7 @@ class EntityMetrics:
             ],
             'TECHNOLOGY': [
                 r'\b(?:AI|ML|artificial intelligence|machine learning|deep learning|neural network|transformer|GPT|BERT|API|algorithm)\b',
-                r'\b[A-Z]{2,}(?:-[A-Z0-9]+)*\b',  # Acronyms like REST-API
+                r'\b[A-Z]{2,}(?:-[A-Z0-9]+)*\b',  # Acronyms
             ],
             'NUMBERS': [
                 r'\b\d+(?:\.\d+)?(?:%|percent|million|billion|thousand)\b',

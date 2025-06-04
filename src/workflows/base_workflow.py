@@ -1,4 +1,4 @@
-# src/workflows/base_workflow.py - FIXED VERSION
+# src/workflows/base_workflow.py 
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 import logging
@@ -9,16 +9,13 @@ logger = logging.getLogger(__name__)
 
 class BaseWorkflow(ABC):
     """
-    Fixed Abstract base class for all content generation workflows.
-    
-    CRITICAL FIX: Now provides real API integration instead of placeholder.
+    Abstract base class for all content generation workflows.
     """
     
     def __init__(self, config: dict):
         self.config = config
         self.logger = logging.getLogger(self.__class__.__name__)
         
-        # CRITICAL FIX: Initialize real API client
         api_token = os.getenv('HF_TOKEN') or os.getenv('API_TOKEN')
         self.api_client = APIClient(api_token=api_token)
         

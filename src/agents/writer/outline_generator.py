@@ -14,7 +14,7 @@ class OutlineGenerator:
         self.config = config
         self.logger = logging.getLogger(self.__class__.__name__)
         
-        # Get API client - same one used throughout the system
+        # Get API client 
         api_token = os.getenv('HF_TOKEN') or os.getenv('API_TOKEN')
         self.api_client = APIClient(api_token=api_token)
     
@@ -43,7 +43,6 @@ class OutlineGenerator:
         ...
         """
         
-        # Use the API client directly
         response = self.api_client.call_api(outline_prompt)
         
         # Parse the response into structured outline
