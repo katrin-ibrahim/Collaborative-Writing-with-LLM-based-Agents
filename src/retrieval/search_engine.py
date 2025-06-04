@@ -23,11 +23,7 @@ class SearchEngine:
         
         self.config = config
         self.session = requests.Session()
-        
-        # Initialize Wikipedia retriever for encyclopedic knowledge
         self.wiki_retriever = WikipediaRetriever()
-        
-        # Initialize embedder for semantic similarity (for knowledge organization)
         self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
         
         logger.info("SearchEngine initialized with Wikipedia retrieval capability")
@@ -36,7 +32,7 @@ class SearchEngine:
         """
         Perform comprehensive search for content generation.
         
-        This method gathers information to help generate content, not for evaluation.
+        This method gathers information to help generate content
         It combines multiple knowledge sources to provide comprehensive information.
         """
         
@@ -45,6 +41,7 @@ class SearchEngine:
         # Strategy 1: Use Wikipedia as primary knowledge source
         wiki_results = self._search_wikipedia(query, num_results // 2)
         all_results.extend(wiki_results)
+
         
         # Strategy 2: Mock web search (replace with real API when available)
         # TODO: Integrate actual web search APIs like DuckDuckGo, Bing, Google
@@ -66,13 +63,17 @@ class SearchEngine:
         This provides factual, encyclopedic knowledge for content generation.
         """
         try:
-            # Use existing wiki retriever to get content
-            wiki_snippets = self.wiki_retriever.get_wiki_content(
-                query, max_articles=max_results, max_sections=3
-            )
+            entity_variations = self._generate_entity_focused_queries(query)
+            all_snippets = []
+            for variation in entity_variations:
+                snippets = self.wiki_retriever.get_wiki_content(
+                    variation, max_articles=max(1, max_results // len(entity_variations)), max_sections=2
+                )
+                all_snippets.extend(snippets)
+       
             
             search_results = []
-            for snippet in wiki_snippets:
+            for snippet in all_snippets:
                 # Convert snippet format to SearchResult
                 content = snippet.get('content', '')
                 title = snippet.get('title', '')
@@ -98,12 +99,28 @@ class SearchEngine:
         except Exception as e:
             logger.error(f"Wikipedia search failed for query '{query}': {e}")
             return []
+        
+    # TODO: Implement more sophisticated query generation strategies
+    def _generate_entity_focused_queries(self, query: str) -> List[str]:
+        base_queries = [query]
+        
+        topic_expansions = [
+            f"{query} history background",
+            f"{query} key people figures",
+            f"{query} important dates timeline",
+            f"{query} locations geography",
+            f"{query} technical specifications",
+            f"{query} current developments recent"
+        ]
+        
+        base_queries.extend(topic_expansions[:3])
+        return base_queries
     
     def _mock_web_search(self, query: str, num_results: int) -> List[SearchResult]:
         """
         Mock web search implementation.
         
-        In production, replace this with actual search API calls to:
+        TODO replace this with actual search API calls to:
         - DuckDuckGo API
         - Bing Search API  
         - Google Custom Search API
@@ -173,29 +190,5 @@ class SearchEngine:
         unique_results.sort(key=lambda x: x.relevance_score, reverse=True)
         
         return unique_results
-    
-    def create_knowledge_base_for_topic(self, topic: str):
-        """
-        Create a knowledge base for a specific topic using your existing approach.
-        
-        This is a convenience method that leverages your knowledge organization
-        capabilities for more complex content generation workflows.
-        """
-        from ..knowledge.knowledge_base import KnowledgeBase
-        
-        try:
-            # Create knowledge base using your existing implementation
-            kb = KnowledgeBase(topic)
-            
-            # Populate with Wikipedia content
-            kb.populate_from_wikipedia(max_articles=5, max_sections=8)
-            
-            logger.info(f"Created knowledge base for topic: {topic}")
-            return kb
-            
-        except Exception as e:
-            logger.error(f"Knowledge base creation failed: {e}")
-            # Return empty knowledge base as fallback
-            return KnowledgeBase(topic)
 
 

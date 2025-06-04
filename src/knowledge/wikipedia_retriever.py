@@ -8,12 +8,9 @@ class WikipediaRetriever:
     """
     Specialized retriever for Wikipedia content.
     
-    This class handles the complexities of Wikipedia API interaction, including
-    caching, error handling, and content extraction. It serves as both a standalone
-    component and a building block for other retrieval systems.
+    This class handles the Wikipedia API interaction, including
+    caching, error handling, and content extraction.
     
-    Teaching note: This class demonstrates the single responsibility principle -
-    it has one job (Wikipedia retrieval) and does it well.
     """
     
     def __init__(self, cache_dir: str = "data/wiki_cache"):
@@ -32,9 +29,6 @@ class WikipediaRetriever:
         """
         Retrieve Wikipedia content with intelligent caching.
         
-        This method demonstrates how to build robust, cacheable retrieval systems.
-        The caching strategy improves performance and reduces API load while maintaining
-        fresh content when needed.
         
         Args:
             topic: The topic to search for
@@ -77,11 +71,9 @@ class WikipediaRetriever:
         self, topic: str, max_articles: int = 3, max_sections: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        Core Wikipedia retrieval logic with robust error handling.
-        
-        This method demonstrates how to handle the complexities of external API
-        interaction, including disambiguation, search variations, and graceful
-        error recovery.
+        Core Wikipedia retrieval logic with external API
+        interaction, including disambiguation, search variations, and error recovery.
+
         """
         try:
             # Generate search variations to improve hit rate

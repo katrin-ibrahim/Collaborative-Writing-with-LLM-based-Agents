@@ -16,9 +16,12 @@ class RAGWriterWorkflow(BaseWorkflow):
         
         # Configure WriterAgent for full knowledge capabilities
         writer_config = config.copy()
-        writer_config['writer.use_external_knowledge'] = True
-        writer_config['writer.use_knowledge_base'] = True
-        writer_config['writer.knowledge_depth'] = 'semantic_hierarchical'
+        writer_config.update({
+            'writer.use_external_knowledge': True,
+            'writer.use_knowledge_organization': True,
+            'writer.knowledge_depth': 'sophisticated',
+            'writer.max_search_iterations': 4
+        })
         
         self.writer_agent = WriterAgent(writer_config)
     
@@ -30,7 +33,8 @@ class RAGWriterWorkflow(BaseWorkflow):
         
         # Update metadata to reflect workflow approach
         article.metadata["workflow"] = "rag_writer"
-        article.metadata["knowledge_approach"] = "external_retrieval_organized"
+        article.metadata["capabilities"] = "all_enabled"
+
         
         logger.info(f"RAG+Writer workflow completed: {len(article.content)} characters")
         return article

@@ -115,6 +115,7 @@ def get_topics_to_process(args, logger):
     """Get topics to process from FreshWiki dataset."""
     freshwiki_loader = FreshWikiLoader()
     eval_stats = freshwiki_loader.validate_evaluation_dataset()
+    print(f"current working directory: {Path.cwd()}")
     
     if eval_stats['status'] == 'no_data':
         logger.error("CRITICAL: No FreshWiki data found!")

@@ -1,243 +1,537 @@
-from typing import List, Dict, Union
-import logging
-from agents.base_agent import BaseAgent
-from utils.data_models import Article, Outline, SearchResult
-from retrieval.search_engine import SearchEngine
-from retrieval.passage_ranker import PassageRanker
-from knowledge.knowledge_base import KnowledgeBase, create_knowledge_base_from_search
-from .outline_generator import OutlineGenerator
+# src/agents/agentic_writer.py
+from typing import Dict, Any, List, Optional, TypedDict, Annotated
+import operator
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
-logger = logging.getLogger(__name__)
+from agents.tools.agent_toolkit import AgentToolkit
+from knowledge.knowledge_base import KnowledgeBase
+from utils.data_models import Article, Outline, SearchResult
+from agents.base_agent import BaseAgent
+
+class WriterState(TypedDict):
+    messages: Annotated[List[BaseMessage], operator.add]
+    topic: str
+    current_phase: str
+    search_results: List[SearchResult]
+    knowledge_base: Optional[KnowledgeBase]
+    outline: Optional[Outline]
+    article_content: str
+    sections_completed: List[str]
+    needs_more_info: bool
+    confidence_score: float
+    metadata: Dict[str, Any]
 
 class WriterAgent(BaseAgent):
     """
-    Comprehensive writing agent with configurable capabilities.
+    Configurable agentic writer using LangGraph for autonomous decision-making.
     
-    This agent embodies the full range of content generation capabilities,
-    from simple outline-based writing to sophisticated knowledge-enhanced
-    generation. The agent adapts its approach based on configuration,
-    making it suitable for different experimental conditions while
-    maintaining consistent core writing intelligence.
+    The agent makes decisions within configured constraints:
+    - use_external_knowledge: Whether agent can search for information
+    - use_knowledge_organization: Whether agent can organize information
+    - knowledge_depth: Level of organization sophistication
+    
+    This allows the same agentic framework to power different baseline workflows.
     """
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         
-        # Core writing capabilities - always available
-        self.outline_generator = OutlineGenerator(config)
-        
-        # Knowledge retrieval capabilities - configurable
+        # Configuration constraints that affect agent behavior
         self.use_external_knowledge = config.get('writer.use_external_knowledge', True)
-        self.use_knowledge_base = config.get('writer.use_knowledge_base', True)
-        self.knowledge_organization_depth = config.get('writer.knowledge_depth', 'semantic_hierarchical')
+        self.use_knowledge_organization = config.get('writer.use_knowledge_organization', True)
+        self.knowledge_depth = config.get('writer.knowledge_depth', 'basic')
+        self.max_search_iterations = config.get('writer.max_search_iterations', 3)
         
-        if self.use_external_knowledge:
-            try:
-                from retrieval.search_engine import SearchEngine
-                from retrieval.passage_ranker import PassageRanker
-                
-                self.search_engine = SearchEngine()
-                self.passage_ranker = PassageRanker(top_k=config.get('retrieval.top_k', 5))
-                logger.info("External knowledge components initialized successfully")
-                
-            except Exception as e:
-                logger.error(f"Failed to initialize external knowledge components: {e}")
-                logger.warning("Falling back to internal knowledge only")
-                self.use_external_knowledge = False
-                self.use_knowledge_base = False
+        self.toolkit = AgentToolkit(config)
+        self.workflow = self._build_workflow_graph()
         
-        logger.info(f"WriterAgent initialized: external_knowledge={self.use_external_knowledge}")
+        self.logger.info(f"AgenticWriter configured: external_knowledge={self.use_external_knowledge}, "
+                        f"knowledge_org={self.use_knowledge_organization}, depth={self.knowledge_depth}")
     
+    def _build_workflow_graph(self) -> StateGraph:
+        """Build LangGraph workflow for autonomous writing decisions."""
+        workflow = StateGraph(WriterState)
         
+        workflow.add_node("plan_approach", self._plan_approach)
+        workflow.add_node("gather_information", self._gather_information)
+        workflow.add_node("organize_knowledge", self._organize_knowledge)
+        workflow.add_node("plan_outline", self._plan_outline)
+        workflow.add_node("write_content", self._write_content)
+        workflow.add_node("evaluate_progress", self._evaluate_progress)
+        
+        workflow.set_entry_point("plan_approach")
+        
+        workflow.add_conditional_edges(
+            "plan_approach",
+            self._decide_next_action,
+            {
+                "research": "gather_information",
+                "organize": "organize_knowledge", 
+                "outline": "plan_outline",
+                "write": "write_content"
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "gather_information",
+            self._decide_after_research,
+            {
+                "research_more": "gather_information",
+                "organize": "organize_knowledge",
+                "outline": "plan_outline"
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "organize_knowledge",
+            self._decide_after_organization,
+            {
+                "research_more": "gather_information",
+                "outline": "plan_outline",
+                "write": "write_content"
+            }
+        )
+        
+        workflow.add_edge("plan_outline", "write_content")
+        
+        workflow.add_conditional_edges(
+            "write_content",
+            self._decide_after_writing,
+            {
+                "continue_writing": "write_content",
+                "research_more": "gather_information",
+                "evaluate": "evaluate_progress",
+                "complete": END
+            }
+        )
+        
+        workflow.add_conditional_edges(
+            "evaluate_progress",
+            self._decide_after_evaluation,
+            {
+                "research_more": "gather_information",
+                "write_more": "write_content",
+                "reorganize": "organize_knowledge",
+                "complete": END
+            }
+        )
+        
+        return workflow.compile()
     
     def process(self, topic: str) -> Article:
-        """
-        Main processing pipeline that adapts based on agent configuration.
+        """Process topic through autonomous decision-making workflow."""
+        initial_state = WriterState(
+            messages=[HumanMessage(content=f"Write a comprehensive article about: {topic}")],
+            topic=topic,
+            current_phase="planning",
+            search_results=[],
+            knowledge_base=None,
+            outline=None,
+            article_content="",
+            sections_completed=[],
+            needs_more_info=True,
+            confidence_score=0.0,
+            metadata={"method": "agentic_writer", "decisions": []}
+        )
         
-        This method demonstrates how an agent can maintain consistent behavior
-        while adapting its approach based on available tools and constraints.
-        The core writing process remains the same, but the knowledge gathering
-        and organization steps adapt to the agent's configuration.
-        """
-        logger.info(f"WriterAgent processing topic: {topic}")
-        
-        # Step 1: Gather knowledge using configured approach
-        knowledge_context = self._gather_knowledge(topic)
-        
-        # Step 2: Generate outline informed by available knowledge
-        outline = self._generate_informed_outline(topic, knowledge_context)
-        
-        # Step 3: Expand outline using available knowledge
-        article = self._expand_outline_with_context(outline, knowledge_context, topic)
-        
-        logger.info(f"WriterAgent completed processing: {len(article.content)} characters")
-        return article
+        final_state = self.workflow.invoke(initial_state)
+        return self._state_to_article(final_state)
     
-    def _gather_knowledge(self, topic: str) -> Union[KnowledgeBase, List[SearchResult], None]:
-        """
-        Gather knowledge using the approach configured for this agent.
-        
-        This method embodies the agent's adaptability - it can work with
-        sophisticated knowledge organization, simple retrieval, or purely
-        internal knowledge, depending on configuration and available tools.
-        """
+    def _plan_approach(self, state: WriterState) -> WriterState:
+        """Agent decides initial approach within configuration constraints."""
         if not self.use_external_knowledge:
-            # Agent working from internal knowledge only
-            logger.info("Agent operating in internal-knowledge-only mode")
-            return None
-        
-        if self.use_knowledge_base and self.knowledge_organization_depth == 'semantic_hierarchical':
-            # Agent using full knowledge organization capabilities
-            logger.info("Agent using semantic hierarchical knowledge organization")
-            kb = create_knowledge_base_from_search(topic, self.search_engine)
-            return kb
-        
-        elif self.use_external_knowledge:
-            # Agent using basic retrieval without organization
-            logger.info("Agent using basic knowledge retrieval")
-            search_results = self._perform_basic_retrieval(topic)
-            top_results = self.passage_ranker.rank_passages(search_results, topic)
-            return top_results
-        
-        return None
-    
-    def _perform_basic_retrieval(self, topic: str) -> List[SearchResult]:
-        """Perform basic multi-query retrieval without organization."""
-        search_queries = [
-            topic,
-            f"{topic} definition explanation",
-            f"{topic} current developments",
-            f"{topic} background context",
-            f"{topic} examples applications"
-        ]
-        
-        all_results = []
-        for query in search_queries:
-            results = self.search_engine.search(query, num_results=8)
-            all_results.extend(results)
-        
-        return all_results
-    
-    def _generate_informed_outline(self, topic: str, knowledge_context) -> Outline:
-        """
-        Generate outline informed by whatever knowledge is available.
-        
-        This method shows how the agent maintains consistent outline generation
-        capabilities while adapting to different types of knowledge input.
-        """
-        if isinstance(knowledge_context, KnowledgeBase):
-            # Use organized knowledge to inform outline structure
-            outline_dict = knowledge_context.to_outline()
-            return Outline(
-                title=outline_dict['title'],
-                headings=[section['title'] for section in outline_dict['sections']],
-                subheadings={section['title']: section.get('key_points', []) 
-                           for section in outline_dict['sections']}
-            )
-        
-        elif isinstance(knowledge_context, list) and knowledge_context:
-            # Use search results to inform outline
-            context_text = self.passage_ranker.create_context(knowledge_context)
-            return self.outline_generator.generate_outline(topic, context_text)
-        
+            # Internal knowledge only - agent knows it can't search
+            planning_prompt = f"""
+            I need to write a comprehensive article about "{state['topic']}" using only my internal knowledge.
+            
+            Analyze this topic and decide my approach:
+            1. What's my confidence level (0.0-1.0) in my internal knowledge of this topic?
+            2. Should I start with an outline or write directly?
+            3. How should I structure my approach for best results?
+            
+            Since I cannot search for external information, focus on:
+            - How well I know this topic internally
+            - What structure would work best
+            - Whether to outline first or write directly
+            
+            Respond with just one word: OUTLINE or WRITE
+            """
+            
+            response = self.call_api(planning_prompt).strip().upper()
+            state["confidence_score"] = 0.7  # Reasonable confidence for internal knowledge
+            state["needs_more_info"] = False  # Can't search anyway
+            
         else:
-            # Generate outline from internal knowledge only
-            return self.outline_generator.generate_outline(topic, "")
+            # Full capabilities - agent can decide to research
+            planning_prompt = f"""
+            I need to write a comprehensive article about "{state['topic']}".
+            
+            Analyze this topic and decide my initial approach:
+            1. Do I have enough internal knowledge to start writing immediately?
+            2. Should I research this topic first to gather current information?
+            3. Is this a complex topic that needs structured research and organization?
+            4. What's my confidence level (0.0-1.0) in my current knowledge?
+            
+            Consider factors like:
+            - How technical/specialized the topic is
+            - Whether current/recent information is important
+            - How broad or narrow the topic scope is
+            
+            Respond with just one word: RESEARCH, ORGANIZE, OUTLINE, or WRITE
+            """
+            
+            response = self.call_api(planning_prompt).strip().upper()
+            
+            # Set confidence based on decision
+            if "WRITE" in response:
+                state["confidence_score"] = 0.8
+                state["needs_more_info"] = False
+            elif "OUTLINE" in response:
+                state["confidence_score"] = 0.6
+                state["needs_more_info"] = False
+            else:
+                state["confidence_score"] = 0.3
+                state["needs_more_info"] = True
+        
+        state["metadata"]["decisions"].append(f"Initial approach: {response} (config: external_knowledge={self.use_external_knowledge})")
+        state["current_phase"] = "planned"
+        
+        return state
     
-    def _expand_outline_with_context(self, outline: Outline, knowledge_context, topic: str) -> Article:
+    def _gather_information(self, state: WriterState) -> WriterState:
+        """Agent decides what information to gather within configuration constraints."""
+        if not self.use_external_knowledge:
+            # This shouldn't be called in internal-only mode, but handle gracefully
+            state["metadata"]["decisions"].append("Skipped information gathering (internal knowledge only)")
+            return state
+        
+        # Check search iteration limit
+        current_searches = len([d for d in state["metadata"]["decisions"] if "Searched for:" in d])
+        if current_searches >= self.max_search_iterations:
+            state["metadata"]["decisions"].append(f"Reached max search iterations ({self.max_search_iterations})")
+            state["needs_more_info"] = False
+            return state
+        
+        # Analyze what information is needed
+        info_planning_prompt = f"""
+        I'm researching "{state['topic']}" for a comprehensive article.
+        
+        Current research status:
+        - Existing search results: {len(state['search_results'])}
+        - Current phase: {state['current_phase']}
+        - Search iterations so far: {current_searches}/{self.max_search_iterations}
+        
+        What specific information do I need? Consider:
+        1. What are the key aspects I should research?
+        2. What search queries would get me the most valuable information?
+        3. Should I focus on Wikipedia, web sources, or both?
+        
+        Provide 2-3 specific search queries that would give me comprehensive coverage.
+        Format: one query per line, no numbers or bullets.
         """
-        Expand outline using whatever knowledge context is available.
         
-        This method demonstrates the agent's ability to maintain consistent
-        content generation quality while working with different types of
-        knowledge input, from sophisticated knowledge bases to simple context.
+        response = self.call_api(info_planning_prompt)
+        search_queries = [q.strip() for q in response.split('\n') if q.strip() and not q.strip().startswith(('1.', '2.', '3.', '-', '*'))]
+        
+        # Execute searches based on agent's decision
+        new_results = []
+        for query in search_queries[:3]:  # Agent can decide up to 3 queries
+            # Agent decides source priority
+            if any(word in query.lower() for word in ['recent', 'current', 'latest', 'news']):
+                results = self.toolkit.search.search_web(query, max_results=4)
+            else:
+                results = self.toolkit.search.search_all_sources(query, wiki_results=3, web_results=2)
+            new_results.extend(results)
+        
+        state["search_results"].extend(new_results)
+        state["metadata"]["decisions"].append(f"Searched for: {search_queries}")
+        state["current_phase"] = "researched"
+        
+        return state
+    
+    def _organize_knowledge(self, state: WriterState) -> WriterState:
+        """Agent decides how to organize information within configuration constraints."""
+        if not state["search_results"]:
+            return state
+        
+        if not self.use_knowledge_organization:
+            # Simple organization - just store results without sophisticated structure
+            organizer = self.toolkit.knowledge.create_organizer(state["topic"])
+            organizer.add_search_results(state["search_results"])
+            state["knowledge_base"] = organizer
+            state["metadata"]["decisions"].append("Used simple organization (knowledge organization disabled)")
+            state["current_phase"] = "organized"
+            return state
+        
+        # Agent decides organization strategy based on knowledge_depth
+        if self.knowledge_depth == 'basic':
+            # Simple categorization
+            categories = [
+                {"name": "Overview", "description": "Introduction and basic concepts"},
+                {"name": "Details", "description": "Specific information and examples"},
+                {"name": "Current State", "description": "Recent developments and status"}
+            ]
+        else:
+            # Sophisticated categorization - let agent decide
+            organization_prompt = f"""
+            I have {len(state['search_results'])} search results about "{state['topic']}".
+            
+            How should I organize this information for writing? Consider:
+            1. What are the main conceptual categories for this topic?
+            2. How should I group the information logically?
+            3. What organization would make the most sense for readers?
+            
+            Provide 4-5 category names that would organize this information well.
+            Format as JSON:
+            {{
+                "categories": [
+                    {{"name": "Category 1", "description": "What this covers"}},
+                    {{"name": "Category 2", "description": "What this covers"}}
+                ]
+            }}
+            """
+            
+            response = self.call_api(organization_prompt)
+            
+            # Parse agent's organization decision
+            try:
+                import json
+                import re
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if json_match:
+                    org_plan = json.loads(json_match.group())
+                    categories = org_plan.get("categories", [])
+                else:
+                    raise ValueError("No JSON found")
+            except:
+                # Fallback if parsing fails
+                categories = [
+                    {"name": "Fundamentals", "description": "Core concepts and principles"},
+                    {"name": "Technical Aspects", "description": "Technical details and mechanisms"}, 
+                    {"name": "Applications", "description": "Real-world uses and examples"},
+                    {"name": "Current Developments", "description": "Recent trends and future directions"}
+                ]
+        
+        # Create and organize using agent's decisions (or defaults)
+        organizer = self.toolkit.knowledge.create_organizer(state["topic"])
+        self.toolkit.knowledge.organize_for_writing(organizer, categories, state["search_results"])
+        
+        state["knowledge_base"] = organizer
+        state["metadata"]["decisions"].append(f"Organized into categories: {[c['name'] for c in categories]} (depth: {self.knowledge_depth})")
+        state["current_phase"] = "organized"
+        
+        return state
+    
+    def _plan_outline(self, state: WriterState) -> WriterState:
+        """Agent decides outline structure based on available information."""
+        # Prepare context from organized knowledge
+        context = ""
+        if state["knowledge_base"]:
+            summary = state["knowledge_base"].get_content_summary()
+            context = f"Available categories: {[cat['name'] for cat in summary['categories']]}"
+        elif state["search_results"]:
+            context = self.toolkit.content.create_context_from_results(state["search_results"][:5], max_length=1000)
+        
+        # Agent generates outline using available information
+        outline = self.toolkit.content.generate_outline(state["topic"], context)
+        state["outline"] = outline
+        
+        state["metadata"]["decisions"].append(f"Created outline with {len(outline.headings)} sections")
+        state["current_phase"] = "outlined"
+        
+        return state
+    
+    def _write_content(self, state: WriterState) -> WriterState:
+        """Agent decides what section to write and how to write it."""
+        if not state["outline"]:
+            return state
+        
+        # Agent decides which section to write next
+        remaining_sections = [h for h in state["outline"].headings if h not in state["sections_completed"]]
+        if not remaining_sections:
+            return state
+        
+        # Agent can choose section priority
+        section_selection_prompt = f"""
+        I need to write the next section for my article about "{state['topic']}".
+        
+        Remaining sections: {remaining_sections}
+        Already completed: {state['sections_completed']}
+        
+        Which section should I write next? Consider:
+        1. Logical flow and reader experience
+        2. Foundation needed for other sections
+        3. Information availability
+        
+        Respond with just the section name from the list above.
         """
-        sections_content = {}
-        content_parts = [f"# {outline.title}\n"]
         
-        for heading in outline.headings:
-            section_context = self._get_section_specific_context(heading, knowledge_context)
-            section_subheadings = outline.subheadings.get(heading, [])
-            
-            section_content = self._generate_section_content_with_context(
-                heading, section_subheadings, section_context, outline.title
-            )
-            
-            sections_content[heading] = section_content
-            content_parts.append(f"\n## {heading}\n\n{section_content}")
+        response = self.call_api(section_selection_prompt).strip()
         
-        full_content = "\n".join(content_parts)
+        # Find matching section (fuzzy match)
+        next_section = remaining_sections[0]  # Default
+        for section in remaining_sections:
+            if section.lower() in response.lower() or response.lower() in section.lower():
+                next_section = section
+                break
         
-        # Create metadata that reflects the agent's actual capabilities used
-        metadata = {
-            "method": "writer_agent",
-            "word_count": len(full_content.split()),
-            "external_knowledge_used": self.use_external_knowledge,
-            "knowledge_organization": self.knowledge_organization_depth if self.use_knowledge_base else "none"
-        }
+        # Agent decides what context to use for this section
+        context = ""
+        if state["knowledge_base"]:
+            context = state["knowledge_base"].get_content_by_category(next_section)
+            if not context:
+                # Find most relevant content
+                relevant_results = self.toolkit.knowledge.find_relevant_content(
+                    state["knowledge_base"], next_section, max_results=3
+                )
+                context = self.toolkit.content.create_context_from_results(relevant_results)
+        elif state["search_results"]:
+            relevant_results = state["search_results"][:3]  # Simple fallback
+            context = self.toolkit.content.create_context_from_results(relevant_results)
         
-        if isinstance(knowledge_context, KnowledgeBase):
-            metadata["sources"] = knowledge_context.get_sources()
-        elif isinstance(knowledge_context, list):
-            metadata["num_passages"] = len(knowledge_context)
+        # Generate section content
+        section_content = self.toolkit.content.generate_section_content(
+            next_section, context, state["topic"], self.api_client
+        )
+        
+        # Add to article
+        if not state["article_content"]:
+            state["article_content"] = f"# {state['outline'].title}\n\n"
+        
+        state["article_content"] += f"## {next_section}\n\n{section_content.strip()}\n\n"
+        state["sections_completed"].append(next_section)
+        
+        state["metadata"]["decisions"].append(f"Wrote section: {next_section}")
+        state["current_phase"] = "writing"
+        
+        return state
+    
+    def _evaluate_progress(self, state: WriterState) -> WriterState:
+        """Agent evaluates current progress and decides next steps."""
+        if not state["knowledge_base"]:
+            available_info = self.toolkit.content.create_context_from_results(state["search_results"])
+        else:
+            summary = state["knowledge_base"].get_content_summary()
+            available_info = f"Organized info with {summary['total_search_results']} sources"
+        
+        # Agent evaluates completeness
+        assessment = self.toolkit.evaluation.assess_content_gaps(
+            state["topic"],
+            state["sections_completed"],
+            available_info,
+            self.api_client
+        )
+        
+        state["confidence_score"] = assessment.get("overall_completeness", 0.5)
+        state["needs_more_info"] = not assessment.get("information_sufficient", True)
+        
+        state["metadata"]["decisions"].append(f"Evaluation: completeness={state['confidence_score']:.2f}")
+        state["current_phase"] = "evaluated"
+        
+        return state
+    
+    # Decision functions for conditional edges
+    def _decide_next_action(self, state: WriterState) -> str:
+        """Agent's initial decision about what to do within configuration constraints."""
+        if not self.use_external_knowledge:
+            # Internal knowledge only - skip research and organization
+            if not state["outline"]:
+                return "outline"
+            else:
+                return "write"
+        
+        # Full capabilities mode
+        if state["confidence_score"] < 0.5:
+            return "research"
+        elif state["search_results"] and not state["knowledge_base"] and self.use_knowledge_organization:
+            return "organize"
+        elif not state["outline"]:
+            return "outline"
+        else:
+            return "write"
+    
+    def _decide_after_research(self, state: WriterState) -> str:
+        """Agent decides what to do after gathering information."""
+        if len(state["search_results"]) < 5:
+            return "research_more"
+        elif len(state["search_results"]) > 10 and self.use_knowledge_organization:
+            return "organize"
+        else:
+            return "outline"
+    
+    def _decide_after_organization(self, state: WriterState) -> str:
+        """Agent decides what to do after organizing knowledge."""
+        if (state["confidence_score"] < 0.6 and 
+            len(state["search_results"]) < 15 and 
+            self.use_external_knowledge):
+            return "research_more"
+        elif not state["outline"]:
+            return "outline"
+        else:
+            return "write"
+    
+    def _decide_after_writing(self, state: WriterState) -> str:
+        """Agent decides what to do after writing content."""
+        if not state["outline"]:
+            return "complete"
+        
+        remaining = [h for h in state["outline"].headings if h not in state["sections_completed"]]
+        
+        if not remaining:
+            return "complete"
+        elif (state["confidence_score"] < 0.5 and 
+              self.use_external_knowledge and 
+              len(state["search_results"]) < 20):
+            return "research_more"
+        elif len(remaining) > 2 and len(state["sections_completed"]) % 3 == 0:
+            return "evaluate"
+        else:
+            return "continue_writing"
+    
+    def _decide_after_evaluation(self, state: WriterState) -> str:
+        """Agent decides what to do after evaluating progress."""
+        remaining = [h for h in state["outline"].headings if h not in state["sections_completed"]]
+        
+        if not remaining:
+            return "complete"
+        elif state["needs_more_info"] and self.use_external_knowledge:
+            return "research_more"
+        elif (state["confidence_score"] < 0.4 and 
+              self.use_knowledge_organization and 
+              state["search_results"]):
+            return "reorganize"
+        else:
+            return "write_more"
+    
+    def _state_to_article(self, state: WriterState) -> Article:
+        """Convert final state to Article object."""
+        sections = {}
+        if state["outline"] and state["sections_completed"]:
+            # Extract sections from article content
+            import re
+            section_pattern = r'## (.+?)\n\n(.*?)(?=\n## |\Z)'
+            matches = re.findall(section_pattern, state["article_content"], re.DOTALL)
+            for section_title, section_content in matches:
+                sections[section_title.strip()] = section_content.strip()
+        
+        metadata = state["metadata"].copy()
+        metadata.update({
+            "word_count": len(state["article_content"].split()),
+            "sections_completed": len(state["sections_completed"]),
+            "total_searches": len(state["search_results"]),
+            "confidence_score": state["confidence_score"],
+            "final_phase": state["current_phase"]
+        })
+        
+        if state["knowledge_base"]:
+            metadata["sources"] = state["knowledge_base"].get_all_sources()
+            metadata["organization_categories"] = state["knowledge_base"].get_categories()
         
         return Article(
-            title=outline.title,
-            content=full_content,
-            outline=outline,
-            sections=sections_content,
+            title=state["outline"].title if state["outline"] else state["topic"],
+            content=state["article_content"],
+            outline=state["outline"],
+            sections=sections,
             metadata=metadata
         )
-    
-    def _get_section_specific_context(self, heading: str, knowledge_context) -> str:
-        """Extract relevant context for a specific section based on available knowledge."""
-        if isinstance(knowledge_context, KnowledgeBase):
-            return knowledge_context.get_content_for_section(heading)
-        elif isinstance(knowledge_context, list) and knowledge_context:
-            # Simple approach for basic retrieval - return general context
-            return self.passage_ranker.create_context(knowledge_context[:3])
-        else:
-            return ""
-    
-    def _generate_section_content_with_context(self, heading: str, subheadings: List[str], 
-                                             context: str, article_title: str) -> str:
-        """Generate section content using available context."""
-        subheading_text = ", ".join(subheadings) if subheadings else ""
-        
-        if context:
-            # Agent has external knowledge to work with
-            section_prompt = f"""
-            Write a comprehensive section titled "{heading}" for an article about "{article_title}".
-            
-            {"Cover these subtopics: " + subheading_text if subheading_text else ""}
-            
-            Use this relevant information as foundation:
-            {context}
-            
-            Requirements:
-            1. Write 2-3 well-structured paragraphs (300-400 words)
-            2. Ground your writing in the provided information
-            3. Maintain an informative, engaging tone
-            4. Include specific details and examples from the context
-            5. Ensure logical flow and clear organization
-            """
-        else:
-            # Agent working from internal knowledge only
-            section_prompt = f"""
-            Write a comprehensive section titled "{heading}" for an article about "{article_title}".
-            
-            {"Cover these subtopics: " + subheading_text if subheading_text else ""}
-            
-            Requirements:
-            1. Write 2-3 well-structured paragraphs (300-400 words)
-            2. Draw from your knowledge of {article_title}
-            3. Provide clear explanations and relevant examples
-            4. Maintain an informative, engaging tone
-            5. Ensure logical flow and organization
-            
-            Focus on creating valuable content that demonstrates understanding of {heading}
-            in the context of {article_title}.
-            """
-        
-        content = self.call_api(section_prompt)
-        return content.strip() if content.strip() else f"Content for {heading} in the context of {article_title}."

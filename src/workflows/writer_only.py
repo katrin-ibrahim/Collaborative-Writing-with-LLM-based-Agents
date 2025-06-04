@@ -22,8 +22,12 @@ class WriterOnlyWorkflow(BaseWorkflow):
         
         # Configure WriterAgent for internal-knowledge-only operation
         writer_config = config.copy()
-        writer_config['writer.use_external_knowledge'] = False
-        writer_config['writer.use_knowledge_base'] = False
+        writer_config.update({
+            'writer.use_external_knowledge': False,
+            'writer.use_knowledge_organization': False,
+            'writer.knowledge_depth': 'none',
+            'writer.max_search_iterations': 0
+        })
         
         self.writer_agent = WriterAgent(writer_config)
     
@@ -35,7 +39,7 @@ class WriterOnlyWorkflow(BaseWorkflow):
         
         # Update metadata to reflect workflow constraints
         article.metadata["workflow"] = "writer_only"
-        article.metadata["knowledge_source"] = "llm_internal_only"
+        article.metadata["capabilities"] = "internal_knowledge_only"
         
         logger.info(f"Writer-only workflow completed: {len(article.content)} characters")
         return article
