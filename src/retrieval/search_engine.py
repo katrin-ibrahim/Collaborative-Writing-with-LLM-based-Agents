@@ -28,7 +28,7 @@ class SearchEngine:
         
         logger.info("SearchEngine initialized with Wikipedia retrieval capability")
     
-    def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
+    def search_all_sources(self, query: str, num_results: int = 10) -> List[SearchResult]:
         """
         Perform comprehensive search for content generation.
         

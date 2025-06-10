@@ -1,4 +1,4 @@
-# src/evaluation/benchmarks/freshwiki_loader.py - Updated for actual FreshWiki format
+# src/evaluation/benchmarks/freshwiki_loader
 import json
 import os
 import logging
@@ -14,11 +14,11 @@ class FreshWikiEntry:
     """
     Represents a FreshWiki evaluation benchmark entry.
     """
-    topic: str                              # The topic/title we're generating content for
-    reference_outline: List[str]            # Ground truth section headings for structure evaluation
-    reference_content: str                  # Full reference article for content comparison
-    ground_truth_sections: Dict[str, str]   # Section-by-section ground truth for detailed analysis
-    metadata: Dict[str, Any]               # Additional metadata (dates, categories, etc.)
+    topic: str                              
+    reference_outline: List[str]            
+    reference_content: str                  
+    ground_truth_sections: Dict[str, str]   
+    metadata: Dict[str, Any]               
     
     @classmethod
     def from_freshwiki_files(cls, json_file: Path, txt_file: Path) -> 'FreshWikiEntry':
@@ -33,8 +33,14 @@ class FreshWikiEntry:
         with open(txt_file, 'r', encoding='utf-8') as f:
             txt_content = f.read()
         
-        # Extract topic from title
-        topic = json_data.get('title', '').replace('_', ' ')
+        # Extract proper topic from JSON title (not from filename)
+        topic = json_data.get('title', '').strip()
+        
+        # Fallback: extract topic from first line of TXT if JSON title is missing
+        if not topic:
+            first_line = txt_content.split('\n')[0].strip()
+            # Remove markdown header symbols
+            topic = first_line.lstrip('#').strip()
         
         # Extract outline from JSON structure
         outline = cls._extract_outline_from_json(json_data)
@@ -110,7 +116,7 @@ class FreshWikiEntry:
 
 class FreshWikiLoader:
     """
-    Loader for FreshWiki evaluation dataset with JSON/TXT file pairs.
+    Fixed loader for FreshWiki evaluation dataset with JSON/TXT file pairs.
     """
     
     def __init__(self, data_path: str = "data/freshwiki"):
@@ -152,14 +158,42 @@ class FreshWikiLoader:
                     txt_files[stem]
                 )
                 
-                if entry.topic:
+                # Validate topic quality
+                if self._is_valid_topic(entry.topic):
                     self.entries.append(entry)
                     self.topic_index[entry.topic.lower()] = entry
+                else:
+                    logger.debug(f"Skipped invalid topic: {entry.topic}")
                     
             except Exception as e:
                 logger.warning(f"Failed to load FreshWiki entry {stem}: {e}")
         
         logger.info(f"Successfully loaded {len(self.entries)} FreshWiki evaluation entries")
+    
+    def _is_valid_topic(self, topic: str) -> bool:
+        """Check if a topic is valid for evaluation."""
+        if not topic or len(topic.strip()) < 3:
+            return False
+        
+        # Filter out URLs, section headers, and other non-topic strings
+        invalid_patterns = [
+            r'^https?://',           # URLs
+            r'^\[[\d]+\]',          # Reference numbers [1], [19], etc.
+            r'^#',                  # Section headers
+            r'\.com',               # Domain names
+            r'In the text these',   # Text fragments
+            r'are preceded by',     # Text fragments
+        ]
+        
+        for pattern in invalid_patterns:
+            if re.search(pattern, topic, re.IGNORECASE):
+                return False
+        
+        # Must be reasonable length for a Wikipedia article title
+        if len(topic) > 100:
+            return False
+            
+        return True
     
     def get_evaluation_entry(self, topic: str) -> Optional[FreshWikiEntry]:
         """Get evaluation ground truth for a specific topic."""
@@ -172,7 +206,20 @@ class FreshWikiLoader:
     def get_evaluation_sample(self, n: int = 5) -> List[FreshWikiEntry]:
         """Get a random sample of evaluation entries for benchmarking."""
         import random
-        return random.sample(self.entries, min(n, len(self.entries)))
+        
+        # Filter to get only high-quality topics
+        quality_entries = []
+        for entry in self.entries:
+            if (entry.reference_content and 
+                len(entry.reference_content.split()) > 100 and  # At least 100 words
+                len(entry.reference_outline) > 2):              # At least 2 sections
+                quality_entries.append(entry)
+        
+        if not quality_entries:
+            # Fallback to any entries if no quality entries found
+            quality_entries = self.entries
+        
+        return random.sample(quality_entries, min(n, len(quality_entries)))
     
     def validate_evaluation_dataset(self) -> Dict[str, Any]:
         """Validate the evaluation dataset and return comprehensive statistics."""
