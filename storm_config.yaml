@@ -1,0 +1,34 @@
+# STORM Baseline Configuration
+# Configure LLM providers and STORM pipeline settings
+
+providers:
+  together:
+    model: "meta-llama/Llama-3.2-3B-Instruct-Turbo"
+    timeout: 60
+    max_tokens: 50
+    temperature: 0.7
+    priority: 1
+  
+  groq:
+    model: "groq/llama-3.1-8b-instant" 
+    timeout: 30
+    max_tokens: 50
+    temperature: 0.7
+    priority: 2
+  
+  huggingface:
+    model: "microsoft/DialoGPT-medium"
+    timeout: 90
+    max_tokens: 50
+    temperature: 0.7
+    priority: 3
+
+storm:
+  max_conv_turn: 2        # Conversation turns (lower = faster)
+  max_perspective: 2      # Perspectives to consider
+  search_top_k: 3         # Search results per query
+  max_thread_num: 1       # Threads (keep at 1 for stability)
+  enable_polish: false    # Article polishing (slower)
+  max_retries: 2          # Retry attempts per operation
+
+# API keys are loaded from .env file

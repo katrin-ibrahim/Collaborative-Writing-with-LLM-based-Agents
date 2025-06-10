@@ -1,0 +1,274 @@
+2025-06-10 22:13:13,671 - __main__ - INFO - 🌩️  Enhanced STORM Baselines with Configuration
+2025-06-10 22:13:13,671 - __main__ - INFO - Creating sample configuration at storm_config.yaml
+Created sample configuration: storm_config.yaml
+2025-06-10 22:13:13,672 - __main__ - INFO - Provider preference: together
+2025-06-10 22:13:13,672 - __main__ - INFO - Methods: storm
+2025-06-10 22:13:13,672 - __main__ - INFO - Configuration: storm_config.yaml
+2025-06-10 22:13:13,672 - __main__ - INFO - Available providers: together, groq, huggingface
+2025-06-10 22:13:13,672 - __main__ - INFO - Selected provider: together (meta-llama/Llama-3.2-3B-Instruct-Turbo)
+2025-06-10 22:13:13,672 - __main__ - INFO - STORM settings: conv_turns=2, perspectives=2, retries=2
+2025-06-10 22:13:17,601 - __main__ - INFO - Using together provider with model: meta-llama/Llama-3.2-3B-Instruct-Turbo
+2025-06-10 22:13:17,622 - __main__ - INFO - Testing STORM configuration...
+
+[1;31mProvider List: https://docs.litellm.ai/docs/providers[0m
+
+2025-06-10 22:13:17,625 - LiteLLM - INFO - 
+LiteLLM completion() model= meta-llama/Llama-3.2-3B-Instruct-Turbo; provider = None
+
+[1;31mGive Feedback / Get Help: https://github.com/BerriAI/litellm/issues/new[0m
+LiteLLM.Info: If you need to debug this error, use `litellm.set_verbose=True'.
+
+2025-06-10 22:13:17,631 - __main__ - WARNING - Attempt 1/3 failed with together: litellm.APIConnectionError: Unable to map your input to a model. Check your input - {'model': 'meta-llama/Llama-3.2-3B-Instruct-Turbo', 'messages': [{'role': 'user', 'content': 'Test'}], 'timeout': 60, 'temperature': 0.7, 'top_p': 0.9, 'n': None, 'stream': None, 'stream_options': None, 'stop': None, 'max_completion_tokens': None, 'max_tokens': 10, 'modalities': None, 'prediction': None, 'audio': None, 'presence_penalty': None, 'frequency_penalty': None, 'logit_bias': None, 'user': None, 'response_format': None, 'seed': None, 'tools': None, 'tool_choice': None, 'logprobs': None, 'top_logprobs': None, 'parallel_tool_calls': None, 'deployment_id': None, 'extra_headers': None, 'functions': None, 'function_call': None, 'base_url': None, 'api_version': None, 'api_key': '2411327ef45aef514d4fa7c07914b855bba03b8b42b108c8e0b31564cd0bf0b3', 'model_list': None, 'kwargs': {'cache': {'no-cache': False, 'no-store': False}, 'api_base': 'https://api.together.xyz/v1', 'litellm_call_id': '4d95627b-cad6-4880-9b4f-33a12dc60593', 'litellm_logging_obj': <litellm.litellm_core_utils.litellm_logging.Logging object at 0x174d73190>}}
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/main.py", line 2963, in completion
+    raise ValueError(
+ValueError: Unable to map your input to a model. Check your input - {'model': 'meta-llama/Llama-3.2-3B-Instruct-Turbo', 'messages': [{'role': 'user', 'content': 'Test'}], 'timeout': 60, 'temperature': 0.7, 'top_p': 0.9, 'n': None, 'stream': None, 'stream_options': None, 'stop': None, 'max_completion_tokens': None, 'max_tokens': 10, 'modalities': None, 'prediction': None, 'audio': None, 'presence_penalty': None, 'frequency_penalty': None, 'logit_bias': None, 'user': None, 'response_format': None, 'seed': None, 'tools': None, 'tool_choice': None, 'logprobs': None, 'top_logprobs': None, 'parallel_tool_calls': None, 'deployment_id': None, 'extra_headers': None, 'functions': None, 'function_call': None, 'base_url': None, 'api_version': None, 'api_key': '2411327ef45aef514d4fa7c07914b855bba03b8b42b108c8e0b31564cd0bf0b3', 'model_list': None, 'kwargs': {'cache': {'no-cache': False, 'no-store': False}, 'api_base': 'https://api.together.xyz/v1', 'litellm_call_id': '4d95627b-cad6-4880-9b4f-33a12dc60593', 'litellm_logging_obj': <litellm.litellm_core_utils.litellm_logging.Logging object at 0x174d73190>}}
+
+2025-06-10 22:13:17,631 - __main__ - INFO - Switching to groq provider
+2025-06-10 22:13:19,643 - __main__ - INFO - Testing STORM configuration...
+2025-06-10 22:13:19,645 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:20,126 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:20,127 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:20,128 - __main__ - INFO - ✓ STORM initialized successfully with groq
+2025-06-10 22:13:20,128 - __main__ - INFO - Loading topics from FreshWiki...
+2025-06-10 22:13:20,128 - evaluation.benchmarks.freshwiki_loader - INFO - Found 19 FreshWiki entries with both JSON and TXT files
+2025-06-10 22:13:20,133 - evaluation.benchmarks.freshwiki_loader - INFO - Successfully loaded 1 FreshWiki evaluation entries
+2025-06-10 22:13:20,133 - __main__ - INFO - Loaded 1 topics
+2025-06-10 22:13:20,134 - ArticleEvaluator - INFO - ArticleEvaluator initialized with modular metrics
+2025-06-10 22:13:20,134 - __main__ - INFO - Evaluation enabled
+2025-06-10 22:13:20,134 - __main__ - INFO - 
+============================================================
+2025-06-10 22:13:20,134 - __main__ - INFO - Processing 1/1: 2023_Odisha_train_collision
+2025-06-10 22:13:20,134 - __main__ - INFO - ============================================================
+2025-06-10 22:13:20,134 - __main__ - INFO - 🔄 Running full STORM pipeline...
+2025-06-10 22:13:20,134 - __main__ - INFO - Running STORM (attempt 1/2)...
+2025-06-10 22:13:20,135 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:20,688 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:20,690 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:20,692 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:22,048 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:22,049 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:22,051 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:22,528 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:22,531 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:22,532 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:22,899 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:22,900 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:22,903 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:23,351 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:23,352 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:23,354 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:23,965 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:23,966 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:23,969 - LiteLLM - INFO - 
+LiteLLM completion() model= llama-3.1-8b-instant; provider = groq
+2025-06-10 22:13:24,443 - LiteLLM - ERROR - LiteLLM Cache: Excepton add_cache: __annotations__
+Traceback (most recent call last):
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 624, in add_cache
+    cache_key, cached_data, kwargs = self._add_cache_logic(
+                                     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 608, in _add_cache_logic
+    raise e
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 588, in _add_cache_logic
+    cache_key = self.get_cache_key(**kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 250, in get_cache_key
+    combined_kwargs = self._get_relevant_args_to_use_for_cache_key()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 366, in _get_relevant_args_to_use_for_cache_key
+    transcription_kwargs = self._get_litellm_supported_transcription_kwargs()
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages/litellm/caching/caching.py", line 421, in _get_litellm_supported_transcription_kwargs
+    return set(TranscriptionCreateParams.__annotations__.keys())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/katrin/.pyenv/versions/3.11.10/lib/python3.11/typing.py", line 1318, in __getattr__
+    raise AttributeError(attr)
+AttributeError: __annotations__
+2025-06-10 22:13:24,444 - LiteLLM - INFO - Wrapper: Completed Call, calling success_handler
+2025-06-10 22:13:26,141 - primp - INFO - response: https://html.duckduckgo.com/html 200
+2025-06-10 22:13:27,417 - primp - INFO - response: https://lite.duckduckgo.com/lite/ 202
+2025-06-10 22:13:27,418 - duckduckgo_search.DDGS - INFO - Error to search using lite backend: https://lite.duckduckgo.com/lite/ 202 Ratelimit
+2025-06-10 22:13:28,429 - primp - INFO - response: https://html.duckduckgo.com/html 202
+2025-06-10 22:13:28,430 - duckduckgo_search.DDGS - INFO - Error to search using html backend: https://html.duckduckgo.com/html 202 Ratelimit
+2025-06-10 22:13:29,345 - primp - INFO - response: https://lite.duckduckgo.com/lite/ 202
+2025-06-10 22:13:29,345 - duckduckgo_search.DDGS - INFO - Error to search using lite backend: https://lite.duckduckgo.com/lite/ 202 Ratelimit
+2025-06-10 22:13:30,311 - primp - INFO - response: https://html.duckduckgo.com/html 202
+2025-06-10 22:13:30,311 - duckduckgo_search.DDGS - INFO - Error to search using html backend: https://html.duckduckgo.com/html 202 Ratelimit
+2025-06-10 22:13:30,312 - __main__ - WARNING - STORM attempt 1 failed: 'DuckDuckGoSearchException' object has no attribute 'message'
+2025-06-10 22:13:30,312 - __main__ - INFO - Waiting 1s before retry...
+2025-06-10 22:13:31,317 - __main__ - INFO - Running STORM (attempt 2/2)...
+2025-06-10 22:13:32,222 - primp - INFO - response: https://html.duckduckgo.com/html 202
+2025-06-10 22:13:32,222 - duckduckgo_search.DDGS - INFO - Error to search using html backend: https://html.duckduckgo.com/html 202 Ratelimit
+2025-06-10 22:13:33,119 - primp - INFO - response: https://lite.duckduckgo.com/lite/ 202
+2025-06-10 22:13:33,119 - duckduckgo_search.DDGS - INFO - Error to search using lite backend: https://lite.duckduckgo.com/lite/ 202 Ratelimit
+2025-06-10 22:13:33,988 - primp - INFO - response: https://lite.duckduckgo.com/lite/ 202
+2025-06-10 22:13:33,989 - duckduckgo_search.DDGS - INFO - Error to search using lite backend: https://lite.duckduckgo.com/lite/ 202 Ratelimit
+2025-06-10 22:13:34,867 - primp - INFO - response: https://html.duckduckgo.com/html 202
+2025-06-10 22:13:34,868 - duckduckgo_search.DDGS - INFO - Error to search using html backend: https://html.duckduckgo.com/html 202 Ratelimit
+2025-06-10 22:13:34,868 - __main__ - WARNING - STORM attempt 2 failed: 'DuckDuckGoSearchException' object has no attribute 'message'
+2025-06-10 22:13:34,870 - __main__ - ERROR - ✗ STORM failed: 'DuckDuckGoSearchException' object has no attribute 'message'
+2025-06-10 22:13:34,870 - __main__ - INFO - 
+============================================================
+2025-06-10 22:13:34,870 - __main__ - INFO - SUMMARY
+2025-06-10 22:13:34,871 - __main__ - INFO - ============================================================
+2025-06-10 22:13:34,871 - __main__ - INFO - STORM: 0/1 successful
+2025-06-10 22:13:34,871 - __main__ - INFO -   Average words: 0
+2025-06-10 22:13:34,871 - __main__ - INFO -   Total attempts: 2
+2025-06-10 22:13:34,871 - __main__ - INFO - 
+Results saved to: results/storm_storm_5topics_2025-06-10_22-13-13/enhanced_storm_results.json
+2025-06-10 22:13:34,871 - __main__ - INFO - STORM outputs in: results/storm_storm_5topics_2025-06-10_22-13-13/storm_outputs
+2025-06-10 22:13:34,871 - __main__ - INFO - Configuration used: storm_config.yaml
