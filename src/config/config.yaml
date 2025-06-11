@@ -1,0 +1,9 @@
+provider: groq
+model: llama-3.1-8b-instant
+
+max_conv_turn: 2
+max_perspective: 2
+search_top_k: 3
+max_thread_num: 1
+enable_polish: false
+max_retries: 2
