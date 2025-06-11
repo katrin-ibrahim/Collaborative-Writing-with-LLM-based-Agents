@@ -1,5 +1,5 @@
-# src/evaluation/benchmarks/freshwiki_loader.py
 import json
+import sys
 import logging
 from typing import List, Optional
 from dataclasses import dataclass
@@ -7,6 +7,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# add src
+sys.path.append(str(Path(__file__).resolve().parent))
 
 @dataclass
 class FreshWikiEntry:
@@ -25,8 +27,9 @@ class FreshWikiLoader:
     Simple loader for pre-filtered quality FreshWiki dataset.
     """
 
-    def __init__(self, data_path: str = "data/freshwiki"):
+    def __init__(self, data_path: str = "../data/freshwiki"):
         self.data_path = Path(data_path)
+        logger.info(f"Loading FreshWiki dataset from {self.data_path.resolve()}")
         self.entries: List[FreshWikiEntry] = []
 
         # Load all pre-filtered entries
