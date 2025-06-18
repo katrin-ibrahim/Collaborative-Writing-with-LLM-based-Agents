@@ -85,3 +85,30 @@ The system evaluates content quality using several metrics:
 - [x] add cli support
 - [ ] use section drafting style (cli)
 
+### SLURM Setup
+cd /storage/ukp/work/ibrahim1
+wget https://www.python.org/ftp/python/3.11.8/Python-3.11.8.tgz
+tar -xzf Python-3.11.8.tgz
+cd Python-3.11.8
+./configure --prefix=/storage/ukp/work/ibrahim1/python3.11 --enable-optimizations
+make -j$(nproc)
+make install
+
+# Add Python 3.11 to PATH
+export PATH="/storage/ukp/work/ibrahim1/python3.11/bin:$PATH"
+
+# Verify it works
+python3.11 --version
+pip3.11 --version
+
+# Create virtual environment with your new Python 3.11
+python3.11 -m venv /storage/ukp/work/ibrahim1/python_env
+
+# Activate the environment
+source /storage/ukp/work/ibrahim1/python_env/bin/activate
+
+# Verify you're using the right python
+which python
+python --version
+
+$ sbatch -q yolo -p yolo run_experiment.sh
