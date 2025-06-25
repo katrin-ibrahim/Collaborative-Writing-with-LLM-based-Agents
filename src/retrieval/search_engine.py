@@ -47,7 +47,7 @@ class SearchEngine:
         # TODO: Integrate actual web search APIs like DuckDuckGo, Bing, Google
         if len(all_results) < num_results:
             remaining = num_results - len(all_results)
-            web_results = self._mock_web_search(query, remaining)
+            web_results = self._web_search(query, remaining)
             all_results.extend(web_results)
         
         # Remove duplicates and rank by relevance
@@ -116,31 +116,24 @@ class SearchEngine:
         base_queries.extend(topic_expansions[:3])
         return base_queries
     
-    def _mock_web_search(self, query: str, num_results: int) -> List[SearchResult]:
-        """
-        Mock web search implementation.
-        
-        TODO replace this with actual search API calls to:
-        - DuckDuckGo API
-        - Bing Search API  
-        - Google Custom Search API
-        """
+    def _web_search(self, query: str, num_results: int) -> List[SearchResult]:
+        """Search web using DuckDuckGo"""
         try:
-            mock_results = []
-            for i in range(min(num_results, 3)):  # Limit mock results
-                mock_results.append(SearchResult(
-                    content=f"Web search result {i+1} for '{query}'. "
-                            f"This would contain current, relevant information from web sources "
-                            f"that complements the encyclopedic knowledge from Wikipedia. "
-                            f"Real implementation would call actual search APIs.",
-                    source=f"Web Search - Source {i+1}",
-                    relevance_score=0.7 - (i * 0.1)  # Decreasing relevance
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=num_results))
+                
+            search_results = []
+            for i, result in enumerate(results):
+                search_results.append(SearchResult(
+                    content=f"{result.get('title', '')}. {result.get('body', '')}",
+                    source=result.get('href', f'Web Result {i+1}'),
+                    relevance_score=0.8 - (i * 0.1)  # Simple relevance decay
                 ))
             
-            return mock_results
+            return search_results
             
         except Exception as e:
-            logger.error(f"Mock web search failed: {e}")
+            logger.error(f"DuckDuckGo search failed: {e}")
             return []
     
     def _calculate_relevance(self, query: str, content: str) -> float:

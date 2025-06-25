@@ -1,10 +1,11 @@
 #!/bin/bash
 #
-#SBATCH --job-name=ollama-test
-#SBATCH --output=/storage/ukp/work/ibrahim1/test_%j.out
-#SBATCH --account=ukp-student
-#SBATCH --ntasks=1
-#SBATCH --time=00:05:00
+#SBATCH --job-name=test
+#SBATCH --output=test_%j.out
+#SBATCH --error=test_%j.err
+#SBATCH --time=00:01:00
+#SBATCH --qos=gpu-small
+#SBATCH --gres=gpu:1
 
 cd /storage/ukp/work/ibrahim1
 
@@ -23,7 +24,8 @@ except ImportError as e:
     print('✗ ollama import failed:', e)
     exit(1)
 "
-
+# Slurm -> local model
+#  Ollama -> UKP vpn
 # Test the actual Ollama API
 python -c "
 from ollama import Client

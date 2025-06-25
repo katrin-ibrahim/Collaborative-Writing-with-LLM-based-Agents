@@ -13,12 +13,18 @@ class BaseAgent(ABC):
     """Abstract base class for all agents in the system."""
     
     def __init__(self, config: Dict[str, Any]):
+       def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = logging.getLogger(self.__class__.__name__)
         
-        # Initialize shared API client
-        api_token = os.getenv('HF_TOKEN')
-        self.api_client = APIClient(api_token=api_token)
+        # Runtime client selection
+        run_mode = os.getenv('RUN_MODE', 'local')  # 'local' or 'remote'
+        
+        if run_mode == 'local':
+            self.api_client = OllamaClient()
+        else:
+            api_token = os.getenv('HF_TOKEN')
+            self.api_client = APIClient(api_token=api_token)
     
     @abstractmethod
     def process(self, input_data: Any) -> Any:

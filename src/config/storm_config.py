@@ -1,4 +1,3 @@
-# src/config/simple_config.py
 import os
 import yaml
 from typing import Dict, Any, Optional
@@ -7,7 +6,11 @@ from dataclasses import dataclass
 
 @dataclass
 class DefaultConfig:
-    # LLM settings
+    # Model settings
+    model_type: str = "local"  # "local" or "api"
+    local_model_path: str = "/storage/ukp/shared/shared_model_weights/Qwen2.5-VL-7B-Instruct"
+    
+    # LLM settings (for API fallback)
     provider: str = "groq"
     model: str = "llama-3.1-8b-instant"
 
@@ -18,21 +21,22 @@ class DefaultConfig:
     max_thread_num: int = 1
     enable_polish: bool = False
     max_retries: int = 2
+    
+    # Local model settings
+    max_new_tokens: int = 512
+    temperature: float = 0.7
 
 
 def load_config(config_file: str = "config.yaml") -> DefaultConfig:
     """Load config from YAML file, use defaults if file doesn't exist"""
 
-    # Default config
     config = DefaultConfig()
 
-    # Try to load from file
     if os.path.exists(config_file):
         try:
             with open(config_file, 'r') as f:
                 data = yaml.safe_load(f) or {}
 
-            # Update config with file values
             for key, value in data.items():
                 if hasattr(config, key):
                     setattr(config, key, value)
@@ -45,7 +49,7 @@ def load_config(config_file: str = "config.yaml") -> DefaultConfig:
 
 
 def get_api_key(provider: str) -> str:
-    """Get API key for provider from environment"""
+    """Get API key for provider from environment (fallback only)"""
     key_map = {
         "groq": "GROQ_API_KEY",
         "openai": "OPENAI_API_KEY",
