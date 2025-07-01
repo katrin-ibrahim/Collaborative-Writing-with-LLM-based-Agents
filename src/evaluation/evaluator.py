@@ -1,11 +1,11 @@
 # src/evaluation/simple_evaluator.py
 import logging
 from typing import Dict
-from src.utils.data_models import Article
+from utils.data_models import Article
 from utils.freshwiki_loader import FreshWikiEntry
-from src.evaluation.metrics.rouge_metrics import ROUGEMetrics
-from src.evaluation.metrics.entity_metrics import EntityMetrics
-from src.evaluation.metrics.heading_metrics import HeadingMetrics
+from evaluation.metrics.rouge_metrics import ROUGEMetrics
+from evaluation.metrics.entity_metrics import EntityMetrics
+from evaluation.metrics.heading_metrics import HeadingMetrics
 
 logger = logging.getLogger(__name__)
 

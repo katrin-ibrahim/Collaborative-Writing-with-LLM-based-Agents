@@ -135,7 +135,32 @@ Article:"""
         """Run STORM baseline using local model."""
         self.logger.info(f"Running STORM for: {topic}")
         
+        # Fix permission issues - set writable directories
+        work_dir = os.getcwd()
+        storm_output_dir = os.path.join(work_dir, "storm_output")
+        os.makedirs(storm_output_dir, exist_ok=True)
+        
+        # Override environment variables that might cause permission issues
+        old_home = os.environ.get("HOME", "")
+        old_tmpdir = os.environ.get("TMPDIR", "")
+        
+        os.environ["HOME"] = work_dir
+        os.environ["TMPDIR"] = os.path.join(work_dir, "tmp")
+        os.makedirs(os.environ["TMPDIR"], exist_ok=True)
+        
+        self.logger.info(f"Set HOME from {old_home} to {os.environ['HOME']}")
+        self.logger.info(f"Set TMPDIR from {old_tmpdir} to {os.environ['TMPDIR']}")
+        self.logger.info(f"Storm output dir: {storm_output_dir}")
+        
         try:
+            import sys
+            try:
+                import pysqlite3 as sqlite3
+                sys.modules['sqlite3'] = sqlite3
+                self.logger.info("✅ Using pysqlite3 as sqlite3 replacement for STORM")
+            except ImportError:
+                self.logger.warning("⚠️ pysqlite3 not available, STORM may fail")
+            
             # Import STORM components
             from knowledge_storm import STORMWikiLMConfigs, STORMWikiRunner, STORMWikiRunnerArguments
             from knowledge_storm.rm import DuckDuckGoSearchRM
@@ -160,7 +185,7 @@ Article:"""
             
             # Create STORM runner
             engine_args = STORMWikiRunnerArguments(
-                output_dir="./storm_output",
+                output_dir=storm_output_dir,
                 max_conv_turn=self.config.max_conv_turn,
                 max_perspective=self.config.max_perspective,
                 search_top_k=self.config.search_top_k,
@@ -181,8 +206,7 @@ Article:"""
             generation_time = time.time() - start_time
             
             # Read generated article
-            storm_output_dir = Path("./storm_output")
-            topic_subdir = storm_output_dir / topic.replace(" ", "_").replace("/", "_")
+            topic_subdir = Path(storm_output_dir) / topic.replace(" ", "_").replace("/", "_")
             
             article_files = [
                 topic_subdir / "storm_gen_article_polished.txt",
@@ -216,6 +240,19 @@ Article:"""
             
         except Exception as e:
             self.logger.error(f"STORM failed: {e}")
+            self.logger.error(f"Exception type: {type(e)}")
+            
+            # If it's a permission error, try to get more details
+            if "Permission denied" in str(e):
+                import traceback
+                self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Restore environment
+            if old_home:
+                os.environ["HOME"] = old_home
+            if old_tmpdir:
+                os.environ["TMPDIR"] = old_tmpdir
+                
             return Article(
                 title=topic,
                 content=f"# {topic}\n\nSTORM Error: {str(e)}",

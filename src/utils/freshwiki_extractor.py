@@ -94,6 +94,7 @@ def copy_file_content(src_path: Path, content: str, dst_path: Path):
 
 
 def find_freshwiki_files(source_dir: Path):
+    print(source_dir)
     """Find all potential FreshWiki content files."""
     files = []
 
@@ -118,6 +119,8 @@ def find_freshwiki_files(source_dir: Path):
 
 def extract_quality_topics(source_dir: str, target_dir: str, max_topics: int = 30):
     """Extract quality topics from cloned FreshWiki repo."""
+
+    logger.info("Starting quality topic extraction, the current working directory is: %s", os.getcwd())
 
     source_path = Path(source_dir)
     target_path = Path(target_dir)

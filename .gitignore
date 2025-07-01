@@ -8,3 +8,8 @@ __pycache__
 .vscode
 /results
 .env
+# ignore files that start with test_
+test_*.out 
+test_*.err
+/models
+cache.db

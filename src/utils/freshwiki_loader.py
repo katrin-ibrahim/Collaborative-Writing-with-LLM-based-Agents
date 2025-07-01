@@ -27,7 +27,7 @@ class FreshWikiLoader:
     Simple loader for pre-filtered quality FreshWiki dataset.
     """
 
-    def __init__(self, data_path: str = "../data/freshwiki"):
+    def __init__(self, data_path: str = "data/freshwiki"):
         self.data_path = Path(data_path)
         logger.info(f"Loading FreshWiki dataset from {self.data_path.resolve()}")
         self.entries: List[FreshWikiEntry] = []
