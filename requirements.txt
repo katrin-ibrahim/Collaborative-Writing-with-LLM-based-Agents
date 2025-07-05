@@ -50,3 +50,4 @@ litellm~=1.59.3
 accelerate
 knowledge_storm
 pysqlite3-binary
+duckduckgo_search
