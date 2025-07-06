@@ -257,11 +257,18 @@ Article:"""
             )
             
             storm_runner = STORMWikiRunner(engine_args, lm_config, search_rm)
+            logger.info(f"🔍 STORM Pre-execution Debug:")
+            logger.info(f"🔍 - Topic: {topic}")
+            logger.info(f"🔍 - Output dir: {self.storm_output_dir}")
+            logger.info(f"🔍 - Config: conv_turns={self.config.max_conv_turn}, perspectives={self.config.max_perspective}")
+            logger.info(f"🔍 - Search top_k: {self.config.search_top_k}")
             
             # Step 7: Run STORM
-            logger.info(f"🚀 Executing STORM for: {topic}")
-            start_time = time.time()
-            
+          
+            logger.info("🔍 Testing LLM wrapper before STORM...")
+            test_response = litellm_wrapper("Test prompt: Write one sentence about artificial intelligence.")
+            logger.info(f"🔍 LLM test response: {repr(str(test_response)[:100])}...")
+
             result = storm_runner.run(
                 topic=topic,
                 do_research=True,
@@ -269,9 +276,25 @@ Article:"""
                 do_generate_article=True,
                 do_polish_article=self.config.enable_polish
             )
-            
+            start_time = time.time()
+
             generation_time = time.time() - start_time
             logger.info(f"⏱️  STORM completed in {generation_time:.1f}s")
+
+            # Debug: Check what STORM actually returned
+            logger.info(f"🔍 STORM result type: {type(result)}")
+            logger.info(f"🔍 STORM result content: {repr(str(result)[:200]) if result else 'None'}")
+
+            # Debug: Check output directory immediately after STORM
+            topic_check_dir = Path(self.storm_output_dir) / topic.replace(" ", "_").replace("/", "_")
+            if topic_check_dir.exists():
+                immediate_files = list(topic_check_dir.glob("*"))
+                logger.info(f"🔍 Immediate post-STORM files: {[f.name for f in immediate_files]}")
+                for f in immediate_files:
+                    if f.is_file():
+                        logger.info(f"🔍 File {f.name}: {f.stat().st_size} bytes")
+            else:
+                logger.warning(f"🔍 STORM output directory not created: {topic_check_dir}")
             
             # Step 8: Process output
             return self._process_storm_output(topic, generation_time)
@@ -288,28 +311,78 @@ Article:"""
             )
     
     def _process_storm_output(self, topic: str, generation_time: float) -> Article:
-        """Process STORM output files into Article object."""
+        """Process STORM output files into Article object with enhanced debugging."""
         topic_subdir = Path(self.storm_output_dir) / topic.replace(" ", "_").replace("/", "_")
         
-        # Find generated content
+        # Debug: Log the expected directory and check if it exists
+        logger.info(f"🔍 Looking for STORM output in: {topic_subdir}")
+        logger.info(f"🔍 Directory exists: {topic_subdir.exists()}")
+        
+        if topic_subdir.exists():
+            # Debug: List all files in the directory
+            all_files = list(topic_subdir.glob("*"))
+            logger.info(f"🔍 Files found in output directory: {[f.name for f in all_files]}")
+            
+            # Debug: Check file sizes
+            for file in all_files:
+                if file.is_file():
+                    size = file.stat().st_size
+                    logger.info(f"🔍 File {file.name}: {size} bytes")
+        
+        # Find generated content with expanded search
         article_files = [
             topic_subdir / "storm_gen_article_polished.txt",
-            topic_subdir / "storm_gen_article.txt"
+            topic_subdir / "storm_gen_article.txt",
+            topic_subdir / "storm_gen_outline.txt",  # Add outline as fallback
+            topic_subdir / "direct_gen_outline.txt"  # Add another fallback
         ]
         
         content = None
+        content_source = None
+        
         for article_file in article_files:
             if article_file.exists():
                 try:
-                    content = article_file.read_text(encoding='utf-8')
-                    logger.info(f"📄 Read STORM output from: {article_file.name}")
-                    break
+                    file_content = article_file.read_text(encoding='utf-8')
+                    # Debug: Log file content details
+                    logger.info(f"🔍 Reading {article_file.name}: {len(file_content)} chars, {len(file_content.split())} words")
+                    logger.info(f"🔍 First 200 chars: {repr(file_content[:200])}")
+                    
+                    if file_content.strip():  # Only use non-empty content
+                        content = file_content
+                        content_source = article_file.name
+                        logger.info(f"📄 Using content from: {article_file.name}")
+                        break
+                    else:
+                        logger.warning(f"⚠️ File {article_file.name} is empty")
+                        
                 except Exception as e:
-                    logger.warning(f"Failed to read {article_file}: {e}")
+                    logger.warning(f"❌ Failed to read {article_file}: {e}")
         
         if not content:
-            logger.warning("No STORM article content found")
+            logger.warning("❌ No STORM article content found, checking for any .txt files")
+            # Fallback: try any .txt file in the directory
+            for txt_file in topic_subdir.glob("*.txt"):
+                try:
+                    fallback_content = txt_file.read_text(encoding='utf-8')
+                    if fallback_content.strip():
+                        logger.info(f"🔄 Using fallback content from: {txt_file.name}")
+                        content = fallback_content
+                        content_source = f"fallback_{txt_file.name}"
+                        break
+                except Exception as e:
+                    logger.warning(f"❌ Failed to read fallback {txt_file}: {e}")
+        
+        if not content:
+            logger.error("❌ No content found anywhere in STORM output")
             content = f"# {topic}\n\nSTORM completed but no article content found"
+            content_source = "error_fallback"
+        
+        # Debug: Final content validation
+        word_count = len(content.split())
+        logger.info(f"🔍 Final content: {len(content)} chars, {word_count} words from {content_source}")
+        if word_count < 50:  # Suspiciously short
+            logger.warning(f"⚠️ Suspiciously short content ({word_count} words). Content preview: {repr(content[:300])}")
         
         return Article(
             title=topic,
@@ -317,10 +390,12 @@ Article:"""
             sections={},
             metadata={
                 "method": "storm_local",
-                "word_count": len(content.split()),
+                "word_count": word_count,
                 "generation_time": generation_time,
                 "model": "qwen_local",
-                "output_dir": str(topic_subdir)
+                "output_dir": str(topic_subdir),
+                "content_source": content_source,
+                "debug_files_found": len(all_files) if topic_subdir.exists() else 0
             }
         )
     
