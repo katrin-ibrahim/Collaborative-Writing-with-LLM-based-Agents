@@ -1,53 +1,33 @@
-aiohappyeyeballs
-aiohttp
-aiosignal
-attrs
-certifi
-charset-normalizer
-datasets
-dill
-filelock
-frozenlist
-fsspec
-huggingface-hub
-idna
-Jinja2
-joblib
-MarkupSafe
-mpmath
-multidict
-multiprocess
-networkx
-numpy
-packaging
-propcache
-pyarrow
-python-dateutil
-pytz
-PyYAML
-regex
-requests
-safetensors
-scipy
-sentence-transformers
-six
-sympy
-threadpoolctl
-tokenizers
-torch
-tqdm
-transformers
-typing_extensions
-tzdata
-urllib3
-xxhash
-yarl
-wikipedia
+# Core Dependencies
+torch>=2.0.0
+transformers>=4.30.0
+pydantic>=2.0.0
+sentence-transformers>=2.2.0
 
-pydantic
-langchain-core
-litellm~=1.59.3
-accelerate
-knowledge_storm
-pysqlite3-binary
-duckduckgo_search
+# STORM Dependencies (pinned to match STORM requirements)
+dspy-ai==2.4.9
+knowledge-storm
+wikipedia==1.4.0
+toml
+langchain-text-splitters
+trafilatura
+
+# Local Model Support
+accelerate>=0.20.0
+
+# Evaluation Dependencies
+rouge-score>=0.1.2
+numpy>=1.24.0
+
+# Database Support (for STORM)
+# pysqlite3
+
+# Other Dependencies
+requests>=2.28.0
+pathlib-mate>=1.0.0
+python-dotenv>=1.0.0
+PyYAML>=6.0
+tqdm>=4.65.0
+
+# Optional: Web Search (if not using mock)
+duckduckgo-search>=3.8.0

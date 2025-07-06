@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 """
-Main runner script for baseline evaluation.
-
-Clean entry point for running baseline methods like STORM with local models.
-
-Usage:
-    python src/run.py --methods storm --num_topics 2
-    python src/run.py --methods direct_prompting storm --num_topics 5
+Main runner script for baseline evaluation with improved error handling.
 """
+import sys
+import os
+from pathlib import Path
+
+# Add src directory to Python path
+current_dir = Path(__file__).parent
+src_dir = current_dir if current_dir.name == 'src' else current_dir / 'src'
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
 
 import argparse
 import json
 import logging
-from pathlib import Path
 from datetime import datetime
 
 from utils.freshwiki_loader import FreshWikiLoader
 from evaluation.evaluator import ArticleEvaluator
 from utils.logging_setup import setup_logging
 from config.storm_config import load_config
-from baselines import BaselinesRunner
+from baselines.runner import BaselinesRunner
 
 logger = logging.getLogger(__name__)
 
@@ -161,8 +163,27 @@ def evaluate_results(all_results, entries, skip_evaluation):
     return final_results
 
 
+def serialize_results(results_data):
+    """Convert results to JSON-serializable format."""
+    def serialize_item(item):
+        if hasattr(item, 'to_dict'):
+            return item.to_dict()
+        elif isinstance(item, dict):
+            return {k: serialize_item(v) for k, v in item.items()}
+        elif isinstance(item, list):
+            return [serialize_item(i) for i in item]
+        else:
+            try:
+                json.dumps(item)
+                return item
+            except (TypeError, ValueError):
+                return str(item)
+    
+    return serialize_item(results_data)
+
+
 def save_results(final_results, all_results, config, methods, results_dir):
-    """Save results to JSON file."""
+    """Save results to JSON file with proper serialization."""
     results_file = results_dir / "results.json"
     
     # Prepare output data
@@ -183,9 +204,12 @@ def save_results(final_results, all_results, config, methods, results_dir):
         "results": final_results if final_results else all_results
     }
     
+    # Serialize for JSON compatibility
+    serialized_data = serialize_results(output_data)
+    
     # Save to file
     with open(results_file, 'w', encoding='utf-8') as f:
-        json.dump(output_data, f, indent=2, ensure_ascii=False)
+        json.dump(serialized_data, f, indent=2, ensure_ascii=False)
     
     logger.info(f"💾 Results saved to: {results_file}")
     return results_file
@@ -220,7 +244,7 @@ def print_summary(final_results, all_results, methods):
 
 
 def main():
-    """Main entry point."""
+    """Main entry point with improved error handling."""
     # Parse arguments
     args = parse_arguments()
     

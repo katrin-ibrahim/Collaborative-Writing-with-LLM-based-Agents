@@ -112,3 +112,9 @@ which python
 python --version
 
 $ sbatch -q yolo -p yolo run_experiment.sh
+
+
+#### Interactive run on slurm
+srun --mem=16G --cpus-per-task=4 --gres=gpu:1 --time=01:00:00 --pty bash
+source /storage/ukp/work/ibrahim1/python_env/bin/activate
+python src/run.py --methods storm --num_topics 1 --skip_evaluation

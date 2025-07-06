@@ -1,18 +1,16 @@
 """
-Baselines package for LLM evaluation and testing.
+Baselines package for LLM evaluation with streamlined architecture.
 
 This package provides clean implementations for running baseline methods
-like STORM with local models, handling all the integration complexities.
+with improved STORM integration and better error handling.
 """
 
 from .mock_search import MockSearchRM
-from .llm_wrapper import LocalLiteLLMWrapper
-from .dspy_integration import setup_dspy_integration
+from .dspy_integration import setup_dspy_for_storm
 from .runner import BaselinesRunner
 
 __all__ = [
     'MockSearchRM',
-    'LocalLiteLLMWrapper', 
-    'setup_dspy_integration',
+    'setup_dspy_for_storm',
     'BaselinesRunner'
 ]
