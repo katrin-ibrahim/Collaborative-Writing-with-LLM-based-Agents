@@ -131,7 +131,7 @@ def main():
         )
         
         # Load FreshWiki topics
-        logger.info("📚 Loading FreshWiki topics...")
+        logger.info("Loading FreshWiki topics...")
         freshwiki = FreshWikiLoader()
         entries = freshwiki.get_evaluation_sample(args.num_topics)
         

@@ -8,14 +8,15 @@ logger = logging.getLogger(__name__)
 class OllamaLiteLLMWrapper:
     """LiteLLM-compatible wrapper for Ollama to work with STORM."""
     
-    def __init__(self, ollama_client, model: str = "qwen2.5:7b", temperature: float = 0.7):
+    def __init__(self, ollama_client, model: str = "qwen2.5:7b", temperature: float = 0.7, max_tokens: int = 50):
         self.client = ollama_client
         self.model = model
         self.temperature = temperature
-        
+        self.max_tokens = max_tokens
+
         # LiteLLM compatibility attributes
         self.model_name = model
-        self.kwargs = {'model': model, 'temperature': temperature}
+        self.kwargs = {'model': model, 'temperature': temperature, 'max_tokens': max_tokens}
         
         # Cost tracking (always 0 for local models)
         self.completion_cost = 0.0
@@ -25,6 +26,8 @@ class OllamaLiteLLMWrapper:
     
     def __call__(self, messages=None, **kwargs):
         """Make wrapper callable for STORM compatibility."""
+        if 'max_tokens' not in kwargs and 'max_output_tokens' not in kwargs:
+            kwargs['max_tokens'] = 1024
         if messages is not None:
             return self.complete(messages, **kwargs)
         
@@ -40,11 +43,12 @@ class OllamaLiteLLMWrapper:
         try:
             # Parse messages
             prompt, system_prompt = self._parse_messages(messages)
-            
+            # print(f"Parsed prompt: {prompt}, system prompt: {system_prompt}")
             # Get parameters
             model = kwargs.get('model', self.model)
             temperature = kwargs.get('temperature', self.temperature)
             max_tokens = kwargs.get('max_tokens', 1024)
+            print(f"Using model: {model}, temperature: {temperature}, max_tokens: {max_tokens}")
             
             # Generate response
             response_text = self.client.call_api(
@@ -54,9 +58,11 @@ class OllamaLiteLLMWrapper:
                 temperature=temperature,
                 max_tokens=max_tokens
             )
-            
+            # print(f"Generated response: {response_text}")
+            created_response = self._create_response(response_text, prompt)
+            # print(f"Created response: {created_response}")
             # Return LiteLLM-compatible response
-            return self._create_response(response_text, prompt)
+            return created_response
             
         except Exception as e:
             logger.error(f"Completion failed: {e}")
@@ -131,7 +137,15 @@ class OllamaLiteLLMWrapper:
                 }
             
             def __getitem__(self, key):
-                return self._data[key]
+                print(f"Accessing key: {key}")
+                # print(f"Data keys: {self._data}")
+                if isinstance(key, int):
+                    # Return choice at index key
+                    # print(f"Returning choice at index {key} with content: {self._data['choices'][key].message.content}")
+                    return self._data['choices'][key].message.content
+                else:
+                    # Return value from dict
+                    return self._data[key]
             
             def get(self, key, default=None):
                 return self._data.get(key, default)

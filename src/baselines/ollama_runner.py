@@ -125,26 +125,22 @@ Now write the article:"""
             research_wrapper = OllamaLiteLLMWrapper(
                 self.client, 
                 model=self.model_config.get_model_for_task("research"),
-                temperature=self.model_config.get_temperature_for_task("research")
-            )
+                temperature=self.model_config.get_temperature_for_task("research")            )
             
             outline_wrapper = OllamaLiteLLMWrapper(
                 self.client,
                 model=self.model_config.get_model_for_task("outline"),
-                temperature=self.model_config.get_temperature_for_task("outline")
-            )
+                temperature=self.model_config.get_temperature_for_task("outline")            )
             
             writing_wrapper = OllamaLiteLLMWrapper(
                 self.client,
                 model=self.model_config.get_model_for_task("writing"),
-                temperature=self.model_config.get_temperature_for_task("writing")
-            )
+                temperature=self.model_config.get_temperature_for_task("writing")            )
             
             polish_wrapper = OllamaLiteLLMWrapper(
                 self.client,
                 model=self.model_config.get_model_for_task("polish"),
-                temperature=self.model_config.get_temperature_for_task("polish")
-            )
+                temperature=self.model_config.get_temperature_for_task("polish")            )
             
             # Set different models for different STORM components
             lm_config.set_conv_simulator_lm(research_wrapper)

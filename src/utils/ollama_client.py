@@ -54,7 +54,7 @@ class OllamaClient:
                 #     "top_p": kwargs.get("top_p", 0.9),
                 # }
             )
-            print(response.message.content)
+            # print(response.message.content)
             return response.message.content
             
         except Exception as e:
