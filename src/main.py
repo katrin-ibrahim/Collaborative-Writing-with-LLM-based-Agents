@@ -22,7 +22,7 @@ from utils.freshwiki_loader import FreshWikiLoader
 from evaluation.evaluator import ArticleEvaluator
 from utils.logging_setup import setup_logging
 from config.model_config import ModelConfig
-from baselines.ollama_runner import OllamaBaselinesRunner
+from baselines.runner import BaselineRunner
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,8 @@ Examples:
     parser.add_argument(
         "--methods",
         nargs="+",
-        default=["direct_prompting", "storm", "self_rag"],
-        choices=["direct_prompting", "storm", "self_rag"],
+        default=["direct", "storm", "self_rag"],
+        choices=["direct", "storm", "self_rag"],
         help="Methods to run"
     )
     parser.add_argument(
@@ -125,7 +125,7 @@ def main():
         logger.info(f"  - Critique: {model_config.critique_model}")
         
         # Initialize runner
-        runner = OllamaBaselinesRunner(
+        runner = BaselineRunner(
             ollama_host=args.ollama_host,
             model_config=model_config
         )

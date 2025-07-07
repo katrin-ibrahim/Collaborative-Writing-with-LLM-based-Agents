@@ -5,13 +5,13 @@ This package provides clean implementations for running baseline methods
 with improved STORM integration and better error handling.
 """
 
-from .ollama_runner import OllamaBaselinesRunner
+from .runner import BaselineRunner
 from .llm_wrapper import OllamaLiteLLMWrapper
 from .mock_search import MockSearchRM
 
 
 __all__ = [
-    "OllamaBaselinesRunner",
+    "BaselineRunner",
     "OllamaLiteLLMWrapper",
     "MockSearchRM"
 ]

@@ -12,7 +12,7 @@ from baselines.mock_search import MockSearchRM
 logger = logging.getLogger(__name__)
 
 
-class OllamaBaselinesRunner:
+class BaselineRunner:
     """Simplified runner for Ollama-based baseline experiments."""
     
     def __init__(self, ollama_host: str = "http://10.167.31.201:11434/", 
