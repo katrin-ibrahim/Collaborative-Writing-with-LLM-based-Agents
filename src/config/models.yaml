@@ -1,0 +1,43 @@
+# Ollama model configuration for different tasks
+# Optimized for price-performance ratio
+
+# Task-specific model assignments
+research_model: "qwen2.5:7b"          # Fast, for search queries and research
+outline_model: "qwen2.5:14b"          # Balanced, for structure generation
+writing_model: "qwen2.5:32b"          # High quality, for content generation
+critique_model: "qwen2.5:14b"         # Good reasoning, for evaluation
+polish_model: "llama3.3:latest"       # Alternative model for final polish
+
+# Self-RAG specific models
+retrieval_model: "mistral:7b-instruct"    # Fast decisions on retrieval
+generation_model: "qwen2.5:14b"           # Main content generation
+reflection_model: "qwen2.5:14b"           # Self-critique and reflection
+
+# Default fallback
+default_model: "qwen2.5:7b"
+
+# Temperature settings per task
+temperatures:
+  research: 0.7      # Creative for diverse queries
+  outline: 0.5       # Balanced for structure
+  writing: 0.7       # Creative for content
+  critique: 0.3      # Low for consistent evaluation
+  polish: 0.5        # Balanced for refinement
+  retrieval: 0.3     # Low for binary decisions
+  generation: 0.7    # Creative for content
+  reflection: 0.3    # Low for analysis
+
+# Alternative model options for experimentation
+alternative_models:
+  small:
+    research_model: "qwen2.5:3b"
+    outline_model: "qwen2.5:7b"
+    writing_model: "qwen2.5:14b"
+  large:
+    research_model: "qwen2.5:14b"
+    outline_model: "qwen2.5:32b"
+    writing_model: "qwen2.5:72b"
+  mixed:
+    research_model: "mistral:7b-instruct"
+    outline_model: "llama3.1:latest"
+    writing_model: "qwen2.5:32b"

@@ -1,37 +1,86 @@
 import json
 import logging
-import requests
-from typing import Optional
+from typing import Optional, Dict, Any, List
+from ollama import Client
+
+logger = logging.getLogger(__name__)
+
 
 class OllamaClient:
-    """Local Ollama client for development/testing"""
+    """Clean Ollama client wrapper for baseline experiments."""
     
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
-        self.base_url = base_url
-        self.model = model
-        self.logger = logging.getLogger(self.__class__.__name__)
+    def __init__(self, host: str = "http://10.167.31.201:11434/", default_model: str = "qwen2.5:7b"):
+        self.host = host
+        self.default_model = default_model
+        self.client = Client(host=host)
+        self._available_models = None
+        logger.info(f"OllamaClient initialized with host: {host}, default model: {default_model}")
+    
+    def list_models(self) -> List[str]:
+        """List available models on the Ollama server."""
+        if self._available_models is None:
+            try:
+                response = self.client.list()
+                self._available_models = [model.model for model in response.models]
+                logger.info(f"Available Ollama models: {self._available_models}")
+            except Exception as e:
+                logger.error(f"Failed to list models: {e}")
+                self._available_models = []
+        return self._available_models
+    
+    def call_api(self, prompt: str, system_prompt: Optional[str] = None, 
+                 model: Optional[str] = None, **kwargs) -> str:
+        """
+        Call Ollama API with unified interface matching APIClient.
         
-    def call_api(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Call Ollama API with prompt"""
+        Args:
+            prompt: User prompt
+            system_prompt: Optional system prompt
+            model: Model to use (defaults to self.default_model)
+            **kwargs: Additional parameters (temperature, max_tokens, etc.)
+        """
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
         
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False
-        }
-        
         try:
-            response = requests.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=60
+            response = self.client.chat(
+                model=model or self.default_model,
+                messages=messages,
+                # options={
+                #     "temperature": kwargs.get("temperature", 0.7),
+                #     "num_predict": kwargs.get("max_tokens", 1024),
+                #     "top_p": kwargs.get("top_p", 0.9),
+                # }
             )
-            response.raise_for_status()
-            return response.json()["message"]["content"].strip()
+            print(response.message.content)
+            return response.message.content
+            
         except Exception as e:
-            self.logger.error(f"Ollama API call failed: {e}")
-            raise
+            logger.error(f"Ollama API call failed: {e}")
+            raise RuntimeError(f"Ollama API error: {e}")
+    
+    def generate(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
+        """Alternative interface for compatibility."""
+        return self.call_api(prompt, model=model, **kwargs)
+    
+    def extract_json(self, text: str) -> Optional[Dict]:
+        """Extract JSON from text (compatibility method)."""
+        import re
+        json_pattern = r"({[\s\S]*})"
+        match = re.search(json_pattern, text)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+        return None
+    
+    def is_available(self) -> bool:
+        """Check if Ollama server is accessible."""
+        try:
+            self.list_models()
+            return len(self._available_models) > 0
+        except:
+            return False
