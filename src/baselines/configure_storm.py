@@ -5,7 +5,7 @@ from baselines.runner_utils import get_model_wrapper
 from utils.ollama_client import OllamaClient
 from config.model_config import ModelConfig
 
-def setup_storm_runner(client: OllamaClient, config: ModelConfig, base_output_dir: str):
+def setup_storm_runner(client: OllamaClient, config: ModelConfig, storm_output_dir: str):
     lm_config = STORMWikiLMConfigs()
 
     lm_config.set_conv_simulator_lm(get_model_wrapper(client, config, "fast"))
@@ -15,9 +15,6 @@ def setup_storm_runner(client: OllamaClient, config: ModelConfig, base_output_di
     lm_config.set_article_polish_lm(get_model_wrapper(client, config, "polish"))
 
     search_rm = MockSearchRM(k=3)
-
-    storm_output_dir = os.path.join(base_output_dir, "storm")
-    os.makedirs(storm_output_dir, exist_ok=True)
 
     engine_args = STORMWikiRunnerArguments(
         output_dir=storm_output_dir,

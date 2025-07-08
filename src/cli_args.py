@@ -57,5 +57,10 @@ Examples:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level"
     )
+    parser.add_argument(
+    "--debug",
+    action="store_true",
+    help="Enable debug mode (saves intermediate files)"
+    )
 
     return parser.parse_args()

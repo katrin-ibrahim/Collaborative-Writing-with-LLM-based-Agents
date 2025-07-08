@@ -2,14 +2,13 @@
 import os
 import time
 import logging
-from typing import List, Dict, Any, Optional
-from pathlib import Path
+from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.ollama_client import OllamaClient
 from config.model_config import ModelConfig
 from utils.data_models import Article
-from baselines.mock_search import MockSearchRM
+from utils.output_manager import OutputManager
 from baselines.configure_storm import setup_storm_runner
 from baselines.runner_utils import (
     get_model_wrapper,
@@ -24,10 +23,11 @@ logger = logging.getLogger(__name__)
 
 class BaselineRunner:
     def __init__(self, ollama_host: str = "http://10.167.31.201:11434/", 
-                 model_config: Optional[ModelConfig] = None):
+                 model_config: Optional[ModelConfig] = None, output_manager: Optional[OutputManager] = None):
         self.ollama_host = ollama_host
         self.model_config = model_config or ModelConfig()
         self.client = OllamaClient(host=ollama_host)
+        self.output_manager = output_manager
 
         if not self.client.is_available():
             raise RuntimeError(f"Ollama server not available at {ollama_host}")
@@ -35,11 +35,9 @@ class BaselineRunner:
         available_models = self.client.list_models()
         logger.info(f"Connected to Ollama with {len(available_models)} models available")
 
-        self.work_dir = os.getcwd()
-        self.output_dir = os.path.join(self.work_dir, "ollama_output")
-        os.makedirs(self.output_dir, exist_ok=True)
 
-# --------------------- Direct Prompting Baseline ---------------------
+
+    # ---------------------------------------- Direct Prompting Baseline ----------------------------------------
     def run_direct_prompting(self, topic: str) -> Article:
         logger.info(f"Running Direct Prompting for: {topic}")
         prompt = build_direct_prompt(topic)
@@ -55,18 +53,24 @@ class BaselineRunner:
             if content and not content.startswith("#"):
                 content = f"# {topic}\n\n{content}"
 
-            return Article(
-                title=topic,
-                content=content,
-                sections={},
-                metadata={
-                    "method": "direct",
-                    "model": wrapper.model,
-                    "word_count": content_words,
-                    "generation_time": generation_time,
-                    "temperature": wrapper.temperature
-                }
-            )
+            article = Article(
+                    title=topic,
+                    content=content,
+                    sections={},
+                    metadata={
+                        "method": "direct",
+                        "model": wrapper.model,
+                        "word_count": content_words,
+                        "generation_time": generation_time,
+                        "temperature": wrapper.temperature
+                    }
+                )
+                
+            if self.output_manager:
+                    self.output_manager.save_article(article, "direct")
+                
+            return article
+        
         except Exception as e:
             logger.error(f"Direct Prompting failed: {e}")
             return error_article(topic, e, "direct")
@@ -90,7 +94,7 @@ class BaselineRunner:
 
         return results
 
-    # --------------------- STORM Baseline ---------------------
+    # ---------------------------------------- STORM Baseline ----------------------------------------
     def run_storm(self, topic: str) -> Article:
         logger.info(f"Running STORM for: {topic}")
 
@@ -108,7 +112,7 @@ class BaselineRunner:
             generation_time = time.time() - start_time
             content = extract_storm_output(topic, storm_output_dir)
 
-            return Article(
+            article = Article(
                 title=topic,
                 content=content,
                 sections={},
@@ -119,6 +123,12 @@ class BaselineRunner:
                     "model": self.model_config.get_model_for_task("writing"),
                 }
             )
+            
+            if self.output_manager:
+                self.output_manager.save_article(article, "storm")
+                self.output_manager.cleanup_storm_temp(topic)
+            
+            return article
 
         except Exception as e:
             logger.error(f"STORM failed: {e}")

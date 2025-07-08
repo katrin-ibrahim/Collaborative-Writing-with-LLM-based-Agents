@@ -21,6 +21,7 @@ from evaluation.evaluator import ArticleEvaluator
 from utils.logging_setup import setup_logging
 from config.model_config import ModelConfig
 from baselines.runner import BaselineRunner
+from utils.output_manager import OutputManager
 from cli_args import parse_arguments  # Import from new file
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,16 @@ def main():
         logger.info(f"  - Writing: {model_config.writing_model}")
         logger.info(f"  - Critique: {model_config.critique_model}")
 
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path(args.output_dir) / f"run_{timestamp}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_manager = OutputManager(str(output_dir), debug_mode=args.debug)
+    
+
         runner = BaselineRunner(
             ollama_host=args.ollama_host,
-            model_config=model_config
+            model_config=model_config,
+            output_manager=output_manager
         )
 
         freshwiki = FreshWikiLoader()
@@ -74,9 +82,7 @@ def main():
         topics = [entry.topic for entry in entries]
         logger.info(f"✅ Loaded {len(topics)} topics")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path(args.output_dir) / f"run_{timestamp}"
-        output_dir.mkdir(parents=True, exist_ok=True)
+      
 
         logger.info("🚀 Starting...")
         start_time = time.time()
