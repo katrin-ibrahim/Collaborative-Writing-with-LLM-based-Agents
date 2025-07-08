@@ -4,6 +4,7 @@ import time
 import logging
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib import response
 
 from utils.ollama_client import OllamaClient
 from config.model_config import ModelConfig
@@ -45,8 +46,20 @@ class BaselineRunner:
         try:
             start_time = time.time()
             wrapper = get_model_wrapper(self.client, self.model_config, "writing")
+           
 
-            content = wrapper.generate(prompt=prompt, max_tokens=2048)
+            response = wrapper(prompt, max_tokens=50)
+            logger.debug(f"Generated response type: {type(response)}")
+        
+            if hasattr(response, 'choices') and response.choices:
+                content = response.choices[0].message.content
+            elif hasattr(response, 'content'):
+                content = response.content
+            else:
+                content = str(response)
+
+            logger.debug(f"Extracted content type: {type(content)}, length: {len(content) if content else 0}")
+            logger.debug(f"Content preview: {content[:200] if content else 'No content'}...")
             content_words = len(content.split()) if content else 0
             generation_time = time.time() - start_time
 
@@ -73,7 +86,7 @@ class BaselineRunner:
         
         except Exception as e:
             logger.error(f"Direct Prompting failed: {e}")
-            return error_article(topic, e, "direct")
+            raise RuntimeError(f"Direct Prompting error for {topic}: {e}")
 
     def run_direct_batch(self, topics: List[str], max_workers: int = 3) -> List[Article]:
         logger.info(f"Running Direct Prompting batch for {len(topics)} topics")
@@ -99,7 +112,8 @@ class BaselineRunner:
         logger.info(f"Running STORM for: {topic}")
 
         try:
-            runner, storm_output_dir = setup_storm_runner(self.client, self.model_config, self.output_dir)
+            storm_output_dir = self.output_manager.setup_storm_output_dir(topic)
+            runner, storm_output_dir = setup_storm_runner(self.client, self.model_config, storm_output_dir)
 
             start_time = time.time()
             runner.run(
@@ -132,7 +146,7 @@ class BaselineRunner:
 
         except Exception as e:
             logger.error(f"STORM failed: {e}")
-            return error_article(topic, e, "storm")
+            raise RuntimeError(f"STORM error for {topic}: {e}")
 
     def run_storm_batch(self, topics: List[str], max_workers: int = 3) -> List[Article]:
         logger.info(f"Running STORM batch for {len(topics)} topics")
