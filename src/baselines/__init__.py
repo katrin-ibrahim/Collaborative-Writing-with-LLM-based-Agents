@@ -7,11 +7,11 @@ with improved STORM integration and better error handling.
 
 from .runner import BaselineRunner
 from .llm_wrapper import OllamaLiteLLMWrapper
-from .mock_search import MockSearchRM
+from .wikipedia_search import WikipediaSearchRM
 
 
 __all__ = [
     "BaselineRunner",
     "OllamaLiteLLMWrapper",
-    "MockSearchRM"
+    "WikipediaSearchRM"
 ]

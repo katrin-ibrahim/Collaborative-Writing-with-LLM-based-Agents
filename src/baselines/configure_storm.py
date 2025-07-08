@@ -2,6 +2,7 @@ import os
 from knowledge_storm import STORMWikiLMConfigs, STORMWikiRunner, STORMWikiRunnerArguments
 from baselines.mock_search import MockSearchRM
 from baselines.runner_utils import get_model_wrapper
+from baselines.wikipedia_search import WikipediaSearchRM
 from utils.ollama_client import OllamaClient
 from config.model_config import ModelConfig
 
@@ -14,7 +15,8 @@ def setup_storm_runner(client: OllamaClient, config: ModelConfig, storm_output_d
     lm_config.set_article_gen_lm(get_model_wrapper(client, config, "writing"))
     lm_config.set_article_polish_lm(get_model_wrapper(client, config, "polish"))
 
-    search_rm = MockSearchRM(k=3)
+    # search_rm = MockSearchRM(k=3)
+    search_rm = WikipediaSearchRM(k=3)
 
     engine_args = STORMWikiRunnerArguments(
         output_dir=storm_output_dir,

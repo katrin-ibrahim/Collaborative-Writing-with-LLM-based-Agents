@@ -1,37 +1,38 @@
-2025-07-08 19:59:42,956 - __main__ - INFO - 🦙 Ollama Baseline Experiment Runner
-2025-07-08 19:59:42,956 - __main__ - INFO - 📡 Ollama host: http://10.167.31.201:11434/
-2025-07-08 19:59:42,956 - __main__ - INFO - 📝 Topics: 1
-2025-07-08 19:59:42,956 - __main__ - INFO - Using default model configuration
-2025-07-08 19:59:42,956 - __main__ - INFO - 🤖 Models configured:
-2025-07-08 19:59:42,956 - __main__ - INFO -   - Research: qwen2.5:7b
-2025-07-08 19:59:42,956 - __main__ - INFO -   - Outline: qwen2.5:14b
-2025-07-08 19:59:42,956 - __main__ - INFO -   - Writing: qwen2.5:32b
-2025-07-08 19:59:42,956 - __main__ - INFO -   - Critique: qwen2.5:14b
-2025-07-08 19:59:42,960 - utils.ollama_client - INFO - OllamaClient initialized with host: http://10.167.31.201:11434/, default model: qwen2.5:7b
-2025-07-08 19:59:43,242 - utils.ollama_client - INFO - Available Ollama models: ['qwen3:30b', 'PetrosStav/gemma3-tools:27b', 'PetrosStav/gemma3-tools:12b', 'mistral:7b-instruct', 'test:latest', 'qwen2.5:3b', 'qwen2.5:7b', 'qwen2.5:14b', 'gemma3:27b', 'llama3.2:3b-instruct-q4_K_M', 'ilsp/meltemi-instruct-v1.5:latest', 'command-r7b:latest', 'dolphin3:latest', 'llama3.3:latest', 'deepseek-r1:70b', 'deepseek-r1:14b', 'phi4:latest', 'granite3-moe:3b', 'granite-embedding:278m-fp16', 'granite3.1-moe:3b-instruct-q4_K_M', 'qwen2.5:32b', 'qwen2.5:72b', 'llama3.2:latest', 'gemma2:latest', 'llama3.1:latest']
-2025-07-08 19:59:43,243 - baselines.runner - INFO - Connected to Ollama with 25 models available
-2025-07-08 19:59:43,243 - utils.freshwiki_loader - INFO - Loading FreshWiki dataset from /Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/freshwiki
-2025-07-08 19:59:43,244 - utils.freshwiki_loader - INFO - Loading 30 quality-filtered FreshWiki entries...
-2025-07-08 19:59:43,267 - utils.freshwiki_loader - INFO - Successfully loaded 30 quality FreshWiki entries
-2025-07-08 19:59:43,267 - utils.freshwiki_loader - INFO - Sample topics:
-2025-07-08 19:59:43,267 - utils.freshwiki_loader - INFO -   1. Dancing_with_the_Stars_(American_season_31) (1382 words, 18 sections)
-2025-07-08 19:59:43,267 - utils.freshwiki_loader - INFO -   2. Cyclone_Mocha (2396 words, 11 sections)
-2025-07-08 19:59:43,267 - utils.freshwiki_loader - INFO -   3. 2022_Winter_Olympics_opening_ceremony (2371 words, 20 sections)
-2025-07-08 19:59:43,267 - utils.freshwiki_loader - INFO - Selected 1 topics for evaluation:
-2025-07-08 19:59:43,268 - utils.freshwiki_loader - INFO -   1. Chris_Sharma (2417 words, 16 sections)
-2025-07-08 19:59:43,268 - __main__ - INFO - ✅ Loaded 1 topics
-2025-07-08 19:59:43,268 - __main__ - INFO - 🚀 Starting...
-2025-07-08 19:59:43,268 - baselines.runner - INFO - Running Direct Prompting for: Chris_Sharma
-2025-07-08 19:59:43,268 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:32b
-Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 2048
-2025-07-08 20:00:20,510 - utils.output_manager - INFO - Saved direct article: results/ollama/run_20250708_195942/articles/direct_Chris_Sharma.md
-2025-07-08 20:00:20,510 - baselines.runner - INFO - Running STORM for: Chris_Sharma
-2025-07-08 20:00:20,511 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:7b
-2025-07-08 20:00:20,511 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:7b
-2025-07-08 20:00:20,511 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:14b
-2025-07-08 20:00:20,511 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:32b
-2025-07-08 20:00:20,511 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:7b
-2025-07-08 20:00:20,511 - baselines.mock_search - INFO - MockSearchRM initialized with k=3
+2025-07-08 21:38:11,126 - __main__ - INFO - 🦙 Ollama Baseline Experiment Runner
+2025-07-08 21:38:11,126 - __main__ - INFO - 📡 Ollama host: http://10.167.31.201:11434/
+2025-07-08 21:38:11,126 - __main__ - INFO - 📝 Topics: 1
+2025-07-08 21:38:11,126 - __main__ - INFO - Using default model configuration
+2025-07-08 21:38:11,126 - __main__ - INFO - 🤖 Models configured:
+2025-07-08 21:38:11,126 - __main__ - INFO -   - Research: qwen2.5:7b
+2025-07-08 21:38:11,126 - __main__ - INFO -   - Outline: qwen2.5:14b
+2025-07-08 21:38:11,126 - __main__ - INFO -   - Writing: qwen2.5:32b
+2025-07-08 21:38:11,126 - __main__ - INFO -   - Critique: qwen2.5:14b
+2025-07-08 21:38:11,130 - utils.ollama_client - INFO - OllamaClient initialized with host: http://10.167.31.201:11434/, default model: qwen2.5:7b
+2025-07-08 21:38:11,427 - utils.ollama_client - INFO - Available Ollama models: ['qwen3:30b', 'PetrosStav/gemma3-tools:27b', 'PetrosStav/gemma3-tools:12b', 'mistral:7b-instruct', 'test:latest', 'qwen2.5:3b', 'qwen2.5:7b', 'qwen2.5:14b', 'gemma3:27b', 'llama3.2:3b-instruct-q4_K_M', 'ilsp/meltemi-instruct-v1.5:latest', 'command-r7b:latest', 'dolphin3:latest', 'llama3.3:latest', 'deepseek-r1:70b', 'deepseek-r1:14b', 'phi4:latest', 'granite3-moe:3b', 'granite-embedding:278m-fp16', 'granite3.1-moe:3b-instruct-q4_K_M', 'qwen2.5:32b', 'qwen2.5:72b', 'llama3.2:latest', 'gemma2:latest', 'llama3.1:latest']
+2025-07-08 21:38:11,427 - baselines.runner - INFO - Connected to Ollama with 25 models available
+2025-07-08 21:38:11,428 - utils.freshwiki_loader - INFO - Loading FreshWiki dataset from /Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/freshwiki
+2025-07-08 21:38:11,428 - utils.freshwiki_loader - INFO - Loading 30 quality-filtered FreshWiki entries...
+2025-07-08 21:38:11,448 - utils.freshwiki_loader - INFO - Successfully loaded 30 quality FreshWiki entries
+2025-07-08 21:38:11,448 - utils.freshwiki_loader - INFO - Sample topics:
+2025-07-08 21:38:11,448 - utils.freshwiki_loader - INFO -   1. Dancing_with_the_Stars_(American_season_31) (1382 words, 18 sections)
+2025-07-08 21:38:11,449 - utils.freshwiki_loader - INFO -   2. Cyclone_Mocha (2396 words, 11 sections)
+2025-07-08 21:38:11,449 - utils.freshwiki_loader - INFO -   3. 2022_Winter_Olympics_opening_ceremony (2371 words, 20 sections)
+2025-07-08 21:38:11,449 - utils.freshwiki_loader - INFO - Selected 1 topics for evaluation:
+2025-07-08 21:38:11,449 - utils.freshwiki_loader - INFO -   1. Taylor_Hawkins (2392 words, 11 sections)
+2025-07-08 21:38:11,449 - __main__ - INFO - ✅ Loaded 1 topics
+2025-07-08 21:38:11,449 - __main__ - INFO - 🚀 Starting...
+2025-07-08 21:38:11,449 - baselines.runner - INFO - Running Direct Prompting for: Taylor_Hawkins
+2025-07-08 21:38:11,449 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:32b
+Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 50
+2025-07-08 21:38:52,747 - utils.output_manager - INFO - Saved direct article: results/ollama/run_20250708_213811/articles/direct_Taylor_Hawkins.md
+2025-07-08 21:38:52,749 - baselines.runner - INFO - Running STORM for: Taylor_Hawkins
+2025-07-08 21:38:52,750 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:7b
+2025-07-08 21:38:52,751 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:7b
+2025-07-08 21:38:52,751 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:14b
+2025-07-08 21:38:52,751 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:32b
+2025-07-08 21:38:52,751 - baselines.llm_wrapper - INFO - OllamaLiteLLMWrapper initialized with model: qwen2.5:7b
+2025-07-08 21:38:52,751 - knowledge.wikipedia_retriever - INFO - Enhanced WikipediaRetriever initialized with cache at: data/wiki_cache
+2025-07-08 21:38:52,751 - baselines.wikipedia_search - INFO - WikipediaSearchRM initialized with k=3
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
@@ -41,6 +42,51 @@ Accessing key: 1
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+Accessing key: 0
+Accessing key: 1
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+Accessing key: 0
+Accessing key: 1
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+Accessing key: 0
+Accessing key: 1
+Accessing key: 0
+Accessing key: 1
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+Accessing key: 0
+Accessing key: 1
+Accessing key: 0
+Accessing key: 1
+2025-07-08 21:39:21,771 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
+2025-07-08 21:39:21,924 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
+2025-07-08 21:39:22,042 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
+2025-07-08 21:39:22,232 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
+2025-07-08 21:39:25,678 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Bob Dylan': Page id "bob dan" does not match any pages. Try another id!
+2025-07-08 21:39:27,402 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 2: Taylor Hawkins place of birth'
+2025-07-08 21:39:27,403 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+2025-07-08 21:39:27,490 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 2: musical influences on Taylor Hawkins'
+2025-07-08 21:39:27,491 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+2025-07-08 21:39:27,839 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Bob Dylan': Page id "bob dan" does not match any pages. Try another id!
+2025-07-08 21:39:27,839 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 3: Taylor Hawkins family musical background'
+2025-07-08 21:39:27,839 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+2025-07-08 21:39:27,854 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 3: Taylor Hawkins early life details'
+2025-07-08 21:39:27,854 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+2025-07-08 21:39:27,950 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 1: Taylor Hawkins birth date'
+2025-07-08 21:39:27,951 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+2025-07-08 21:39:28,006 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Bob Dylan': Page id "bob dan" does not match any pages. Try another id!
+2025-07-08 21:39:28,006 - knowledge.wikipedia_retriever - INFO - Retrieved 1 Wikipedia snippets for 'query 1: Taylor Hawkins birthplace'
+2025-07-08 21:39:28,006 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 1 results for 1 queries
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+Accessing key: 0
+Accessing key: 1
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+Accessing key: 0
+Accessing key: 1
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+Accessing key: 0
+Accessing key: 1
+Using model: qwen2.5:7b, temperature: 0.0, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
 Using model: qwen2.5:7b, temperature: 0.0, max_tokens: 50
@@ -52,28 +98,22 @@ Accessing key: 1
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
-2025-07-08 20:00:33,264 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:33,264 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:33,264 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
+2025-07-08 21:39:32,652 - knowledge.wikipedia_retriever - INFO - Retrieved 3 Wikipedia snippets for 'query 2: "initial roles of Taylor Hawkins in The Who'
+2025-07-08 21:39:32,653 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 3 results for 1 queries
+2025-07-08 21:39:32,682 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
+2025-07-08 21:39:35,298 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Cary Grant': Page id "car grant" does not match any pages. Try another id!
+2025-07-08 21:39:35,332 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
+2025-07-08 21:39:37,514 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
+2025-07-08 21:39:38,591 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 1: Taylor Hawkins birth date and place of birth'
+2025-07-08 21:39:38,594 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+2025-07-08 21:39:39,148 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 3: official biography Taylor Hawkins birth information'
+2025-07-08 21:39:39,149 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+2025-07-08 21:40:37,759 - knowledge.wikipedia_retriever - INFO - Retrieved 3 Wikipedia snippets for 'query 1: "Taylor Hawkins joined The Who'
+2025-07-08 21:40:37,761 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 3 results for 1 queries
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-2025-07-08 20:00:33,662 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:33,662 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:33,662 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-2025-07-08 20:00:33,970 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:33,970 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:33,970 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+2025-07-08 21:40:39,799 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Ted Bundy': Page id "ted buddy" does not match any pages. Try another id!
 Accessing key: 0
 Accessing key: 1
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
@@ -82,88 +122,68 @@ Accessing key: 1
 Using model: qwen2.5:7b, temperature: 0.0, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
-Using model: qwen2.5:7b, temperature: 0.0, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
+2025-07-08 21:40:43,022 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Bob Dylan': Page id "bob dan" does not match any pages. Try another id!
+2025-07-08 21:40:43,497 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'List of events at Soldier Field': An unknown error occured: "Search is currently too busy. Please try again later.". Please report it on GitHub!
+2025-07-08 21:40:43,497 - knowledge.wikipedia_retriever - INFO - Retrieved 0 Wikipedia snippets for 'query 3: Taylor Hawkins drumming contributions The Who'
+2025-07-08 21:40:43,498 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 0 results for 1 queries
+2025-07-08 21:40:43,647 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 2: Taylor Hawkins early life details'
+2025-07-08 21:40:43,648 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
+Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
+2025-07-08 21:40:43,918 - knowledge.wikipedia_retriever - INFO - Retrieved 1 Wikipedia snippets for 'query 3: Taylor Hawkins upbringing and musical beginnings'
+2025-07-08 21:40:43,918 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 1 results for 1 queries
+Accessing key: 0
+Accessing key: 1
+2025-07-08 21:40:46,383 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Datalog': Page id "d analog" does not match any pages. Try another id!
+2025-07-08 21:40:49,885 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Othello': Page id "or hello" does not match any pages. Try another id!
+2025-07-08 21:40:49,885 - knowledge.wikipedia_retriever - INFO - Retrieved 1 Wikipedia snippets for 'query 1: significant performances Taylor Hawkins The Who'
+2025-07-08 21:40:49,885 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 1 results for 1 queries
+2025-07-08 21:40:54,336 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'List of glaciers in the United States': HTTPConnectionPool(host='en.wikipedia.org', port=80): Max retries exceeded with url: /w/api.php?prop=extracts&explaintext=&exintro=&titles=List+of+glaciers+in+the+United+States&format=json&action=query (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x17dce1110>, 'Connection to en.wikipedia.org timed out. (connect timeout=None)'))
+2025-07-08 21:40:54,336 - knowledge.wikipedia_retriever - INFO - Retrieved 1 Wikipedia snippets for 'query 1: Taylor Hawkins early life'
+2025-07-08 21:40:54,336 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 1 results for 1 queries
+2025-07-08 21:41:55,016 - knowledge.wikipedia_retriever - WARNING - Error retrieving page 'Bob Dylan': Page id "bob dan" does not match any pages. Try another id!
+2025-07-08 21:41:55,018 - knowledge.wikipedia_retriever - INFO - Retrieved 2 Wikipedia snippets for 'query 2: Taylor Hawkins childhood influences'
+2025-07-08 21:41:55,019 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 2 results for 1 queries
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
-2025-07-08 20:00:38,685 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:38,685 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:38,686 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
+2025-07-08 21:41:59,722 - knowledge.wikipedia_retriever - INFO - Retrieved 3 Wikipedia snippets for 'query 2: notable records Taylor Hawkins The Who'
+2025-07-08 21:41:59,723 - baselines.wikipedia_search - INFO - WikipediaSearchRM returned 3 results for 1 queries
 Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
-2025-07-08 20:00:39,483 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:39,484 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:39,484 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-Accessing key: 0
-Accessing key: 1
-Using model: qwen2.5:7b, temperature: 0.0, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-Accessing key: 0
-Accessing key: 1
-2025-07-08 20:00:44,830 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:44,830 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-2025-07-08 20:00:44,830 - baselines.mock_search - INFO - MockSearchRM returned 3 results for 1 queries
-Using model: qwen2.5:7b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-2025-07-08 20:00:46,753 - knowledge_storm.interface - INFO - run_knowledge_curation_module executed in 26.2376 seconds
+2025-07-08 21:42:01,165 - knowledge_storm.interface - INFO - run_knowledge_curation_module executed in 188.4046 seconds
 Using model: qwen2.5:14b, temperature: 0.5, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
 Using model: qwen2.5:14b, temperature: 0.5, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
-2025-07-08 20:00:56,410 - knowledge_storm.interface - INFO - run_outline_generation_module executed in 9.6570 seconds
-2025-07-08 20:00:56,441 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: mps
-2025-07-08 20:00:56,441 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: paraphrase-MiniLM-L6-v2
-Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 50
-Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 50
-Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 50
+2025-07-08 21:42:11,500 - knowledge_storm.interface - INFO - run_outline_generation_module executed in 10.3351 seconds
+2025-07-08 21:42:11,548 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: mps
+2025-07-08 21:42:11,548 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: paraphrase-MiniLM-L6-v2
 Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
+2025-07-08 21:42:21,131 - knowledge_storm.interface - INFO - run_article_generation_module executed in 9.6299 seconds
 Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 50
 Accessing key: 0
 Accessing key: 1
-Accessing key: 0
-Accessing key: 1
-Accessing key: 0
-Accessing key: 1
-Accessing key: 0
-Accessing key: 1
-2025-07-08 20:01:41,715 - knowledge_storm.interface - INFO - run_article_generation_module executed in 45.3044 seconds
-Using model: qwen2.5:32b, temperature: 0.7, max_tokens: 50
-Accessing key: 0
-Accessing key: 1
-2025-07-08 20:01:53,434 - knowledge_storm.interface - INFO - run_article_polishing_module executed in 11.7174 seconds
-2025-07-08 20:01:53,435 - baselines.runner_utils - INFO - Using STORM output from: storm_gen_article_polished.txt
-2025-07-08 20:01:53,436 - utils.output_manager - INFO - Saved storm article: results/ollama/run_20250708_195942/articles/storm_Chris_Sharma.md
-2025-07-08 20:01:53,439 - __main__ - INFO - ⏱️  Total experiment time: 130.2s
-2025-07-08 20:01:53,439 - __main__ - INFO - 📊 Evaluating results...
-2025-07-08 20:01:53,444 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: mps
-2025-07-08 20:01:53,445 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
-2025-07-08 20:01:56,841 - ArticleEvaluator - INFO - SimpleEvaluator initialized with hybrid metrics
-2025-07-08 20:02:02,036 - __main__ - INFO - 💾 Results saved to: results/ollama/run_20250708_195942/results.json
-2025-07-08 20:02:02,036 - __main__ - INFO - 
+2025-07-08 21:42:33,010 - knowledge_storm.interface - INFO - run_article_polishing_module executed in 11.8781 seconds
+2025-07-08 21:42:33,011 - baselines.runner_utils - INFO - Using STORM output from: storm_gen_article_polished.txt
+2025-07-08 21:42:33,011 - utils.output_manager - INFO - Saved storm article: results/ollama/run_20250708_213811/articles/storm_Taylor_Hawkins.md
+2025-07-08 21:42:33,013 - __main__ - INFO - ⏱️  Total experiment time: 261.6s
+2025-07-08 21:42:33,013 - __main__ - INFO - 📊 Evaluating results...
+2025-07-08 21:42:33,017 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: mps
+2025-07-08 21:42:33,018 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2025-07-08 21:42:37,219 - ArticleEvaluator - INFO - SimpleEvaluator initialized with hybrid metrics
+2025-07-08 21:42:38,459 - __main__ - INFO - 💾 Results saved to: results/ollama/run_20250708_213811/results.json
+2025-07-08 21:42:38,459 - __main__ - INFO - 
 📊 SUMMARY
-2025-07-08 20:02:02,036 - __main__ - INFO - ==================================================
-2025-07-08 20:02:02,036 - __main__ - INFO - direct: 1/1 successful, 816 avg words
-2025-07-08 20:02:02,036 - __main__ - INFO - storm: 1/1 successful, 1751 avg words
-2025-07-08 20:02:02,036 - __main__ - INFO - 
+2025-07-08 21:42:38,459 - __main__ - INFO - ==================================================
+2025-07-08 21:42:38,459 - __main__ - INFO - direct: 1/1 successful, 905 avg words
+2025-07-08 21:42:38,459 - __main__ - INFO - storm: 1/1 successful, 256 avg words
+2025-07-08 21:42:38,459 - __main__ - INFO - 
 ✅ Experiment completed successfully!
