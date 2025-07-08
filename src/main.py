@@ -4,25 +4,26 @@ Main runner for Ollama-based baseline experiments.
 Clean architecture without HPC workarounds.
 """
 import sys
-import os
-from pathlib import Path
-import json
-import logging
 import time
 from datetime import datetime
+from pathlib import Path
+
+import json
+import logging
+import os
 
 # Add src directory to path
-src_dir = Path(__file__).parent / 'src'
+src_dir = Path(__file__).parent / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from utils.freshwiki_loader import FreshWikiLoader
-from evaluation.evaluator import ArticleEvaluator
-from utils.logging_setup import setup_logging
-from config.model_config import ModelConfig
 from baselines.runner import BaselineRunner
-from utils.output_manager import OutputManager
 from cli_args import parse_arguments  # Import from new file
+from config.model_config import ModelConfig
+from evaluation.evaluator import ArticleEvaluator
+from utils.freshwiki_loader import FreshWikiLoader
+from utils.logging_setup import setup_logging
+from utils.output_manager import OutputManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,8 @@ def load_model_config(config_file: str) -> ModelConfig:
     if os.path.exists(config_file):
         try:
             import yaml
-            with open(config_file, 'r') as f:
+
+            with open(config_file, "r") as f:
                 config_dict = yaml.safe_load(f)
             return ModelConfig.from_dict(config_dict)
         except Exception as e:
@@ -46,6 +48,13 @@ def main():
     args = parse_arguments()
 
     setup_logging(args.log_level)
+    if args.log_level == "DEBUG":
+        logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
+        logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.DEBUG)
+    else:
+        # Set search modules to INFO level for detailed search tracking
+        logging.getLogger("baselines.wikipedia_search").setLevel(logging.INFO)
+        logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.INFO)
 
     logger.info("🦙 Ollama Baseline Experiment Runner")
     logger.info(f"📡 Ollama host: {args.ollama_host}")
@@ -64,12 +73,11 @@ def main():
         output_dir = Path(args.output_dir) / f"run_{timestamp}"
         output_dir.mkdir(parents=True, exist_ok=True)
         output_manager = OutputManager(str(output_dir), debug_mode=args.debug)
-    
 
         runner = BaselineRunner(
             ollama_host=args.ollama_host,
             model_config=model_config,
-            output_manager=output_manager
+            output_manager=output_manager,
         )
 
         freshwiki = FreshWikiLoader()
@@ -81,8 +89,6 @@ def main():
 
         topics = [entry.topic for entry in entries]
         logger.info(f"✅ Loaded {len(topics)} topics")
-
-      
 
         logger.info("🚀 Starting...")
         start_time = time.time()
@@ -114,12 +120,12 @@ def main():
                     all_results[topic]["direct"] = {
                         "success": True,
                         "word_count": direct_result.metadata.get("word_count", 0),
-                        "article": direct_result
+                        "article": direct_result,
                     }
                 else:
                     all_results[topic]["direct"] = {
                         "success": False,
-                        "error": "Direct result not found"
+                        "error": "Direct result not found",
                     }
 
             if "storm" in args.methods:
@@ -130,14 +136,14 @@ def main():
                     all_results[topic]["storm"] = {
                         "success": True,
                         "word_count": storm_result.metadata.get("word_count", 0),
-                        "article": storm_result
+                        "article": storm_result,
                     }
                 else:
                     all_results[topic]["storm"] = {
                         "success": False,
-                        "error": "Storm result not found"
+                        "error": "Storm result not found",
                     }
-       
+
         total_time = time.time() - start_time
         logger.info(f"⏱️  Total experiment time: {total_time:.1f}s")
 
@@ -158,10 +164,12 @@ def main():
                             )
                             result["metrics"] = metrics
                         except Exception as e:
-                            logger.warning(f"Evaluation failed for {method} on {topic}: {e}")
+                            logger.warning(
+                                f"Evaluation failed for {method} on {topic}: {e}"
+                            )
 
         results_file = output_dir / "results.json"
-        with open(results_file, 'w', encoding='utf-8') as f:
+        with open(results_file, "w", encoding="utf-8") as f:
             serializable_results = {}
             for topic, methods_results in all_results.items():
                 serializable_results[topic] = {}
@@ -170,31 +178,35 @@ def main():
                         "success": result["success"],
                         "word_count": result["word_count"],
                         "article": result["article"].to_dict(),
-                        "metrics": result.get("metrics", {})
+                        "metrics": result.get("metrics", {}),
                     }
 
-            json.dump({
-                "configuration": {
-                    "ollama_host": args.ollama_host,
-                    "methods": args.methods,
-                    "num_topics": args.num_topics,
-                    "models": {
-                        "default": model_config.default_model,
-                        "outline": model_config.outline_model,
-                        "writing": model_config.writing_model,
-                        "critique": model_config.critique_model,
-                        "retrieval": model_config.retrieval_model,
-                        "generation": model_config.generation_model,
-                        "reflection": model_config.reflection_model
-                    }
+            json.dump(
+                {
+                    "configuration": {
+                        "ollama_host": args.ollama_host,
+                        "methods": args.methods,
+                        "num_topics": args.num_topics,
+                        "models": {
+                            "default": model_config.default_model,
+                            "outline": model_config.outline_model,
+                            "writing": model_config.writing_model,
+                            "critique": model_config.critique_model,
+                            "retrieval": model_config.retrieval_model,
+                            "generation": model_config.generation_model,
+                            "reflection": model_config.reflection_model,
+                        },
+                    },
+                    "results": serializable_results,
+                    "summary": {
+                        "total_time": total_time,
+                        "topics_processed": len(topics),
+                        "methods_run": args.methods,
+                    },
                 },
-                "results": serializable_results,
-                "summary": {
-                    "total_time": total_time,
-                    "topics_processed": len(topics),
-                    "methods_run": args.methods
-                }
-            }, f, indent=2)
+                f,
+                indent=2,
+            )
 
         logger.info(f"💾 Results saved to: {results_file}")
 
@@ -202,7 +214,8 @@ def main():
         logger.info("=" * 50)
         for method in args.methods:
             successes = sum(
-                1 for r in all_results.values()
+                1
+                for r in all_results.values()
                 if r.get(method, {}).get("success", False)
             )
             total_words = sum(
@@ -212,7 +225,9 @@ def main():
             )
             avg_words = total_words / max(successes, 1)
 
-            logger.info(f"{method}: {successes}/{len(topics)} successful, {avg_words:.0f} avg words")
+            logger.info(
+                f"{method}: {successes}/{len(topics)} successful, {avg_words:.0f} avg words"
+            )
 
         logger.info("\n✅ Experiment completed successfully!")
         return 0
@@ -223,6 +238,7 @@ def main():
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}")
         import traceback
+
         logger.debug(traceback.format_exc())
         return 1
 

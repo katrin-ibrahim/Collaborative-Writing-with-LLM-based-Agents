@@ -1,6 +1,6 @@
 # src/evaluation/metrics/heading_metrics.py
-from typing import List
 import re
+from typing import List
 
 
 class HeadingMetrics:
@@ -16,8 +16,8 @@ class HeadingMetrics:
     def _init_embedder(self):
         """Initialize sentence transformer with fallback to word overlap."""
         try:
-            from sentence_transformers import SentenceTransformer
             import numpy as np
+            from sentence_transformers import SentenceTransformer
 
             self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
             self.np = np
@@ -30,11 +30,11 @@ class HeadingMetrics:
         """Extract headings from markdown-style content."""
         headings = []
 
-        for line in content.split('\n'):
+        for line in content.split("\n"):
             line = line.strip()
-            if line.startswith('#'):
+            if line.startswith("#"):
                 # Remove markdown symbols and extract heading text
-                heading = re.sub(r'^#+\s*', '', line).strip()
+                heading = re.sub(r"^#+\s*", "", line).strip()
                 if heading and len(heading) > 1:
                     headings.append(heading)
 
@@ -43,8 +43,8 @@ class HeadingMetrics:
     def normalize_heading(self, heading: str) -> str:
         """Basic heading normalization."""
         # Remove numbering and extra whitespace
-        heading = re.sub(r'^\d+\.?\s*', '', heading)
-        heading = ' '.join(heading.split())
+        heading = re.sub(r"^\d+\.?\s*", "", heading)
+        heading = " ".join(heading.split())
         return heading.strip()
 
     def calculate_semantic_similarity(self, heading1: str, heading2: str) -> float:
@@ -60,7 +60,8 @@ class HeadingMetrics:
             try:
                 embeddings = self.embedder.encode([norm1, norm2])
                 similarity = self.np.dot(embeddings[0], embeddings[1]) / (
-                        self.np.linalg.norm(embeddings[0]) * self.np.linalg.norm(embeddings[1])
+                    self.np.linalg.norm(embeddings[0])
+                    * self.np.linalg.norm(embeddings[1])
                 )
                 return max(0.0, float(similarity))
             except:
@@ -79,8 +80,9 @@ class HeadingMetrics:
 
         return intersection / union if union > 0 else 0.0
 
-    def calculate_heading_soft_recall(self, generated_headings: List[str],
-                                      reference_headings: List[str]) -> float:
+    def calculate_heading_soft_recall(
+        self, generated_headings: List[str], reference_headings: List[str]
+    ) -> float:
         """
         Calculate Heading Soft Recall (HSR) using semantic similarity.
 
@@ -99,7 +101,9 @@ class HeadingMetrics:
             best_similarity = 0.0
 
             for gen_heading in generated_headings:
-                similarity = self.calculate_semantic_similarity(ref_heading, gen_heading)
+                similarity = self.calculate_semantic_similarity(
+                    ref_heading, gen_heading
+                )
                 best_similarity = max(best_similarity, similarity)
 
             total_similarity += best_similarity

@@ -1,7 +1,8 @@
 # src/evaluation/metrics/rouge_metrics.py
-from typing import Dict, List
 from collections import Counter
+
 import re
+from typing import Dict, List
 
 
 class ROUGEMetrics:
@@ -21,7 +22,7 @@ class ROUGEMetrics:
         text = text.lower()
 
         # Smart punctuation removal - keep hyphens in compound words
-        text = re.sub(r'[^\w\s\-]', ' ', text)
+        text = re.sub(r"[^\w\s\-]", " ", text)
 
         # Split into words
         words = text.split()
@@ -35,7 +36,7 @@ class ROUGEMetrics:
 
             # Skip pure numbers unless they look important (years, etc.)
             if word.isdigit():
-                if len(word) == 4 and word.startswith(('19', '20')):  # Years
+                if len(word) == 4 and word.startswith(("19", "20")):  # Years
                     filtered_words.append(word)
                 elif len(word) >= 3:  # Other significant numbers
                     filtered_words.append(word)
@@ -43,8 +44,8 @@ class ROUGEMetrics:
                 continue
 
             # Keep hyphenated words but normalize them
-            if '-' in word:
-                word = word.replace('-', '_')
+            if "-" in word:
+                word = word.replace("-", "_")
 
             filtered_words.append(word)
 
@@ -74,10 +75,12 @@ class ROUGEMetrics:
             return 0.0
 
         # Create bigrams with separator
-        gen_bigrams = [f"{gen_words[i]}||{gen_words[i + 1]}"
-                       for i in range(len(gen_words) - 1)]
-        ref_bigrams = [f"{ref_words[i]}||{ref_words[i + 1]}"
-                       for i in range(len(ref_words) - 1)]
+        gen_bigrams = [
+            f"{gen_words[i]}||{gen_words[i + 1]}" for i in range(len(gen_words) - 1)
+        ]
+        ref_bigrams = [
+            f"{ref_words[i]}||{ref_words[i + 1]}" for i in range(len(ref_words) - 1)
+        ]
 
         if not ref_bigrams:
             return 0.0
@@ -119,7 +122,7 @@ class ROUGEMetrics:
     def calculate_all_rouge(self, generated: str, reference: str) -> Dict[str, float]:
         """Calculate all ROUGE metrics efficiently."""
         return {
-            'rouge_1': self.calculate_rouge_1(generated, reference),
-            'rouge_2': self.calculate_rouge_2(generated, reference),
-            'rouge_l': self.calculate_rouge_l(generated, reference)
+            "rouge_1": self.calculate_rouge_1(generated, reference),
+            "rouge_2": self.calculate_rouge_2(generated, reference),
+            "rouge_l": self.calculate_rouge_l(generated, reference),
         }

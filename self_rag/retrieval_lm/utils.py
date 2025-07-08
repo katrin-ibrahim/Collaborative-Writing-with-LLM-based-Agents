@@ -1,61 +1,76 @@
-import jsonlines
-import json
 import copy
+
+import json
+import jsonlines
 import re
 
 PROMPT_DICT = {
     "prompt_input": (
         "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n"
     ),
-    "prompt_no_input": (
-        "### Instruction:\n{instruction}\n\n### Response:\n"
-    ),
+    "prompt_no_input": ("### Instruction:\n{instruction}\n\n### Response:\n"),
     "prompt_no_input_retrieval": (
         "Below is an instruction that describes a task. "
         "Write a response that appropriately completes the request.\n\n"
         "### Paragraph:\n{paragraph}\n\n### Instruction:\n{instruction}\n\n### Response:"
     ),
-    "prompt_open_instruct": (
-        "<user>\n{instruction}\n"
-        "<assistant>\n"
-    ),
+    "prompt_open_instruct": ("<user>\n{instruction}\n" "<assistant>\n"),
     "prompt_open_instruct_retrieval": (
-        "<user>\nReference:{paragraph}\n{instruction}\n"
-        "<assistant>\n"
+        "<user>\nReference:{paragraph}\n{instruction}\n" "<assistant>\n"
     ),
-    "llama_chat_prompt": (
-        "[INST]{instruction}[/INST]"
-    ),
-    "llama_chat_prompt_retrieval": (
-        "[INST]{paragraph}\n{instruction}[/INST]"
-    ),
+    "llama_chat_prompt": ("[INST]{instruction}[/INST]"),
+    "llama_chat_prompt_retrieval": ("[INST]{paragraph}\n{instruction}[/INST]"),
 }
 
-TASK_INST = {"wow": "Given a chat history separated by new lines, generates an informative, knowledgeable and engaging response. ",
-             "fever": "Is the following statement correct or not? Say true if it's correct; otherwise say false.",
-             "eli5": "Provide a paragraph-length response using simple words to answer the following question.",
-             "obqa": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
-             "arc_easy": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
-             "arc_c": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
-             "trex": "Given the input format 'Subject Entity [SEP] Relationship Type,' predict the target entity.",
-             "asqa": "Answer the following question. The question may be ambiguous and have multiple correct answers, and in that case, you have to provide a long-form answer including all correct answers."}
+TASK_INST = {
+    "wow": "Given a chat history separated by new lines, generates an informative, knowledgeable and engaging response. ",
+    "fever": "Is the following statement correct or not? Say true if it's correct; otherwise say false.",
+    "eli5": "Provide a paragraph-length response using simple words to answer the following question.",
+    "obqa": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
+    "arc_easy": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
+    "arc_c": "Given four answer candidates, A, B, C and D, choose the best answer choice.",
+    "trex": "Given the input format 'Subject Entity [SEP] Relationship Type,' predict the target entity.",
+    "asqa": "Answer the following question. The question may be ambiguous and have multiple correct answers, and in that case, you have to provide a long-form answer including all correct answers.",
+}
 
 rel_tokens_names = ["[Irrelevant]", "[Relevant]"]
-retrieval_tokens_names = ["[No Retrieval]",
-                          "[Retrieval]", "[Continue to Use Evidence]"]
-utility_tokens_names = ["[Utility:1]", "[Utility:2]",
-                        "[Utility:3]", "[Utility:4]", "[Utility:5]"]
-ground_tokens_names = ["[Fully supported]",
-                       "[Partially supported]", "[No support / Contradictory]"]
-other_special_tokens = ["<s>", "</s>", "[PAD]",
-                        "<unk>", "<paragraph>", "</paragraph>"]
-control_tokens = ["[Fully supported]", "[Partially supported]", "[No support / Contradictory]", "[No Retrieval]", "[Retrieval]",
-                  "[Irrelevant]", "[Relevant]", "<paragraph>", "</paragraph>", "[Utility:1]", "[Utility:2]", "[Utility:3]", "[Utility:4]", "[Utility:5]"]
+retrieval_tokens_names = ["[No Retrieval]", "[Retrieval]", "[Continue to Use Evidence]"]
+utility_tokens_names = [
+    "[Utility:1]",
+    "[Utility:2]",
+    "[Utility:3]",
+    "[Utility:4]",
+    "[Utility:5]",
+]
+ground_tokens_names = [
+    "[Fully supported]",
+    "[Partially supported]",
+    "[No support / Contradictory]",
+]
+other_special_tokens = ["<s>", "</s>", "[PAD]", "<unk>", "<paragraph>", "</paragraph>"]
+control_tokens = [
+    "[Fully supported]",
+    "[Partially supported]",
+    "[No support / Contradictory]",
+    "[No Retrieval]",
+    "[Retrieval]",
+    "[Irrelevant]",
+    "[Relevant]",
+    "<paragraph>",
+    "</paragraph>",
+    "[Utility:1]",
+    "[Utility:2]",
+    "[Utility:3]",
+    "[Utility:4]",
+    "[Utility:5]",
+]
 
 
 def load_special_tokens(tokenizer, use_grounding=False, use_utility=False):
-    ret_tokens = {token: tokenizer.convert_tokens_to_ids(
-        token) for token in retrieval_tokens_names}
+    ret_tokens = {
+        token: tokenizer.convert_tokens_to_ids(token)
+        for token in retrieval_tokens_names
+    }
     rel_tokens = {}
     for token in ["[Irrelevant]", "[Relevant]"]:
         rel_tokens[token] = tokenizer.convert_tokens_to_ids(token)
@@ -77,13 +92,27 @@ def load_special_tokens(tokenizer, use_grounding=False, use_utility=False):
 
 def fix_spacing(input_text):
     # Add a space after periods that lack whitespace
-    output_text = re.sub(r'(?<=\w)([.!?])(?=\w)', r'\1 ', input_text)
+    output_text = re.sub(r"(?<=\w)([.!?])(?=\w)", r"\1 ", input_text)
     return output_text
 
 
 def postprocess(pred):
-    special_tokens = ["[Fully supported]", "[Partially supported]", "[No support / Contradictory]", "[No Retrieval]", "[Retrieval]",
-                      "[Irrelevant]", "[Relevant]", "<paragraph>", "</paragraph>", "[Utility:1]", "[Utility:2]", "[Utility:3]", "[Utility:4]", "[Utility:5]"]
+    special_tokens = [
+        "[Fully supported]",
+        "[Partially supported]",
+        "[No support / Contradictory]",
+        "[No Retrieval]",
+        "[Retrieval]",
+        "[Irrelevant]",
+        "[Relevant]",
+        "<paragraph>",
+        "</paragraph>",
+        "[Utility:1]",
+        "[Utility:2]",
+        "[Utility:3]",
+        "[Utility:4]",
+        "[Utility:5]",
+    ]
     for item in special_tokens:
         pred = pred.replace(item, "")
     pred = pred.replace("</s>", "")
@@ -96,7 +125,7 @@ def postprocess(pred):
 
 
 def load_jsonlines(file):
-    with jsonlines.open(file, 'r') as jsonl_f:
+    with jsonlines.open(file, "r") as jsonl_f:
         lst = [obj for obj in jsonl_f]
     return lst
 
@@ -110,7 +139,7 @@ def load_file(input_fp):
 
 
 def save_file_jsonl(data, fp):
-    with jsonlines.open(fp, mode='w') as writer:
+    with jsonlines.open(fp, mode="w") as writer:
         writer.write_all(data)
 
 
@@ -118,8 +147,7 @@ def preprocess_input(input_data, task):
     if task == "factscore":
         for item in input_data:
             item["instruction"] = item["input"]
-            item["output"] = [item["output"]
-                              ] if "output" in item else [item["topic"]]
+            item["output"] = [item["output"]] if "output" in item else [item["topic"]]
         return input_data
 
     elif task == "qa":
@@ -144,7 +172,12 @@ def preprocess_input(input_data, task):
 
 def postprocess_output(input_instance, prediction, task, intermediate_results=None):
     if task == "factscore":
-        return {"input": input_instance["input"], "output": prediction, "topic": input_instance["topic"], "cat": input_instance["cat"]}
+        return {
+            "input": input_instance["input"],
+            "output": prediction,
+            "topic": input_instance["topic"],
+            "cat": input_instance["cat"],
+        }
 
     elif task == "qa":
         input_instance["pred"] = prediction
@@ -158,18 +191,23 @@ def postprocess_output(input_instance, prediction, task, intermediate_results=No
             input_instance["output"] = postprocess(prediction)
 
         else:
-            for idx, (sent, doc) in enumerate(zip(intermediate_results["splitted_sentences"][0], intermediate_results["ctxs"][0])):
+            for idx, (sent, doc) in enumerate(
+                zip(
+                    intermediate_results["splitted_sentences"][0],
+                    intermediate_results["ctxs"][0],
+                )
+            ):
                 if len(sent) == 0:
                     continue
                 postprocessed_result = postprocess(sent)
-                final_output += postprocessed_result[:-
-                                                     1] + " [{}]".format(idx) + ". "
+                final_output += postprocessed_result[:-1] + " [{}]".format(idx) + ". "
                 docs.append(doc)
             if final_output[-1] == " ":
                 final_output = final_output[:-1]
             input_instance["output"] = final_output
         input_instance["docs"] = docs
         return input_instance
+
 
 def process_arc_instruction(item, instruction):
     choices = item["choices"]
@@ -190,10 +228,14 @@ def process_arc_instruction(item, instruction):
 
     if "D" not in answer_labels:
         answer_labels["D"] = ""
-    choices = "\nA: {0}\nB: {1}\nC: {2}\nD: {3}".format(answer_labels["A"], answer_labels["B"], answer_labels["C"], answer_labels["D"])
+    choices = "\nA: {0}\nB: {1}\nC: {2}\nD: {3}".format(
+        answer_labels["A"], answer_labels["B"], answer_labels["C"], answer_labels["D"]
+    )
     if "E" in answer_labels:
         choices += "\nE: {}".format(answer_labels["E"])
-    processed_instruction = instruction + "\n\n### Input:\n" + item["instruction"] + choices
+    processed_instruction = (
+        instruction + "\n\n### Input:\n" + item["instruction"] + choices
+    )
     return processed_instruction
 
 

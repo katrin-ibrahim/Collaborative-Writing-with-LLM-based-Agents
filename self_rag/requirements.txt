@@ -1,6 +1,6 @@
 # Recommend to use conda environment.
-# Please first check nvcc version and 
-# make sure it satisfies the vLLM's 
+# Please first check nvcc version and
+# make sure it satisfies the vLLM's
 # requirements.
 vllm==0.2.6
 tqdm
@@ -28,6 +28,6 @@ openai==0.28.1
 tiktoken==0.5.2
 
 # Please install factscore in a separate
-# env. There are conflicts with other 
+# env. There are conflicts with other
 # packages.
 # factscore==0.1.5

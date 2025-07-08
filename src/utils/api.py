@@ -2,30 +2,45 @@ import json
 import logging
 import re
 import requests
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional
+
 from utils.ollama_client import OllamaClient
+
 
 class APIClient:
     """Centralized API client for LLM interactions with Ollama support"""
 
-    def __init__(self, api_url: str = None, api_token: Optional[str] = None, 
-                 use_ollama: bool = False, ollama_host: str = "http://10.167.31.201:11434/"):
+    def __init__(
+        self,
+        api_url: str = None,
+        api_token: Optional[str] = None,
+        use_ollama: bool = False,
+        ollama_host: str = "http://10.167.31.201:11434/",
+    ):
         self.use_ollama = use_ollama
-        
+
         if use_ollama:
             self.client = OllamaClient(host=ollama_host)
             logging.info(f"Using Ollama API at {ollama_host}")
         else:
-            self.api_url = api_url or "https://router.huggingface.co/novita/v3/openai/chat/completions"
+            self.api_url = (
+                api_url
+                or "https://router.huggingface.co/novita/v3/openai/chat/completions"
+            )
             self.headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
             logging.info(f"Using API with token: {api_token is not None}")
 
-    def call_api(self, prompt: str, system_prompt: Optional[str] = None, model: str = "deepseek/deepseek-v3-0324") -> str:
+    def call_api(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: str = "deepseek/deepseek-v3-0324",
+    ) -> str:
         """Send prompt to API and return generated text"""
         if self.use_ollama:
             # Use Ollama client
             return self.client.call_api(prompt, system_prompt, model)
-        
+
         # Original API logic
         messages = []
         if system_prompt:

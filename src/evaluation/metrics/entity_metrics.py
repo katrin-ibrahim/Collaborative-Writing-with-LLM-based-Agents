@@ -1,6 +1,6 @@
 # src/evaluation/metrics/entity_metrics.py
-from typing import Set
 import re
+from typing import Set
 
 
 class EntityMetrics:
@@ -22,7 +22,7 @@ class EntityMetrics:
 
         # 1. Capitalized sequences (names, places, organizations)
         # Matches "John Smith", "New York", "Google Inc"
-        cap_sequences = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
+        cap_sequences = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", text)
         for seq in cap_sequences:
             # Filter out sentence starters and common words
             if not self._is_sentence_starter(seq, text) and len(seq) > 2:
@@ -30,22 +30,24 @@ class EntityMetrics:
 
         # 2. Numbers with context (years, percentages, money)
         number_patterns = [
-            r'\b(19|20)\d{2}\b',  # Years
-            r'\b\d+(?:\.\d+)?%\b',  # Percentages
-            r'\$\d+(?:,\d{3})*(?:\.\d{2})?\b',  # Money
-            r'\b\d+(?:\.\d+)?\s*(?:million|billion|thousand)\b',  # Large numbers
+            r"\b(19|20)\d{2}\b",  # Years
+            r"\b\d+(?:\.\d+)?%\b",  # Percentages
+            r"\$\d+(?:,\d{3})*(?:\.\d{2})?\b",  # Money
+            r"\b\d+(?:\.\d+)?\s*(?:million|billion|thousand)\b",  # Large numbers
         ]
 
         for pattern in number_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
-            entities.update(match.lower() if isinstance(match, str) else str(match).lower()
-                            for match in matches)
+            entities.update(
+                match.lower() if isinstance(match, str) else str(match).lower()
+                for match in matches
+            )
 
         # 3. Common entity markers
         # Things like "Dr. Smith", "President Obama"
         title_patterns = [
-            r'\b(?:Dr|Prof|President|CEO|Director)\.\s+[A-Z][a-z]+\b',
-            r'\b(?:Mr|Ms|Mrs)\.\s+[A-Z][a-z]+\b'
+            r"\b(?:Dr|Prof|President|CEO|Director)\.\s+[A-Z][a-z]+\b",
+            r"\b(?:Mr|Ms|Mrs)\.\s+[A-Z][a-z]+\b",
         ]
 
         for pattern in title_patterns:
@@ -57,7 +59,19 @@ class EntityMetrics:
     def _is_sentence_starter(self, word_sequence: str, full_text: str) -> bool:
         """Check if capitalized sequence is just a sentence starter."""
         # Simple heuristic: if it appears after '. ' or at start, likely sentence starter
-        sentence_starters = {'The', 'This', 'That', 'These', 'Those', 'A', 'An', 'In', 'On', 'At', 'For'}
+        sentence_starters = {
+            "The",
+            "This",
+            "That",
+            "These",
+            "Those",
+            "A",
+            "An",
+            "In",
+            "On",
+            "At",
+            "For",
+        }
         first_word = word_sequence.split()[0]
 
         # Check if it's a common sentence starter
@@ -65,7 +79,7 @@ class EntityMetrics:
             return True
 
         # Check if it appears after periods (sentence boundaries)
-        pattern = r'\.\s+' + re.escape(word_sequence)
+        pattern = r"\.\s+" + re.escape(word_sequence)
         return bool(re.search(pattern, full_text))
 
     def calculate_overall_entity_recall(self, generated: str, reference: str) -> float:

@@ -1,14 +1,16 @@
-import json
 import sys
-import logging
-from typing import List, Optional
-from dataclasses import dataclass
 from pathlib import Path
+
+import json
+import logging
+from dataclasses import dataclass
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
 # add src
 sys.path.append(str(Path(__file__).resolve().parent))
+
 
 @dataclass
 class FreshWikiEntry:
@@ -16,6 +18,7 @@ class FreshWikiEntry:
     Simple FreshWiki evaluation entry.
     All entries are pre-filtered for quality by the extraction script.
     """
+
     topic: str
     reference_outline: List[str]
     reference_content: str
@@ -40,14 +43,18 @@ class FreshWikiLoader:
 
         if not self.data_path.exists():
             logger.error(f"FreshWiki data not found at: {self.data_path}")
-            logger.error("Run: python src/utils/extract_quality_freshwiki.py /path/to/FreshWiki")
+            logger.error(
+                "Run: python src/utils/extract_quality_freshwiki.py /path/to/FreshWiki"
+            )
             return
 
         json_dir = self.data_path / "json"
         txt_dir = self.data_path / "txt"
 
         if not json_dir.exists() or not txt_dir.exists():
-            logger.error("FreshWiki subdirectories not found. Run extraction script first.")
+            logger.error(
+                "FreshWiki subdirectories not found. Run extraction script first."
+            )
             return
 
         # Find matching JSON and TXT files
@@ -65,25 +72,25 @@ class FreshWikiLoader:
 
             try:
                 # Load JSON metadata
-                with open(json_file, 'r', encoding='utf-8') as f:
+                with open(json_file, "r", encoding="utf-8") as f:
                     json_data = json.load(f)
 
                 # Load text content
-                with open(txt_file, 'r', encoding='utf-8') as f:
+                with open(txt_file, "r", encoding="utf-8") as f:
                     content = f.read()
 
                 # Create entry
                 entry = FreshWikiEntry(
-                    topic=json_data.get('title', json_file.stem.replace('_', ' ')),
-                    reference_outline=json_data.get('sections', []),
+                    topic=json_data.get("title", json_file.stem.replace("_", " ")),
+                    reference_outline=json_data.get("sections", []),
                     reference_content=content,
                     metadata={
-                        'url': json_data.get('url', ''),
-                        'summary': json_data.get('summary', ''),
-                        'word_count': json_data.get('word_count', len(content.split())),
-                        'source_file': json_data.get('source_file', ''),
-                        'quality_filtered': True
-                    }
+                        "url": json_data.get("url", ""),
+                        "summary": json_data.get("summary", ""),
+                        "word_count": json_data.get("word_count", len(content.split())),
+                        "source_file": json_data.get("source_file", ""),
+                        "quality_filtered": True,
+                    },
                 )
 
                 self.entries.append(entry)
@@ -91,7 +98,9 @@ class FreshWikiLoader:
             except Exception as e:
                 logger.warning(f"Failed to load {json_file.name}: {e}")
 
-        logger.info(f"Successfully loaded {len(self.entries)} quality FreshWiki entries")
+        logger.info(
+            f"Successfully loaded {len(self.entries)} quality FreshWiki entries"
+        )
 
         # Log some examples
         if self.entries:
@@ -99,7 +108,9 @@ class FreshWikiLoader:
             for i, entry in enumerate(self.entries[:3], 1):
                 word_count = len(entry.reference_content.split())
                 section_count = len(entry.reference_outline)
-                logger.info(f"  {i}. {entry.topic} ({word_count} words, {section_count} sections)")
+                logger.info(
+                    f"  {i}. {entry.topic} ({word_count} words, {section_count} sections)"
+                )
 
     def get_evaluation_sample(self, n: int = 5) -> List[FreshWikiEntry]:
         """Get random sample of entries for evaluation."""
@@ -120,7 +131,9 @@ class FreshWikiLoader:
         for i, entry in enumerate(selected, 1):
             word_count = len(entry.reference_content.split())
             section_count = len(entry.reference_outline)
-            logger.info(f"  {i}. {entry.topic} ({word_count} words, {section_count} sections)")
+            logger.info(
+                f"  {i}. {entry.topic} ({word_count} words, {section_count} sections)"
+            )
 
         return selected
 
@@ -141,7 +154,7 @@ class FreshWikiLoader:
             return {
                 "status": "no_data",
                 "message": "No entries loaded. Run extraction script first.",
-                "total_entries": 0
+                "total_entries": 0,
             }
 
         word_counts = [len(entry.reference_content.split()) for entry in self.entries]
@@ -157,5 +170,5 @@ class FreshWikiLoader:
             "min_sections": min(section_counts),
             "max_sections": max(section_counts),
             "quality_filtered": True,
-            "sample_topics": [entry.topic for entry in self.entries[:5]]
+            "sample_topics": [entry.topic for entry in self.entries[:5]],
         }

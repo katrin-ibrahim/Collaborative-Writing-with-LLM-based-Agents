@@ -1,11 +1,12 @@
 # src/evaluation/simple_evaluator.py
 import logging
 from typing import Dict
-from utils.data_models import Article
-from utils.freshwiki_loader import FreshWikiEntry
-from evaluation.metrics.rouge_metrics import ROUGEMetrics
+
 from evaluation.metrics.entity_metrics import EntityMetrics
 from evaluation.metrics.heading_metrics import HeadingMetrics
+from evaluation.metrics.rouge_metrics import ROUGEMetrics
+from utils.data_models import Article
+from utils.freshwiki_loader import FreshWikiEntry
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,9 @@ class ArticleEvaluator:
 
         self.logger.info("SimpleEvaluator initialized with hybrid metrics")
 
-    def evaluate_article(self, article: Article, reference: FreshWikiEntry) -> Dict[str, float]:
+    def evaluate_article(
+        self, article: Article, reference: FreshWikiEntry
+    ) -> Dict[str, float]:
         """
         Evaluate article using STORM paper metrics only.
 
@@ -48,19 +51,25 @@ class ArticleEvaluator:
             metrics.update(rouge_scores)
 
             # 2. Heading Soft Recall (HSR) - using semantic similarity
-            generated_headings = self.heading_metrics.extract_headings_from_content(article.content)
-            metrics['heading_soft_recall'] = self.heading_metrics.calculate_heading_soft_recall(
-                generated_headings, reference.reference_outline
+            generated_headings = self.heading_metrics.extract_headings_from_content(
+                article.content
+            )
+            metrics["heading_soft_recall"] = (
+                self.heading_metrics.calculate_heading_soft_recall(
+                    generated_headings, reference.reference_outline
+                )
             )
 
             # 3. Heading Entity Recall (HER) - entities specifically in headings
-            metrics['heading_entity_recall'] = self._calculate_heading_entity_recall(
+            metrics["heading_entity_recall"] = self._calculate_heading_entity_recall(
                 generated_headings, reference.reference_outline
             )
 
             # 4. Article Entity Recall (AER) - overall factual coverage using smart heuristics
-            metrics['article_entity_recall'] = self.entity_metrics.calculate_overall_entity_recall(
-                article.content, reference.reference_content
+            metrics["article_entity_recall"] = (
+                self.entity_metrics.calculate_overall_entity_recall(
+                    article.content, reference.reference_content
+                )
             )
 
             self.logger.debug(f"Evaluation completed: {metrics}")
@@ -75,10 +84,12 @@ class ArticleEvaluator:
                 "rouge_l": 0.0,
                 "heading_soft_recall": 0.0,
                 "heading_entity_recall": 0.0,
-                "article_entity_recall": 0.0
+                "article_entity_recall": 0.0,
             }
 
-    def _calculate_heading_entity_recall(self, generated_headings: list, reference_headings: list) -> float:
+    def _calculate_heading_entity_recall(
+        self, generated_headings: list, reference_headings: list
+    ) -> float:
         """
         Calculate Heading Entity Recall (HER) using entity extraction on headings only.
 
@@ -88,8 +99,8 @@ class ArticleEvaluator:
             return 0.0
 
         # Convert heading lists to text for entity extraction
-        ref_heading_text = ' '.join(reference_headings)
-        gen_heading_text = ' '.join(generated_headings)
+        ref_heading_text = " ".join(reference_headings)
+        gen_heading_text = " ".join(generated_headings)
 
         # Extract entities from headings only
         ref_entities = self.entity_metrics.extract_entities(ref_heading_text)
@@ -106,10 +117,10 @@ class ArticleEvaluator:
     def get_metric_descriptions() -> Dict[str, str]:
         """Get descriptions of STORM metrics for documentation."""
         return {
-            'rouge_1': 'STORM: Unigram overlap between generated and reference content',
-            'rouge_2': 'STORM: Bigram overlap between generated and reference content',
-            'rouge_l': 'STORM: Longest common subsequence overlap',
-            'heading_soft_recall': 'STORM HSR: Semantic topic coverage in headings',
-            'heading_entity_recall': 'STORM HER: Entity coverage in headings only',
-            'article_entity_recall': 'STORM AER: Overall factual content coverage'
+            "rouge_1": "STORM: Unigram overlap between generated and reference content",
+            "rouge_2": "STORM: Bigram overlap between generated and reference content",
+            "rouge_l": "STORM: Longest common subsequence overlap",
+            "heading_soft_recall": "STORM HSR: Semantic topic coverage in headings",
+            "heading_entity_recall": "STORM HER: Entity coverage in headings only",
+            "article_entity_recall": "STORM AER: Overall factual content coverage",
         }

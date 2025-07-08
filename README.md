@@ -9,13 +9,12 @@ Our system comprises two clearly separated agents that interact through a shared
 - **Writer**: Responsible solely for content creation. It issues retrieval queries to an external search engine, collates the top-k passages into a working context, drafts a hierarchical outline, and then expands each heading.
 
 - **Reviewer Team**: Comprised of three agents:
+
   - **Fact-Checker**: Flags unsupported or inaccurate claims
   - **Structure-Advisor**: Assesses logical flow and section ordering
   - **Leader**: Merges their comments, removes duplicates, and outputs a unified review, with each comment tagged by category and severity
 
 - **Revision Loop**: After receiving the review, the Writer revises the draft, marking each comment as addressed or contested. Convergence is the proportion of addressed comments; the loop stops when convergence exceeds 90% or after N iterations. At each turn, the Writer and Reviewer begin with a Theory of Mind prediction of the partner's priorities.
-
-
 
 ## Agent Approaches
 
@@ -62,7 +61,6 @@ python main.py --method all --num_topics 5
 
 ```
 
-
 ## Evaluation
 
 The system evaluates content quality using several metrics:
@@ -86,6 +84,7 @@ The system evaluates content quality using several metrics:
 - [ ] use section drafting style (cli)
 
 ### SLURM Setup
+
 cd /storage/ukp/work/ibrahim1
 wget https://www.python.org/ftp/python/3.11.8/Python-3.11.8.tgz
 tar -xzf Python-3.11.8.tgz
@@ -95,26 +94,31 @@ make -j$(nproc)
 make install
 
 # Add Python 3.11 to PATH
+
 export PATH="/storage/ukp/work/ibrahim1/python3.11/bin:$PATH"
 
 # Verify it works
+
 python3.11 --version
 pip3.11 --version
 
 # Create virtual environment with your new Python 3.11
+
 python3.11 -m venv /storage/ukp/work/ibrahim1/python_env
 
 # Activate the environment
+
 source /storage/ukp/work/ibrahim1/python_env/bin/activate
 
 # Verify you're using the right python
+
 which python
 python --version
 
 $ sbatch -q yolo -p yolo run_experiment.sh
 
-
 #### Interactive run on slurm
+
 srun --mem=16G --cpus-per-task=4 --gres=gpu:1 --time=01:00:00 --pty bash
 source /storage/ukp/work/ibrahim1/python_env/bin/activate
 python src/run.py --methods storm --num_topics 1 --skip_evaluation

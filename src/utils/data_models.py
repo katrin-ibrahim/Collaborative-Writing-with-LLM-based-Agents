@@ -1,46 +1,48 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
-from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class SearchResult(BaseModel):
     """Represents a single search result passage."""
+
     content: str
     source: str
     relevance_score: float = 0.0
-    
+
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
             "content": self.content,
             "source": self.source,
-            "relevance_score": self.relevance_score
+            "relevance_score": self.relevance_score,
         }
 
 
 class Outline(BaseModel):
     """Hierarchical outline structure."""
+
     title: str
     headings: List[str]
     subheadings: Dict[str, List[str]] = Field(default_factory=dict)
-    
+
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
             "title": self.title,
             "headings": self.headings,
-            "subheadings": self.subheadings
+            "subheadings": self.subheadings,
         }
 
 
 class Article(BaseModel):
     """Generated article with metadata."""
+
     title: str
     content: str
     outline: Optional[Outline] = None
     sections: Dict[str, str] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    
+
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
@@ -48,9 +50,9 @@ class Article(BaseModel):
             "content": self.content,
             "outline": self.outline.to_dict() if self.outline else None,
             "sections": self.sections,
-            "metadata": self._serialize_metadata(self.metadata)
+            "metadata": self._serialize_metadata(self.metadata),
         }
-    
+
     def _serialize_metadata(self, metadata):
         """Serialize metadata to JSON-compatible format."""
         serialized = {}
@@ -58,37 +60,39 @@ class Article(BaseModel):
             try:
                 # Test if value is JSON serializable
                 import json
+
                 json.dumps(value)
                 serialized[key] = value
             except (TypeError, ValueError):
                 # Convert non-serializable values to strings
                 serialized[key] = str(value)
         return serialized
-    
+
     @classmethod
     def from_dict(cls, data):
         """Create Article from dictionary."""
         outline_data = data.get("outline")
         outline = Outline(**outline_data) if outline_data else None
-        
+
         return cls(
             title=data["title"],
             content=data["content"],
             outline=outline,
             sections=data.get("sections", {}),
-            metadata=data.get("metadata", {})
+            metadata=data.get("metadata", {}),
         )
 
 
 class EvaluationResult(BaseModel):
     """Evaluation metrics for a generated article."""
+
     heading_soft_recall: float
     heading_entity_recall: float
     rouge_1: float
     rouge_2: float
     rouge_l: float
     article_entity_recall: float
-    
+
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
@@ -97,5 +101,5 @@ class EvaluationResult(BaseModel):
             "rouge_1": self.rouge_1,
             "rouge_2": self.rouge_2,
             "rouge_l": self.rouge_l,
-            "article_entity_recall": self.article_entity_recall
+            "article_entity_recall": self.article_entity_recall,
         }

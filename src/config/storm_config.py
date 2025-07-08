@@ -1,6 +1,5 @@
 import os
 import yaml
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 
@@ -8,8 +7,10 @@ from dataclasses import dataclass
 class DefaultConfig:
     # Model settings
     model_type: str = "local"  # "local" or "api"
-    local_model_path: str = "/storage/ukp/shared/shared_model_weights/Qwen2.5-VL-7B-Instruct"
-    
+    local_model_path: str = (
+        "/storage/ukp/shared/shared_model_weights/Qwen2.5-VL-7B-Instruct"
+    )
+
     # LLM settings (for API fallback)
     provider: str = "groq"
     model: str = "llama-3.1-8b-instant"
@@ -21,7 +22,7 @@ class DefaultConfig:
     max_thread_num: int = 1
     enable_polish: bool = False
     max_retries: int = 2
-    
+
     # Local model settings
     max_new_tokens: int = 512
     temperature: float = 0.7
@@ -34,7 +35,7 @@ def load_config(config_file: str = "config.yaml") -> DefaultConfig:
 
     if os.path.exists(config_file):
         try:
-            with open(config_file, 'r') as f:
+            with open(config_file, "r") as f:
                 data = yaml.safe_load(f) or {}
 
             for key, value in data.items():
@@ -54,7 +55,7 @@ def get_api_key(provider: str) -> str:
         "groq": "GROQ_API_KEY",
         "openai": "OPENAI_API_KEY",
         "together_ai": "TOGETHER_API_KEY",
-        "huggingface": "HF_TOKEN"
+        "huggingface": "HF_TOKEN",
     }
 
     env_key = key_map.get(provider)

@@ -1,12 +1,19 @@
-import os
-from knowledge_storm import STORMWikiLMConfigs, STORMWikiRunner, STORMWikiRunnerArguments
-from baselines.mock_search import MockSearchRM
-from baselines.runner_utils import get_model_wrapper
-from baselines.wikipedia_search import WikipediaSearchRM
-from utils.ollama_client import OllamaClient
-from config.model_config import ModelConfig
+import logging
+from knowledge_storm import (
+    STORMWikiLMConfigs,
+    STORMWikiRunner,
+    STORMWikiRunnerArguments,
+)
 
-def setup_storm_runner(client: OllamaClient, config: ModelConfig, storm_output_dir: str):
+from baselines.runner_utils import get_model_wrapper
+from baselines.wikipedia_rm import WikipediaSearchRM
+from config.model_config import ModelConfig
+from utils.ollama_client import OllamaClient
+
+
+def setup_storm_runner(
+    client: OllamaClient, config: ModelConfig, storm_output_dir: str
+):
     lm_config = STORMWikiLMConfigs()
 
     lm_config.set_conv_simulator_lm(get_model_wrapper(client, config, "fast"))
@@ -17,13 +24,14 @@ def setup_storm_runner(client: OllamaClient, config: ModelConfig, storm_output_d
 
     # search_rm = MockSearchRM(k=3)
     search_rm = WikipediaSearchRM(k=3)
+    logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
 
     engine_args = STORMWikiRunnerArguments(
         output_dir=storm_output_dir,
         max_conv_turn=2,
         max_perspective=2,
         search_top_k=2,
-        max_thread_num=4
+        max_thread_num=4,
     )
 
     runner = STORMWikiRunner(engine_args, lm_config, search_rm)

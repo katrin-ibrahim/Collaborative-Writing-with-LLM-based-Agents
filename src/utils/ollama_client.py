@@ -1,21 +1,27 @@
 import json
 import logging
-from typing import Optional, Dict, Any, List
 from ollama import Client
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class OllamaClient:
     """Clean Ollama client wrapper for baseline experiments."""
-    
-    def __init__(self, host: str = "http://10.167.31.201:11434/", default_model: str = "qwen2.5:7b"):
+
+    def __init__(
+        self,
+        host: str = "http://10.167.31.201:11434/",
+        default_model: str = "qwen2.5:7b",
+    ):
         self.host = host
         self.default_model = default_model
         self.client = Client(host=host)
         self._available_models = None
-        logger.info(f"OllamaClient initialized with host: {host}, default model: {default_model}")
-    
+        logger.info(
+            f"OllamaClient initialized with host: {host}, default model: {default_model}"
+        )
+
     def list_models(self) -> List[str]:
         """List available models on the Ollama server."""
         if self._available_models is None:
@@ -27,12 +33,17 @@ class OllamaClient:
                 logger.error(f"Failed to list models: {e}")
                 self._available_models = []
         return self._available_models
-    
-    def call_api(self, prompt: str, system_prompt: Optional[str] = None, 
-                 model: Optional[str] = None, **kwargs) -> str:
+
+    def call_api(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        **kwargs,
+    ) -> str:
         """
         Call Ollama API with unified interface matching APIClient.
-        
+
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
@@ -43,7 +54,7 @@ class OllamaClient:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        
+
         try:
             response = self.client.chat(
                 model=model or self.default_model,
@@ -56,18 +67,19 @@ class OllamaClient:
             )
             # print(response.message.content)
             return response.message.content
-            
+
         except Exception as e:
             logger.error(f"Ollama API call failed: {e}")
             raise RuntimeError(f"Ollama API error: {e}")
-    
+
     def generate(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
         """Alternative interface for compatibility."""
         return self.call_api(prompt, model=model, **kwargs)
-    
+
     def extract_json(self, text: str) -> Optional[Dict]:
         """Extract JSON from text (compatibility method)."""
         import re
+
         json_pattern = r"({[\s\S]*})"
         match = re.search(json_pattern, text)
         if match:
@@ -76,7 +88,7 @@ class OllamaClient:
             except json.JSONDecodeError:
                 pass
         return None
-    
+
     def is_available(self) -> bool:
         """Check if Ollama server is accessible."""
         try:

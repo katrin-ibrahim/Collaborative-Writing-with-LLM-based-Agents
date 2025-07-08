@@ -4,23 +4,17 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os
-
 import argparse
-import csv
-import logging
-import pickle
 
-import numpy as np
+import os
+import pickle
 import torch
 
-import transformers
-
-import src.slurm
 import src.contriever
-import src.utils
 import src.data
 import src.normalize_text
+import src.slurm
+import src.utils
 
 
 def embed_passages(args, passages, model, tokenizer):
@@ -84,7 +78,9 @@ def main(args):
         end_idx = len(passages)
 
     passages = passages[start_idx:end_idx]
-    print(f"Embedding generation for {len(passages)} passages from idx {start_idx} to {end_idx}.")
+    print(
+        f"Embedding generation for {len(passages)} passages from idx {start_idx} to {end_idx}."
+    )
 
     allids, allembeddings = embed_passages(args, passages, model, tokenizer)
 
@@ -100,22 +96,51 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--passages", type=str, default=None, help="Path to passages (.tsv file)")
-    parser.add_argument("--output_dir", type=str, default="wikipedia_embeddings", help="dir path to save embeddings")
-    parser.add_argument("--prefix", type=str, default="passages", help="prefix path to save embeddings")
-    parser.add_argument("--shard_id", type=int, default=0, help="Id of the current shard")
-    parser.add_argument("--num_shards", type=int, default=1, help="Total number of shards")
     parser.add_argument(
-        "--per_gpu_batch_size", type=int, default=512, help="Batch size for the passage encoder forward pass"
+        "--passages", type=str, default=None, help="Path to passages (.tsv file)"
     )
-    parser.add_argument("--passage_maxlength", type=int, default=512, help="Maximum number of tokens in a passage")
     parser.add_argument(
-        "--model_name_or_path", type=str, help="path to directory containing model weights and config file"
+        "--output_dir",
+        type=str,
+        default="wikipedia_embeddings",
+        help="dir path to save embeddings",
+    )
+    parser.add_argument(
+        "--prefix", type=str, default="passages", help="prefix path to save embeddings"
+    )
+    parser.add_argument(
+        "--shard_id", type=int, default=0, help="Id of the current shard"
+    )
+    parser.add_argument(
+        "--num_shards", type=int, default=1, help="Total number of shards"
+    )
+    parser.add_argument(
+        "--per_gpu_batch_size",
+        type=int,
+        default=512,
+        help="Batch size for the passage encoder forward pass",
+    )
+    parser.add_argument(
+        "--passage_maxlength",
+        type=int,
+        default=512,
+        help="Maximum number of tokens in a passage",
+    )
+    parser.add_argument(
+        "--model_name_or_path",
+        type=str,
+        help="path to directory containing model weights and config file",
     )
     parser.add_argument("--no_fp16", action="store_true", help="inference in fp32")
-    parser.add_argument("--no_title", action="store_true", help="title not added to the passage body")
-    parser.add_argument("--lowercase", action="store_true", help="lowercase text before encoding")
-    parser.add_argument("--normalize_text", action="store_true", help="lowercase text before encoding")
+    parser.add_argument(
+        "--no_title", action="store_true", help="title not added to the passage body"
+    )
+    parser.add_argument(
+        "--lowercase", action="store_true", help="lowercase text before encoding"
+    )
+    parser.add_argument(
+        "--normalize_text", action="store_true", help="lowercase text before encoding"
+    )
 
     args = parser.parse_args()
 
