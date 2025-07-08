@@ -7,11 +7,10 @@ class ModelConfig:
     """Configuration for model selection based on task complexity."""
     
     # Task-specific model assignments
-    research_model: str = "qwen2.5:7b"          # Fast, for web search queries
     outline_model: str = "qwen2.5:14b"          # Balanced, for structure
     writing_model: str = "qwen2.5:32b"          # Quality, for content
     critique_model: str = "qwen2.5:14b"         # Reasoning, for self-critique
-    polish_model: str = "llama3.3:latest"       # Final polish
+    polish_model: str = "qwen2.5:7b"       # Final polish
     
     # Self-RAG specific models
     retrieval_model: str = "mistral:7b-instruct"   # Fast retrieval decisions
@@ -27,7 +26,7 @@ class ModelConfig:
     def __post_init__(self):
         if self.temperatures is None:
             self.temperatures = {
-                "research": 0.7,
+                "fast": 0.7,
                 "outline": 0.5,
                 "writing": 0.7,
                 "critique": 0.3,
@@ -40,7 +39,7 @@ class ModelConfig:
     def get_model_for_task(self, task: str) -> str:
         """Get appropriate model for a specific task."""
         task_model_map = {
-            "research": self.research_model,
+            "fast": self.default_model,
             "outline": self.outline_model,
             "writing": self.writing_model,
             "critique": self.critique_model,
