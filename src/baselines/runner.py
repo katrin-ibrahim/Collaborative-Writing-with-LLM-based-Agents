@@ -39,6 +39,7 @@ class BaselineRunner:
         self.output_dir = os.path.join(self.work_dir, "ollama_output")
         os.makedirs(self.output_dir, exist_ok=True)
 
+# --------------------- Direct Prompting Baseline ---------------------
     def run_direct_prompting(self, topic: str) -> Article:
         logger.info(f"Running Direct Prompting for: {topic}")
         prompt = build_direct_prompt(topic)
@@ -48,6 +49,7 @@ class BaselineRunner:
             wrapper = get_model_wrapper(self.client, self.model_config, "writing")
 
             content = wrapper.generate(prompt=prompt, max_tokens=2048)
+            content_words = len(content.split()) if content else 0
             generation_time = time.time() - start_time
 
             if content and not content.startswith("#"):
@@ -60,7 +62,7 @@ class BaselineRunner:
                 metadata={
                     "method": "direct",
                     "model": wrapper.model,
-                    "word_count": len(content.split()),
+                    "word_count": content_words,
                     "generation_time": generation_time,
                     "temperature": wrapper.temperature
                 }
@@ -88,6 +90,7 @@ class BaselineRunner:
 
         return results
 
+    # --------------------- STORM Baseline ---------------------
     def run_storm(self, topic: str) -> Article:
         logger.info(f"Running STORM for: {topic}")
 
@@ -111,8 +114,9 @@ class BaselineRunner:
                 sections={},
                 metadata={
                     "method": "storm",
-                    "word_count": len(content.split()),
-                    "generation_time": generation_time
+                    "word_count": len(content.split()) if content else 0,
+                    "generation_time": generation_time,
+                    "model": self.model_config.get_model_for_task("writing"),
                 }
             )
 

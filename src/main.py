@@ -107,7 +107,7 @@ def main():
                 if direct_result:
                     all_results[topic]["direct"] = {
                         "success": True,
-                        "word_count": direct_result.word_count,
+                        "word_count": direct_result.metadata.get("word_count", 0),
                         "article": direct_result
                     }
                 else:
@@ -123,7 +123,7 @@ def main():
                 if storm_result:
                     all_results[topic]["storm"] = {
                         "success": True,
-                        "word_count": storm_result.word_count,
+                        "word_count": storm_result.metadata.get("word_count", 0),
                         "article": storm_result
                     }
                 else:

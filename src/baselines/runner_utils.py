@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 def get_model_wrapper(client: OllamaClient, config: ModelConfig, task: str) -> OllamaLiteLLMWrapper:
     model = config.get_model_for_task(task)
     temp = config.get_temperature_for_task(task)
-    return OllamaLiteLLMWrapper(client=client, model=model, temperature=temp)
+    return OllamaLiteLLMWrapper(ollama_client=client, model=model, temperature=temp)
 
 def build_direct_prompt(topic: str) -> str:
     return f"""Write a comprehensive, well-structured article about \"{topic}\".

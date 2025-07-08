@@ -50,7 +50,7 @@ class OllamaClient:
                 messages=messages,
                 # options={
                 #     "temperature": kwargs.get("temperature", 0.7),
-                #     "num_predict": kwargs.get("max_tokens", 1024),
+                #     "num_predict": kwargs.get("max_tokens", 50),
                 #     "top_p": kwargs.get("top_p", 0.9),
                 # }
             )

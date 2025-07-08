@@ -27,7 +27,7 @@ class OllamaLiteLLMWrapper:
     def __call__(self, messages=None, **kwargs):
         """Make wrapper callable for STORM compatibility."""
         if 'max_tokens' not in kwargs and 'max_output_tokens' not in kwargs:
-            kwargs['max_tokens'] = 1024
+            kwargs['max_tokens'] = 50
         if messages is not None:
             return self.complete(messages, **kwargs)
         
@@ -47,7 +47,7 @@ class OllamaLiteLLMWrapper:
             # Get parameters
             model = kwargs.get('model', self.model)
             temperature = kwargs.get('temperature', self.temperature)
-            max_tokens = kwargs.get('max_tokens', 1024)
+            max_tokens = kwargs.get('max_tokens', 50)
             print(f"Using model: {model}, temperature: {temperature}, max_tokens: {max_tokens}")
             
             # Generate response
@@ -74,7 +74,7 @@ class OllamaLiteLLMWrapper:
             prompt=prompt,
             model=kwargs.get('model', self.model),
             temperature=kwargs.get('temperature', self.temperature),
-            max_tokens=kwargs.get('max_tokens', 1024)
+            max_tokens=kwargs.get('max_tokens', 50)
         )
         return response_text
     
