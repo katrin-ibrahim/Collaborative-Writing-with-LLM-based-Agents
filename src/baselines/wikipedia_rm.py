@@ -9,15 +9,15 @@ logger = logging.getLogger(__name__)
 
 class WikipediaSearchRM:
     """
-    Wikipedia-based search retrieval manager for STORM integration.
+    High-performance Wikipedia search retrieval manager for STORM integration.
 
-    Provides real Wikipedia content while maintaining STORM's expected interface.
+    Optimized for speed while maintaining content quality.
     """
 
     def __init__(self, k: int = 3):
-        self.k = k
+        self.k = min(k, 5)  # Limit k to max 5 for performance
         self.retriever = WikipediaRetriever()
-        logger.info(f"WikipediaSearchRM initialized with k={k}")
+        logger.info(f"Optimized WikipediaSearchRM initialized with k={self.k}")
 
     def __call__(self, query_or_queries, exclude_urls=None, **kwargs):
         """Make the object callable for STORM compatibility."""
@@ -28,7 +28,7 @@ class WikipediaSearchRM:
         self, query_or_queries, exclude_urls=None, **kwargs
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve Wikipedia content in STORM's expected format.
+        High-performance Wikipedia content retrieval in STORM format.
 
         Args:
             query_or_queries: Single query string or list of queries
@@ -44,33 +44,32 @@ class WikipediaSearchRM:
         else:
             queries = [query_or_queries]
 
-        logger.info(f"WikipediaSearchRM processing {len(queries)} queries: {queries}")
+        # Limit number of queries for performance
+        queries = queries[:5]  # Max 5 queries to prevent excessive API calls
+
+        logger.info(f"WikipediaSearchRM processing {len(queries)} queries")
 
         excluded_urls = set(exclude_urls or [])
-        logger.debug(f"Exclude URLs: {excluded_urls}")
-        logger.debug(f"Additional kwargs: {kwargs}")
-
         results = []
 
         for i, query in enumerate(queries, 1):
-            logger.info(f"Processing query {i}/{len(queries)}: '{query}'")
+            logger.debug(f"Processing query {i}/{len(queries)}: '{query}'")
 
             try:
                 # Clean the query to remove STORM prefixes and artifacts
                 cleaned_query = self._clean_storm_query(query)
 
                 if not cleaned_query or len(cleaned_query.strip()) < 2:
-                    logger.warning(
+                    logger.debug(
                         f"Query too short after cleaning: '{query}' -> '{cleaned_query}'"
                     )
-                    results.append(self._create_fallback_result(query))
-                    continue
+                    continue  # Skip empty queries instead of creating fallbacks
 
-                # Get Wikipedia content for this query
+                # Get Wikipedia content for this query with reduced limits
                 wiki_snippets = self.retriever.get_wiki_content(
                     topic=cleaned_query,
-                    max_articles=self.k,
-                    max_sections=2,  # Reduced to avoid too much content
+                    max_articles=2,  # Reduced from 3 for speed
+                    max_sections=2,  # Reduced from 3 for speed
                 )
 
                 # Convert to STORM format
@@ -78,52 +77,76 @@ class WikipediaSearchRM:
                     wiki_snippets, excluded_urls
                 )
 
-                if not query_results:
-                    logger.warning(f"No results found for query: '{cleaned_query}'")
-                    query_results = [self._create_fallback_result(cleaned_query)]
+                if query_results:
+                    results.extend(query_results)
+                    logger.debug(
+                        f"Added {len(query_results)} results for query: '{cleaned_query}'"
+                    )
+                else:
+                    logger.debug(f"No results found for query: '{cleaned_query}'")
 
-                results.extend(query_results)
+                # Early termination if we have enough results
+                if len(results) >= self.k * 3:  # Stop if we have plenty of results
+                    logger.debug(f"Early termination: collected {len(results)} results")
+                    break
 
             except Exception as e:
                 logger.warning(f"Wikipedia search failed for query '{query}': {e}")
-                results.append(self._create_fallback_result(query))
+                continue  # Skip failed queries instead of creating fallbacks
 
-        # Limit total results
-        final_results = results[: self.k * len(queries)]
+        # If no results at all, create minimal fallback
+        if not results and queries:
+            cleaned_main_query = self._clean_storm_query(queries[0])
+            if cleaned_main_query:
+                results = [self._create_fallback_result(cleaned_main_query)]
+
+        # Limit total results and sort by relevance if available
+        final_results = self._optimize_results(results, self.k * len(queries))
+
         logger.info(
             f"WikipediaSearchRM returned {len(final_results)} results for {len(queries)} queries"
         )
-
         return final_results
 
+    def _optimize_results(self, results: List[Dict], max_results: int) -> List[Dict]:
+        """Optimize and limit results for best performance."""
+        if not results:
+            return results
+
+        # Remove duplicates based on URL
+        seen_urls = set()
+        unique_results = []
+
+        for result in results:
+            url = result.get("url", "")
+            if url not in seen_urls:
+                seen_urls.add(url)
+                unique_results.append(result)
+
+        # Limit results
+        return unique_results[:max_results]
+
     def _clean_storm_query(self, query: str) -> str:
-        """Clean STORM-generated queries to extract the actual search term."""
+        """Clean STORM-generated queries quickly and efficiently."""
         if not query:
             return ""
 
         cleaned = query.strip()
 
-        # Remove STORM query prefixes (case insensitive)
-        patterns_to_remove = [
-            r"^[Qq]uery\s*\d*\s*:\s*",  # "query 1:", "Query 2:", etc.
-            r"^[Ss]earch\s*\d*\s*:\s*",  # "search 1:", etc.
-            r"^\d+\.\s*",  # "1. ", "2. ", etc.
-            r"^-\s*",  # "- "
-            r"^\*\s*",  # "* "
-        ]
+        # Remove STORM query prefixes (case insensitive) - optimized regex
+        cleaned = re.sub(r"^(?:[Qq]uery|[Ss]earch)\s*\d*\s*:\s*", "", cleaned)
+        cleaned = re.sub(r"^\d+\.\s*", "", cleaned)  # "1. ", "2. ", etc.
+        cleaned = re.sub(r"^[-*]\s*", "", cleaned)  # "- " or "* "
 
-        for pattern in patterns_to_remove:
-            cleaned = re.sub(pattern, "", cleaned)
-
-        # Remove quotes that might interfere
+        # Remove quotes and clean whitespace
         cleaned = cleaned.replace('"', "").replace("'", "")
-
-        # Clean up extra whitespace
         cleaned = " ".join(cleaned.split())
 
-        # If the query is still very generic or empty, return empty
-        generic_terms = {"query", "search", "information", "details", "about"}
-        if cleaned.lower() in generic_terms or len(cleaned) < 2:
+        # Quick check for generic terms
+        if (
+            cleaned.lower() in {"query", "search", "information", "details", "about"}
+            or len(cleaned) < 2
+        ):
             return ""
 
         logger.debug(f"Cleaned STORM query: '{query}' -> '{cleaned}'")
@@ -132,7 +155,7 @@ class WikipediaSearchRM:
     def _convert_to_storm_format(
         self, wiki_snippets: List[Dict], excluded_urls: set
     ) -> List[Dict[str, Any]]:
-        """Convert Wikipedia snippets to STORM's expected format."""
+        """Convert Wikipedia snippets to STORM format efficiently."""
         storm_results = []
 
         for snippet in wiki_snippets:
@@ -140,12 +163,14 @@ class WikipediaSearchRM:
 
             # Skip if URL is in exclusion list
             if url in excluded_urls:
-                logger.debug(f"Skipping excluded URL: {url}")
                 continue
 
             content = snippet.get("content", "")
             if not content or len(content.strip()) < 50:
                 continue
+
+            # Limit content length for performance
+            content = content[:1500] if len(content) > 1500 else content
 
             # STORM expects this exact structure
             storm_result = {
@@ -173,7 +198,6 @@ class WikipediaSearchRM:
         """Create a description from Wikipedia snippet metadata."""
         title = snippet.get("title", "Wikipedia Article")
         section = snippet.get("section", "")
-        snippet.get("retrieval_method", "wikipedia")
 
         if section and section != "Summary":
             return f"Wikipedia article '{title}', section: {section}"
@@ -181,14 +205,12 @@ class WikipediaSearchRM:
             return f"Wikipedia article: {title}"
 
     def _create_fallback_result(self, query: str) -> Dict[str, Any]:
-        """Create a fallback result when Wikipedia search fails."""
-        cleaned_query = self._clean_storm_query(query) or "information"
-
+        """Create a minimal fallback result when Wikipedia search fails."""
         return {
-            "url": f'https://en.wikipedia.org/wiki/{cleaned_query.replace(" ", "_")}',
+            "url": f'https://en.wikipedia.org/wiki/{query.replace(" ", "_")}',
             "snippets": [
-                f"General information about {cleaned_query}. This topic may require further research for comprehensive coverage."
+                f"Information about {query}. This topic may require additional research for comprehensive coverage."
             ],
-            "title": f"Wikipedia: {cleaned_query}",
-            "description": f"Wikipedia article about {cleaned_query}",
+            "title": f"Wikipedia: {query}",
+            "description": f"Wikipedia article about {query}",
         }
