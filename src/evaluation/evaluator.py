@@ -95,23 +95,56 @@ class ArticleEvaluator:
 
         This measures how many entities from reference headings appear in generated headings.
         """
+        self.logger.debug("=== Heading Entity Recall Calculation ===")
+        self.logger.debug(f"Generated headings: {generated_headings}")
+        self.logger.debug(f"Reference headings: {reference_headings}")
+
         if not reference_headings or not generated_headings:
+            self.logger.debug("Missing headings, returning 0.0")
             return 0.0
 
         # Convert heading lists to text for entity extraction
         ref_heading_text = " ".join(reference_headings)
         gen_heading_text = " ".join(generated_headings)
 
+        self.logger.debug(f"Reference heading text: {ref_heading_text}")
+        self.logger.debug(f"Generated heading text: {gen_heading_text}")
+
         # Extract entities from headings only
-        ref_entities = self.entity_metrics.extract_entities(ref_heading_text)
-        gen_entities = self.entity_metrics.extract_entities(gen_heading_text)
+
+        # Extract entities from each heading individually to avoid cross-heading extraction
+        ref_entities = set()
+        for heading in reference_headings:
+            heading_entities = self.entity_metrics.extract_entities(heading)
+            ref_entities.update(heading_entities)
+            self.logger.debug(
+                f"Reference heading '{heading}' entities: {heading_entities}"
+            )
+
+        gen_entities = set()
+        for heading in generated_headings:
+            heading_entities = self.entity_metrics.extract_entities(heading)
+            gen_entities.update(heading_entities)
+            self.logger.debug(
+                f"Generated heading '{heading}' entities: {heading_entities}"
+            )
+
+        self.logger.debug(f"All reference heading entities: {ref_entities}")
+        self.logger.debug(f"All generated heading entities: {gen_entities}")
 
         if not ref_entities:
+            self.logger.debug("No reference heading entities, returning 1.0")
             return 1.0
 
         # Calculate overlap
         overlap = len(ref_entities.intersection(gen_entities))
-        return overlap / len(ref_entities)
+        common_entities = ref_entities.intersection(gen_entities)
+        self.logger.debug(f"Common heading entities ({overlap}): {common_entities}")
+        recall = overlap / len(ref_entities)
+        self.logger.debug(
+            f"Heading Entity Recall: {overlap}/{len(ref_entities)} = {recall}"
+        )
+        return recall
 
     @staticmethod
     def get_metric_descriptions() -> Dict[str, str]:

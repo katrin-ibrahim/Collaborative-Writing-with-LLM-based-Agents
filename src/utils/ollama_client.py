@@ -59,13 +59,7 @@ class OllamaClient:
             response = self.client.chat(
                 model=model or self.default_model,
                 messages=messages,
-                # options={
-                #     "temperature": kwargs.get("temperature", 0.7),
-                #     "num_predict": kwargs.get("max_tokens", 50),
-                #     "top_p": kwargs.get("top_p", 0.9),
-                # }
             )
-            # print(response.message.content)
             return response.message.content
 
         except Exception as e:

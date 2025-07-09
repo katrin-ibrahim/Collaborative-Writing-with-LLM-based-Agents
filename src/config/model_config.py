@@ -22,6 +22,8 @@ class ModelConfig:
 
     # Temperature settings per task
     temperatures: Dict[str, float] = None
+    # Token limits per task
+    token_limits: Dict[str, int] = None
 
     def __post_init__(self):
         if self.temperatures is None:
@@ -34,6 +36,18 @@ class ModelConfig:
                 "retrieval": 0.3,
                 "generation": 0.7,
                 "reflection": 0.3,
+            }
+
+        if self.token_limits is None:
+            self.token_limits = {
+                "fast": 300,
+                "outline": 400,
+                "writing": 2000,
+                "critique": 800,
+                "polish": 800,
+                "retrieval": 200,
+                "generation": 1000,
+                "reflection": 600,
             }
 
     def get_model_for_task(self, task: str) -> str:
@@ -53,6 +67,10 @@ class ModelConfig:
     def get_temperature_for_task(self, task: str) -> float:
         """Get appropriate temperature for a specific task."""
         return self.temperatures.get(task, 0.7)
+
+    def get_token_limit_for_task(self, task: str) -> int:
+        """Get appropriate token limit for a specific task."""
+        return self.token_limits.get(task, 1000)
 
     @classmethod
     def from_dict(cls, config_dict: Dict) -> "ModelConfig":

@@ -49,7 +49,7 @@ class BaselineRunner:
             start_time = time.time()
             wrapper = get_model_wrapper(self.client, self.model_config, "writing")
 
-            response = wrapper(prompt, max_tokens=50)
+            response = wrapper(prompt)
             logger.debug(f"Generated response type: {type(response)}")
 
             if hasattr(response, "choices") and response.choices:
@@ -149,7 +149,7 @@ class BaselineRunner:
 
             if self.output_manager:
                 self.output_manager.save_article(article, "storm")
-                self.output_manager.cleanup_storm_temp(topic)
+                # self.output_manager.cleanup_storm_temp(topic)
 
             return article
 

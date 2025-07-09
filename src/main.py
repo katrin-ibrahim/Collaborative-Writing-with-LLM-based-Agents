@@ -49,12 +49,16 @@ def main():
 
     setup_logging(args.log_level)
     if args.log_level == "DEBUG":
-        logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
-        logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.DEBUG)
+        # logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
+        # logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.DEBUG)
+        logging.getLogger("evaluation.metrics.entity_metrics").setLevel(logging.DEBUG)
+        logging.getLogger("evaluation.evaluator").setLevel(logging.DEBUG)
     else:
         # Set search modules to INFO level for detailed search tracking
-        logging.getLogger("baselines.wikipedia_search").setLevel(logging.INFO)
-        logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.INFO)
+        # logging.getLogger("baselines.wikipedia_search").setLevel(logging.INFO)
+        # logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.INFO)
+        logging.getLogger("evaluation.metrics.entity_metrics").setLevel(logging.INFO)
+        logging.getLogger("evaluation.evaluator").setLevel(logging.INFO)
 
     logger.info("🦙 Ollama Baseline Experiment Runner")
     logger.info(f"📡 Ollama host: {args.ollama_host}")
