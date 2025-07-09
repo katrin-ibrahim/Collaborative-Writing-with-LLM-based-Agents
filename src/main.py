@@ -11,6 +11,9 @@ from pathlib import Path
 import json
 import logging
 import os
+from typing import Dict, List
+
+from utils.experiment_state_manager import ExperimentStateManager
 
 # Add src directory to path
 src_dir = Path(__file__).parent / "src"
@@ -26,6 +29,96 @@ from utils.logging_setup import setup_logging
 from utils.output_manager import OutputManager
 
 logger = logging.getLogger(__name__)
+
+
+def merge_results_with_existing(
+    existing_results: Dict,
+    all_topics: List[str],
+    direct_results: List,
+    storm_results: List,
+    methods: List[str],
+) -> Dict:
+    """Merge new results with existing completed results."""
+
+    # Start with existing results structure
+    all_results = existing_results.get("results", {})
+
+    # Ensure all topics have entries
+    for topic in all_topics:
+        if topic not in all_results:
+            all_results[topic] = {}
+
+    # Process direct results
+    if "direct" in methods:
+        # Add new direct results
+        for result in direct_results:
+            topic = result.title
+            all_results[topic]["direct"] = {
+                "success": True,
+                "word_count": result.metadata.get("word_count", 0),
+                "article": result,
+            }
+
+        # Ensure all topics have direct entries (mark missing as not found)
+        for topic in all_topics:
+            if "direct" not in all_results[topic]:
+                # Check if it should be completed (this handles the case where
+                # the topic was completed but not in our current batch)
+                all_results[topic]["direct"] = {
+                    "success": False,
+                    "error": "Direct result not found in current batch",
+                }
+
+    # Process storm results
+    if "storm" in methods:
+        # Add new storm results
+        for result in storm_results:
+            topic = result.title
+            all_results[topic]["storm"] = {
+                "success": True,
+                "word_count": result.metadata.get("word_count", 0),
+                "article": result,
+            }
+
+        # Ensure all topics have storm entries
+        for topic in all_topics:
+            if "storm" not in all_results[topic]:
+                all_results[topic]["storm"] = {
+                    "success": False,
+                    "error": "STORM result not found in current batch",
+                }
+
+    return all_results
+
+
+def setup_output_directory(args) -> Path:
+    """Setup output directory for new or resumed experiments."""
+    base_output_dir = Path(args.output_dir)
+
+    if args.resume_dir:
+        # Resume from specific directory
+        output_dir = Path(args.resume_dir)
+        if not output_dir.exists():
+            raise ValueError(f"Resume directory does not exist: {output_dir}")
+        logger.info(f"📂 Resuming from specified directory: {output_dir}")
+        return output_dir
+
+    elif args.resume:
+        # Resume from latest run
+        state_manager_temp = ExperimentStateManager(base_output_dir, args.methods)
+        latest_dir = state_manager_temp.find_latest_run_dir(base_output_dir)
+        if latest_dir:
+            logger.info(f"📂 Resuming from latest run: {latest_dir}")
+            return latest_dir
+        else:
+            logger.warning("No existing runs found, starting new experiment")
+
+    # Create new run directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = base_output_dir / f"run_{timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"📂 Created new run directory: {output_dir}")
+    return output_dir
 
 
 def load_model_config(config_file: str) -> ModelConfig:
@@ -49,14 +142,9 @@ def main():
 
     setup_logging(args.log_level)
     if args.log_level == "DEBUG":
-        # logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
-        # logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.DEBUG)
         logging.getLogger("evaluation.metrics.entity_metrics").setLevel(logging.DEBUG)
         logging.getLogger("evaluation.evaluator").setLevel(logging.DEBUG)
     else:
-        # Set search modules to INFO level for detailed search tracking
-        # logging.getLogger("baselines.wikipedia_search").setLevel(logging.INFO)
-        # logging.getLogger("knowledge.wikipedia_retriever").setLevel(logging.INFO)
         logging.getLogger("evaluation.metrics.entity_metrics").setLevel(logging.INFO)
         logging.getLogger("evaluation.evaluator").setLevel(logging.INFO)
 
@@ -73,16 +161,26 @@ def main():
         logger.info(f"  - Writing: {model_config.writing_model}")
         logger.info(f"  - Critique: {model_config.critique_model}")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path(args.output_dir) / f"run_{timestamp}"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Handle resume logic
+        output_dir = setup_output_directory(args)
         output_manager = OutputManager(str(output_dir), debug_mode=args.debug)
+
+        # Initialize state manager
+        state_manager = ExperimentStateManager(output_dir, args.methods)
+
+        # Load checkpoint if resuming
+        is_resume = state_manager.load_checkpoint()
+        if is_resume:
+            logger.info("🔄 Resuming experiment from checkpoint")
+        else:
+            logger.info("🆕 Starting new experiment")
 
         runner = BaselineRunner(
             ollama_host=args.ollama_host,
             model_config=model_config,
             output_manager=output_manager,
         )
+        runner.set_state_manager(state_manager)
 
         freshwiki = FreshWikiLoader()
         entries = freshwiki.get_evaluation_sample(args.num_topics)
@@ -94,99 +192,92 @@ def main():
         topics = [entry.topic for entry in entries]
         logger.info(f"✅ Loaded {len(topics)} topics")
 
-        logger.info("🚀 Starting...")
+        # Analyze existing state and cleanup in-progress topics
+        state_manager.analyze_existing_state(topics)
+        state_manager.cleanup_and_restart_in_progress(topics)
+
+        # Load existing results to merge with new ones
+        existing_results = state_manager.load_existing_results()
+
+        # Log progress summary
+        progress_summary = state_manager.get_progress_summary(len(topics))
+        logger.info("📊 Progress Summary:")
+        for method, stats in progress_summary.items():
+            if method in args.methods:
+                logger.info(
+                    f"  {method}: {stats['completed']}/{stats['total']} completed ({stats['progress_pct']}%)"
+                )
+
+        logger.info("🚀 Starting processing...")
         start_time = time.time()
         direct_results = []
         storm_results = []
 
+        # Process methods with proper topic filtering
         if "direct" in args.methods:
             if len(topics) > 1:
                 direct_results = runner.run_direct_batch(topics)
             else:
-                direct_results = [runner.run_direct_prompting(topics[0])]
+                remaining_direct = runner.filter_completed_topics(topics, "direct")
+                if remaining_direct:
+                    direct_results = [runner.run_direct_prompting(remaining_direct[0])]
 
         if "storm" in args.methods:
             if len(topics) > 1:
                 storm_results = runner.run_storm_batch(topics)
             else:
-                storm_results = [runner.run_storm(topics[0])]
+                remaining_storm = runner.filter_completed_topics(topics, "storm")
+                if remaining_storm:
+                    storm_results = [runner.run_storm(remaining_storm[0])]
 
-        all_results = {}
-        for entry in entries:
-            topic = entry.topic
-            all_results[topic] = {}
-
-            if "direct" in args.methods:
-                direct_result = next(
-                    (r for r in direct_results if r.title == topic), None
-                )
-                if direct_result:
-                    all_results[topic]["direct"] = {
-                        "success": True,
-                        "word_count": direct_result.metadata.get("word_count", 0),
-                        "article": direct_result,
-                    }
-                else:
-                    all_results[topic]["direct"] = {
-                        "success": False,
-                        "error": "Direct result not found",
-                    }
-
-            if "storm" in args.methods:
-                storm_result = next(
-                    (r for r in storm_results if r.title == topic), None
-                )
-                if storm_result:
-                    all_results[topic]["storm"] = {
-                        "success": True,
-                        "word_count": storm_result.metadata.get("word_count", 0),
-                        "article": storm_result,
-                    }
-                else:
-                    all_results[topic]["storm"] = {
-                        "success": False,
-                        "error": "Storm result not found",
-                    }
+        # Merge results: combine existing completed results with new results
+        all_results = merge_results_with_existing(
+            existing_results, topics, direct_results, storm_results, args.methods
+        )
 
         total_time = time.time() - start_time
-        logger.info(f"⏱️  Total experiment time: {total_time:.1f}s")
+        logger.info(f"⏱️ Total time: {total_time:.1f}s")
 
+        # Run evaluation if not skipped (EVALUATION SECTION PRESERVED)
         if not args.skip_evaluation:
-            logger.info("📊 Evaluating results...")
+            logger.info("🔍 Starting evaluation...")
             evaluator = ArticleEvaluator()
 
-            for topic, methods_results in all_results.items():
-                entry = next((e for e in entries if e.topic == topic), None)
-                if not entry:
-                    continue
+            for topic, results in all_results.items():
+                entry = next(e for e in entries if e.topic == topic)
 
-                for method, result in methods_results.items():
-                    if result["success"]:
+                for method in args.methods:
+                    if method in results and results[method].get("success"):
                         try:
-                            metrics = evaluator.evaluate_article(
-                                result["article"], entry
-                            )
-                            result["metrics"] = metrics
+                            article = results[method]["article"]
+                            eval_results = evaluator.evaluate_article(article, entry)
+                            results[method]["evaluation"] = eval_results
+                            logger.info(f"✅ Evaluated {method} for {topic}")
                         except Exception as e:
-                            logger.warning(
-                                f"Evaluation failed for {method} on {topic}: {e}"
+                            logger.error(
+                                f"❌ Evaluation failed for {method}/{topic}: {e}"
                             )
+                            results[method]["evaluation_error"] = str(e)
 
+        # Convert articles to serializable format for saving
+        def make_serializable(obj):
+            if hasattr(obj, "__dict__"):
+                return {k: make_serializable(v) for k, v in obj.__dict__.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [make_serializable(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {k: make_serializable(v) for k, v in obj.items()}
+            else:
+                return obj
+
+        serializable_results = make_serializable(all_results)
+
+        # Save results
         results_file = output_dir / "results.json"
-        with open(results_file, "w", encoding="utf-8") as f:
-            serializable_results = {}
-            for topic, methods_results in all_results.items():
-                serializable_results[topic] = {}
-                for method, result in methods_results.items():
-                    serializable_results[topic][method] = {
-                        "success": result["success"],
-                        "word_count": result["word_count"],
-                        "article": result["article"].to_dict(),
-                        "metrics": result.get("metrics", {}),
-                    }
-
+        with open(results_file, "w") as f:
             json.dump(
                 {
+                    "timestamp": datetime.now().isoformat(),
                     "configuration": {
                         "ollama_host": args.ollama_host,
                         "methods": args.methods,
@@ -197,8 +288,6 @@ def main():
                             "writing": model_config.writing_model,
                             "critique": model_config.critique_model,
                             "retrieval": model_config.retrieval_model,
-                            "generation": model_config.generation_model,
-                            "reflection": model_config.reflection_model,
                         },
                     },
                     "results": serializable_results,
@@ -214,6 +303,7 @@ def main():
 
         logger.info(f"💾 Results saved to: {results_file}")
 
+        # SUMMARY SECTION PRESERVED
         logger.info("\n📊 SUMMARY")
         logger.info("=" * 50)
         for method in args.methods:

@@ -53,4 +53,8 @@ Examples:
         help="Enable debug mode (saves intermediate files)",
     )
 
+    parser.add_argument(
+        "--resume_dir", type=str, help="Resume from specific run directory path"
+    )
+
     return parser.parse_args()

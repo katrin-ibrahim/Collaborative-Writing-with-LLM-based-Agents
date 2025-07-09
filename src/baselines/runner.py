@@ -96,14 +96,39 @@ class BaselineRunner:
     def run_direct_batch(
         self, topics: List[str], max_workers: int = 3
     ) -> List[Article]:
-        logger.info(f"Running Direct Prompting batch for {len(topics)} topics")
+        # Filter out completed topics using state manager
+        remaining_topics = self.filter_completed_topics(topics, "direct")
+
+        if not remaining_topics:
+            logger.info("All direct prompting topics already completed")
+            return []
+
+        logger.info(
+            f"Running Direct Prompting batch for {len(remaining_topics)} remaining topics"
+        )
         results = []
 
         def run_topic(topic):
-            return self.run_direct_prompting(topic)
+            # Mark as in progress at start
+            if hasattr(self, "state_manager") and self.state_manager:
+                self.state_manager.mark_topic_in_progress(topic, "direct")
+
+            try:
+                article = self.run_direct_prompting(topic)
+                # Mark as completed on success
+                if hasattr(self, "state_manager") and self.state_manager:
+                    self.state_manager.mark_topic_completed(topic, "direct")
+                return article
+            except Exception as e:
+                # Clean up in-progress state on failure
+                if hasattr(self, "state_manager") and self.state_manager:
+                    self.state_manager.cleanup_in_progress_topic(topic, "direct")
+                raise e
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(run_topic, topic): topic for topic in topics}
+            futures = {
+                executor.submit(run_topic, topic): topic for topic in remaining_topics
+            }
             for future in as_completed(futures):
                 try:
                     results.append(future.result())
@@ -158,14 +183,37 @@ class BaselineRunner:
             raise RuntimeError(f"STORM error for {topic}: {e}")
 
     def run_storm_batch(self, topics: List[str], max_workers: int = 3) -> List[Article]:
-        logger.info(f"Running STORM batch for {len(topics)} topics")
+        # Filter out completed topics using state manager
+        remaining_topics = self.filter_completed_topics(topics, "storm")
+
+        if not remaining_topics:
+            logger.info("All STORM topics already completed")
+            return []
+
+        logger.info(f"Running STORM batch for {len(remaining_topics)} remaining topics")
         results = []
 
         def run_topic(topic):
-            return self.run_storm(topic)
+            # Mark as in progress at start
+            if hasattr(self, "state_manager") and self.state_manager:
+                self.state_manager.mark_topic_in_progress(topic, "storm")
+
+            try:
+                article = self.run_storm(topic)
+                # Mark as completed on success
+                if hasattr(self, "state_manager") and self.state_manager:
+                    self.state_manager.mark_topic_completed(topic, "storm")
+                return article
+            except Exception as e:
+                # Clean up in-progress state on failure
+                if hasattr(self, "state_manager") and self.state_manager:
+                    self.state_manager.cleanup_in_progress_topic(topic, "storm")
+                raise e
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(run_topic, topic): topic for topic in topics}
+            futures = {
+                executor.submit(run_topic, topic): topic for topic in remaining_topics
+            }
             for future in as_completed(futures):
                 try:
                     results.append(future.result())
@@ -175,3 +223,24 @@ class BaselineRunner:
                     results.append(error_article(topic, e, "storm_batch"))
 
         return results
+
+    def set_state_manager(self, state_manager):
+        """Set the state manager for checkpoint tracking."""
+        self.state_manager = state_manager
+
+    def filter_completed_topics(self, topics: List[str], method: str) -> List[str]:
+        """Filter out already completed topics for a method."""
+        if not hasattr(self, "state_manager") or not self.state_manager:
+            return topics
+
+        remaining = [
+            topic
+            for topic in topics
+            if topic not in self.state_manager.completed_topics.get(method, set())
+        ]
+
+        skipped_count = len(topics) - len(remaining)
+        if skipped_count > 0:
+            logger.info(f"Skipping {skipped_count} already completed {method} topics")
+
+        return remaining
