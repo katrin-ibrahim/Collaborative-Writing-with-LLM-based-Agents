@@ -1,5 +1,20 @@
 {
     "python.analysis.extraPaths": [
         "./utils"
-    ]
+    ],
+    "python.defaultInterpreterPath": "./venv/bin/python",
+    "git.enabled": true,
+    "git.path": "/usr/bin/git",
+    "terminal.integrated.env.osx": {
+        "PATH": "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/bin:${env:PATH}",
+        "VIRTUAL_ENV": "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv",
+        "PYTHONPATH": "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/venv/lib/python3.11/site-packages"
+    },
+    "git.terminalAuthentication": false,
+    "git.useCommitInputAsStashMessage": true,
+    "git.alwaysSignOff": false,
+    "git.allowForcePush": false,
+    "git.allowNoVerifyCommit": false,
+    "terminal.integrated.inheritEnv": true,
+    "git.terminalGitEditor": true
 }
