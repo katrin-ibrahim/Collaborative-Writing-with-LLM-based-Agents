@@ -13,3 +13,5 @@ test_*.out
 test_*.err
 /models
 cache.db
+
+/analysis_output/
