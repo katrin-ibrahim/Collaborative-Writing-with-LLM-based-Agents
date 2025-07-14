@@ -1317,3 +1317,7 @@ Using model: qwen2.5:14b, temperature: 0.5, max_tokens: 400
 2025-07-09 09:58:42,729 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
 2025-07-09 09:58:42,729 - httpcore.http11 - DEBUG - send_request_body.complete
 2025-07-09 09:58:42,729 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2025-07-09 15:21:54,354 - httpcore.http11 - DEBUG - receive_response_headers.failed exception=KeyboardInterrupt()
+2025-07-09 15:21:54,370 - httpcore.http11 - DEBUG - response_closed.started
+2025-07-09 15:21:54,376 - httpcore.http11 - DEBUG - response_closed.complete
+2025-07-09 15:21:54,387 - __main__ - INFO - ⛔ Interrupted by user
