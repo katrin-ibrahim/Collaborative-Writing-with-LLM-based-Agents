@@ -36,6 +36,7 @@ def merge_results_with_existing(
     all_topics: List[str],
     direct_results: List,
     storm_results: List,
+    rag_results: List,
     methods: List[str],
 ) -> Dict:
     """Merge new results with existing completed results."""
@@ -88,6 +89,25 @@ def merge_results_with_existing(
                     "error": "STORM result not found in current batch",
                 }
 
+    # Process rag results
+    if "rag" in methods:
+        # Add new rag results
+        for result in rag_results:
+            topic = result.title
+            all_results[topic]["rag"] = {
+                "success": True,
+                "word_count": result.metadata.get("word_count", 0),
+                "article": result,
+            }
+
+        # Ensure all topics have rag entries
+        for topic in all_topics:
+            if "rag" not in all_results[topic]:
+                all_results[topic]["rag"] = {
+                    "success": False,
+                    "error": "RAG result not found in current batch",
+                }
+
     return all_results
 
 
@@ -103,15 +123,7 @@ def setup_output_directory(args) -> Path:
         logger.info(f"📂 Resuming from specified directory: {output_dir}")
         return output_dir
 
-    elif args.resume:
-        # Resume from latest run
-        state_manager_temp = ExperimentStateManager(base_output_dir, args.methods)
-        latest_dir = state_manager_temp.find_latest_run_dir(base_output_dir)
-        if latest_dir:
-            logger.info(f"📂 Resuming from latest run: {latest_dir}")
-            return latest_dir
-        else:
-            logger.warning("No existing runs found, starting new experiment")
+    # If no resume_dir specified, create new experiment directory
 
     # Create new run directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -212,6 +224,7 @@ def main():
         start_time = time.time()
         direct_results = []
         storm_results = []
+        rag_results = []
 
         # Process methods with proper topic filtering
         if "direct" in args.methods:
@@ -230,9 +243,27 @@ def main():
                 if remaining_storm:
                     storm_results = [runner.run_storm(remaining_storm[0])]
 
+        if "rag" in args.methods:
+            if len(topics) > 1:
+                rag_results = runner.run_rag_batch(topics)
+            else:
+                remaining_rag = runner.filter_completed_topics(topics, "rag")
+                if remaining_rag:
+                    rag_results = [runner.run_rag(remaining_rag[0])]
+
+        if not any(method in args.methods for method in ["direct", "storm", "rag"]):
+            logger.error(
+                "No valid methods specified. Please choose from: direct, storm, rag."
+            )
+            return 1
         # Merge results: combine existing completed results with new results
         all_results = merge_results_with_existing(
-            existing_results, topics, direct_results, storm_results, args.methods
+            existing_results,
+            topics,
+            direct_results,
+            storm_results,
+            rag_results,
+            args.methods,
         )
 
         total_time = time.time() - start_time

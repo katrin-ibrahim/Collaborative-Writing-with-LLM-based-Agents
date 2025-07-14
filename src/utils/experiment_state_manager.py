@@ -93,6 +93,8 @@ class ExperimentStateManager:
             return self._validate_storm_state(topic)
         elif method == "direct":
             return self._validate_direct_state(topic)
+        elif method == "rag":
+            return self._validate_rag_state(topic)
         else:
             logger.warning(f"Unknown method {method}, treating as not_started")
             return "not_started"
@@ -162,6 +164,35 @@ class ExperimentStateManager:
 
         return "not_started"
 
+    def _validate_rag_state(self, topic: str) -> str:
+        """Validate RAG completion state for a topic."""
+        articles_dir = self.output_dir / "articles"
+        article_file = articles_dir / f"{topic}_rag.json"
+
+        if article_file.exists():
+            try:
+                with open(article_file, "r") as f:
+                    article_data = json.load(f)
+
+                # Validate article has required fields and content
+                if (
+                    article_data.get("content")
+                    and len(article_data["content"].strip()) > 50
+                    and article_data.get("metadata", {}).get("method") == "rag"
+                ):
+                    return "completed"
+                else:
+                    logger.warning(
+                        f"RAG article for {topic} exists but appears incomplete"
+                    )
+                    return "in_progress"
+
+            except Exception as e:
+                logger.warning(f"Failed to validate RAG article for {topic}: {e}")
+                return "in_progress"
+
+        return "not_started"
+
     def cleanup_in_progress_topic(self, topic: str, method: str):
         """Clean up incomplete intermediate files for a topic/method."""
         try:
@@ -169,6 +200,8 @@ class ExperimentStateManager:
                 self._cleanup_storm_intermediate(topic)
             elif method == "direct":
                 self._cleanup_direct_intermediate(topic)
+            elif method == "rag":
+                self._cleanup_rag_intermediate(topic)
 
             logger.info(f"Cleaned up incomplete {method} files for topic: {topic}")
 
@@ -199,6 +232,15 @@ class ExperimentStateManager:
         if article_file.exists():
             article_file.unlink()
             logger.debug(f"Removed incomplete direct article: {article_file}")
+
+    def _cleanup_rag_intermediate(self, topic: str):
+        """Clean up incomplete RAG files."""
+        articles_dir = self.output_dir / "articles"
+        article_file = articles_dir / f"{topic}_rag.json"
+
+        if article_file.exists():
+            article_file.unlink()
+            logger.debug(f"Removed incomplete RAG article: {article_file}")
 
     def analyze_existing_state(self, topics: List[str]) -> Dict[str, Dict[str, str]]:
         """

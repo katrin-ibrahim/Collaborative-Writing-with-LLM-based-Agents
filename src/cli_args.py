@@ -20,41 +20,53 @@ Examples:
     )
 
     parser.add_argument(
-        "--ollama_host", default="http://10.167.31.201:11434/", help="Ollama server URL"
+        "-H",
+        "--ollama_host",
+        default="http://10.167.31.201:11434/",
+        help="Ollama server URL",
     )
     parser.add_argument(
-        "--num_topics", type=int, default=5, help="Number of topics to evaluate"
+        "-n", "--num_topics", type=int, default=5, help="Number of topics to evaluate"
     )
     parser.add_argument(
+        "-m",
         "--methods",
         nargs="+",
-        default=["direct", "storm"],
-        choices=["direct", "storm"],
+        default=["direct", "storm", "rag"],
+        choices=["direct", "storm", "rag"],
         help="Methods to run",
     )
     parser.add_argument(
-        "--model_config", default="config/models.yaml", help="Model configuration file"
+        "-c",
+        "--model_config",
+        default="config/models.yaml",
+        help="Model configuration file",
     )
     parser.add_argument(
-        "--skip_evaluation", action="store_true", help="Skip automatic evaluation"
+        "-s", "--skip_evaluation", action="store_true", help="Skip automatic evaluation"
     )
     parser.add_argument(
-        "--output_dir", default="results/ollama", help="Output directory for results"
+        "-o",
+        "--output_dir",
+        default="results/ollama",
+        help="Output directory for results",
     )
     parser.add_argument(
+        "-l",
         "--log_level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level",
     )
     parser.add_argument(
+        "-d",
         "--debug",
         action="store_true",
         help="Enable debug mode (saves intermediate files)",
     )
 
     parser.add_argument(
-        "--resume_dir", type=str, help="Resume from specific run directory path"
+        "-r", "--resume_dir", type=str, help="Resume from specific run directory path"
     )
 
     return parser.parse_args()

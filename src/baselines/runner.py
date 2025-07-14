@@ -224,6 +224,104 @@ class BaselineRunner:
 
         return results
 
+    # ---------------------------------------- RAG Baseline ----------------------------------------
+    def run_rag(self, topic: str) -> Article:
+        logger.info(f"Running RAG for: {topic}")
+
+        try:
+            from baselines.runner_utils import (
+                create_context_from_passages,
+                generate_article_with_context,
+                generate_search_queries,
+                retrieve_and_format_passages,
+            )
+            from baselines.wikipedia_rm import WikipediaSearchRM
+
+            start_time = time.time()
+            retrieval_system = WikipediaSearchRM(k=3)
+
+            # RAG pipeline
+            queries = generate_search_queries(self.client, self.model_config, topic)
+            passages = retrieve_and_format_passages(retrieval_system, queries)
+            context = create_context_from_passages(passages, max_passages=5)
+            content = generate_article_with_context(
+                self.client, self.model_config, topic, context
+            )
+
+            generation_time = time.time() - start_time
+
+            article = Article(
+                title=topic,
+                content=content,
+                sections={},
+                metadata={
+                    "method": "rag",
+                    "word_count": len(content.split()) if content else 0,
+                    "generation_time": generation_time,
+                    "model": self.model_config.get_model_for_task("writing"),
+                    "queries_used": len(queries),
+                    "passages_retrieved": len(passages),
+                },
+            )
+
+            if self.output_manager:
+                self.output_manager.save_article(article, "rag")
+
+            logger.info(f"RAG completed for {topic} in {generation_time:.2f}s")
+            return article
+
+        except Exception as e:
+            logger.error(f"RAG failed for {topic}: {e}")
+            return error_article(topic, e, "rag")
+
+    def run_rag_batch(self, topics: List[str], max_workers: int = 2) -> List[Article]:
+        logger.info(f"Running RAG batch for {len(topics)} topics")
+
+        remaining_topics = topics
+        if hasattr(self, "state_manager") and self.state_manager:
+            remaining_by_method = self.state_manager.get_remaining_topics(topics)
+            remaining_topics = remaining_by_method.get("rag", topics)
+            completed_count = len(topics) - len(remaining_topics)
+            logger.info(
+                f"RAG: {completed_count} completed, {len(remaining_topics)} remaining"
+            )
+
+        if not remaining_topics:
+            logger.info("All RAG topics already completed")
+            return []
+
+        results = []
+
+        def run_topic(topic):
+            if hasattr(self, "state_manager") and self.state_manager:
+                self.state_manager.mark_topic_in_progress(topic, "rag")
+
+            try:
+                result = self.run_rag(topic)
+                if hasattr(self, "state_manager") and self.state_manager:
+                    self.state_manager.mark_topic_completed(topic, "rag")
+                return result
+            except Exception as e:
+                if hasattr(self, "state_manager") and self.state_manager:
+                    self.state_manager.cleanup_in_progress_topic(topic, "rag")
+                raise e
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(run_topic, topic): topic for topic in remaining_topics
+            }
+            for future in as_completed(futures):
+                try:
+                    results.append(future.result())
+                except Exception as e:
+                    topic = futures[future]
+                    logger.error(f"RAG batch failed for {topic}: {e}")
+                    results.append(error_article(topic, e, "rag_batch"))
+
+        return results
+
+    # ---------------------------------------- State Management ----------------------------------------
+
     def set_state_manager(self, state_manager):
         """Set the state manager for checkpoint tracking."""
         self.state_manager = state_manager

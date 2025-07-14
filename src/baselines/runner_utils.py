@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import logging
+from typing import List
 
 from baselines.llm_wrapper import OllamaLiteLLMWrapper
 from config.model_config import ModelConfig
@@ -114,3 +115,139 @@ def log_result(method: str, article: Article):
     else:
         wc = article.metadata.get("word_count", 0)
         logger.info(f"✓ {method} completed ({wc} words)")
+
+
+def generate_search_queries(
+    client, model_config, topic: str, num_queries: int = 3
+) -> List[str]:
+    """Generate diverse search queries for retrieval."""
+    prompt = f"""Generate {num_queries} diverse search queries to research "{topic}".
+Each query should explore a different key aspect of the topic.
+
+Requirements:
+- Make queries specific and focused
+- Cover different aspects (history, current state, key facts, etc.)
+- Keep queries concise and searchable
+- One query per line, no numbering
+
+Queries:"""
+
+    wrapper = get_model_wrapper(client, model_config, "fast")
+    response = wrapper(prompt)
+
+    if hasattr(response, "choices") and response.choices:
+        content = response.choices[0].message.content
+    elif hasattr(response, "content"):
+        content = response.content
+    else:
+        content = str(response)
+
+    queries = [q.strip() for q in content.split("\n") if q.strip()]
+    queries = [q for q in queries if len(q) > 5]
+
+    if not queries:
+        queries = [topic, f"{topic} history", f"{topic} overview"]
+
+    return queries[:num_queries]
+
+
+def retrieve_and_format_passages(retrieval_system, queries: List[str]) -> List[dict]:
+    """Retrieve passages for queries and format consistently."""
+    all_passages = []
+
+    for query in queries:
+        try:
+            passages = retrieval_system.retrieve(query)
+            for passage in passages:
+                all_passages.append(
+                    {
+                        "content": passage.get("content", ""),
+                        "title": passage.get("title", ""),
+                        "relevance": passage.get("score", 0.5),
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Retrieval failed for query '{query}': {e}")
+
+    return all_passages
+
+
+def create_context_from_passages(passages: List[dict], max_passages: int = 5) -> str:
+    """Create context string from retrieved passages."""
+    if not passages:
+        return ""
+
+    # Sort by relevance and take top passages
+    sorted_passages = sorted(
+        passages, key=lambda x: x.get("relevance", 0), reverse=True
+    )
+    top_passages = sorted_passages[:max_passages]
+
+    # Remove duplicates based on content similarity
+    unique_passages = []
+    for passage in top_passages:
+        content = passage.get("content", "").strip()
+        if content and not any(
+            content in p.get("content", "") for p in unique_passages
+        ):
+            unique_passages.append(passage)
+
+    # Format context
+    context_parts = []
+    for i, passage in enumerate(unique_passages, 1):
+        title = passage.get("title", "Unknown")
+        content = passage.get("content", "")
+        if content:
+            context_parts.append(f"[Source {i} - {title}]: {content}")
+
+    context = "\n\n".join(context_parts)
+    logger.debug(f"Created context with {len(unique_passages)} unique passages")
+
+    return context
+
+
+def generate_article_with_context(
+    client, model_config, topic: str, context: str = ""
+) -> str:
+    """Generate article using retrieved context."""
+    if context:
+        prompt = f"""Write a comprehensive article about "{topic}" using the following retrieved information.
+
+Retrieved Information:
+{context}
+
+Instructions:
+1. Write a well-structured article with clear sections
+2. Use the retrieved information to support your writing
+3. Include specific facts and details from the sources
+4. Start with "# {topic}" as the main title
+5. Use markdown formatting for structure
+6. Be comprehensive but concise
+
+Article:"""
+    else:
+        prompt = f"""Write a comprehensive article about "{topic}".
+
+Instructions:
+1. Write a well-structured article with clear sections
+2. Start with "# {topic}" as the main title
+3. Use markdown formatting for structure
+4. Be comprehensive but concise
+
+Article:"""
+
+    wrapper = get_model_wrapper(client, model_config, "writing")
+    response = wrapper(prompt)
+
+    if hasattr(response, "choices") and response.choices:
+        content = response.choices[0].message.content
+    elif hasattr(response, "content"):
+        content = response.content
+    else:
+        content = str(response)
+
+    # Ensure proper title format
+    if not content.strip().startswith("#"):
+        content = f"# {topic}\n\n{content}"
+
+    return content
