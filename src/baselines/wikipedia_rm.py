@@ -14,8 +14,8 @@ class WikipediaSearchRM:
     Optimized for speed while maintaining content quality.
     """
 
-    def __init__(self, k: int = 3):
-        self.k = min(k, 5)  # Limit k to max 5 for performance
+    def __init__(self, k: int = 5):
+        self.k = min(k, 8)  # Increase limit for better coverage
         self.retriever = WikipediaRetriever()
         logger.info(f"Optimized WikipediaSearchRM initialized with k={self.k}")
 
@@ -44,8 +44,8 @@ class WikipediaSearchRM:
         else:
             queries = [query_or_queries]
 
-        # Limit number of queries for performance
-        queries = queries[:5]  # Max 5 queries to prevent excessive API calls
+        # Limit number of queries for performance but allow more for better coverage
+        queries = queries[:8]  # Increased from 5 to 8 for better coverage
 
         logger.info(f"WikipediaSearchRM processing {len(queries)} queries")
 
@@ -65,11 +65,11 @@ class WikipediaSearchRM:
                     )
                     continue  # Skip empty queries instead of creating fallbacks
 
-                # Get Wikipedia content for this query with reduced limits
+                # Get Wikipedia content for this query with balanced limits
                 wiki_snippets = self.retriever.get_wiki_content(
                     topic=cleaned_query,
-                    max_articles=2,  # Reduced from 3 for speed
-                    max_sections=2,  # Reduced from 3 for speed
+                    max_articles=3,  # Increased from 2 for better coverage
+                    max_sections=3,  # Increased from 2 for better coverage
                 )
 
                 # Convert to STORM format
@@ -85,8 +85,8 @@ class WikipediaSearchRM:
                 else:
                     logger.debug(f"No results found for query: '{cleaned_query}'")
 
-                # Early termination if we have enough results
-                if len(results) >= self.k * 3:  # Stop if we have plenty of results
+                # Adjust early termination threshold for more results
+                if len(results) >= self.k * 4:  # Increased from 3 to 4 for more results
                     logger.debug(f"Early termination: collected {len(results)} results")
                     break
 

@@ -54,13 +54,12 @@ def _convert_aggregated_to_json(aggregated_data):
 
 
 # Main analysis pipeline function
-def analyze_results(results_file_path: str, output_dir: str = "analysis_output"):
+def analyze_results(results_dir: str):
     """
     Complete analysis pipeline for baseline experiment results.
 
     Args:
-        results_file_path: Path to results.json file
-        output_dir: Directory to save analysis outputs
+        results_dir: Path to results directory (must contain results.json)
 
     Returns:
         Dict containing all analysis results and file paths
@@ -68,6 +67,22 @@ def analyze_results(results_file_path: str, output_dir: str = "analysis_output")
     from pathlib import Path
 
     import os
+
+    # Handle input path - must be a directory
+    input_path = Path(results_dir)
+
+    if not input_path.is_dir():
+        raise ValueError(f"Input path must be a directory: {results_dir}")
+
+    # Always append results.json to the directory
+    results_file_path = input_path / "results.json"
+
+    # Output directory is analysis_output inside the results directory
+    output_dir = input_path / "analysis_output"
+
+    # Convert to string for compatibility
+    results_file_path = str(results_file_path)
+    output_dir = str(output_dir)
 
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)

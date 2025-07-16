@@ -28,26 +28,26 @@ class ModelConfig:
     def __post_init__(self):
         if self.temperatures is None:
             self.temperatures = {
-                "fast": 0.7,
-                "outline": 0.5,
-                "writing": 0.7,
-                "critique": 0.3,
-                "polish": 0.5,
-                "retrieval": 0.3,
-                "generation": 0.7,
-                "reflection": 0.3,
+                "fast": 0.5,  # Reduced for more focused queries
+                "outline": 0.4,  # More structured outlines
+                "writing": 0.6,  # Balanced creativity and accuracy
+                "critique": 0.2,  # More conservative critique
+                "polish": 0.3,  # More conservative polishing
+                "retrieval": 0.1,  # Very focused retrieval decisions
+                "generation": 0.6,  # Balanced generation
+                "reflection": 0.2,  # Conservative reflection
             }
 
         if self.token_limits is None:
             self.token_limits = {
-                "fast": 300,
-                "outline": 400,
-                "writing": 2000,
-                "critique": 800,
-                "polish": 800,
-                "retrieval": 200,
-                "generation": 1000,
-                "reflection": 600,
+                "fast": 500,  # Increased for better query generation
+                "outline": 600,  # Increased for better structure
+                "writing": 2500,  # Increased for longer articles
+                "critique": 1000,  # Increased for thorough critique
+                "polish": 1000,  # Increased for better polishing
+                "retrieval": 300,  # Increased for better retrieval
+                "generation": 1500,  # Increased for better generation
+                "reflection": 800,  # Increased for better reflection
             }
 
     def get_model_for_task(self, task: str) -> str:

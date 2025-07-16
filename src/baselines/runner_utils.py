@@ -1,13 +1,21 @@
 # FILE: runners/runner_utils.py
+import sys
 from pathlib import Path
 
 import logging
+import re
 from typing import List
 
-from baselines.llm_wrapper import OllamaLiteLLMWrapper
-from config.model_config import ModelConfig
+# Add src directory to path
+src_dir = Path(__file__).parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
+from config.baselines_model_config import ModelConfig
 from utils.data_models import Article
 from utils.ollama_client import OllamaClient
+
+from .llm_wrapper import OllamaLiteLLMWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -26,38 +34,47 @@ def get_model_wrapper(
 def build_direct_prompt(topic: str) -> str:
     return f"""Write a comprehensive, well-structured Wikipedia-style article about \"{topic}\".
 
-Requirements:
-1. Create a detailed article with multiple sections following Wikipedia structure
-2. Use specific, descriptive section headings (e.g., "Background", "History", "Development", "Services", "Operations", "Technical specifications", "Impact", "Criticism", "Future plans")
-3. Include an introduction, multiple main sections, and conclusion-style sections
-4. Each section should have 2-3 paragraphs with specific details
-5. Use clear markdown formatting with # for title and ## for sections
-6. Write in an encyclopedic, factual style similar to Wikipedia
-7. Aim for 1000-1500 words total
-8. Include specific details, dates, numbers, and explanations
-9. Avoid generic headings like "Overview" or "Introduction" - use specific descriptive titles
+You are an expert encyclopedia writer. Create a detailed, factual article that captures the essential information about this topic.
 
-Format:
+CRITICAL REQUIREMENTS:
+1. Start with a strong, informative introduction that summarizes the key facts
+2. Create 4-6 main sections with specific, descriptive headings (NOT generic ones like "Overview")
+3. Each section should contain 2-3 substantial paragraphs with specific details
+4. Include dates, numbers, names, and concrete facts wherever possible
+5. Use proper Wikipedia-style citations format [1], [2], etc. (even if hypothetical)
+6. Maintain an encyclopedic, neutral tone throughout
+7. Target 1200-1600 words for comprehensive coverage
+8. Include entity-rich content with proper nouns, technical terms, and specific details
+
+SECTION STRATEGY:
+- Choose section headings that are specific to the topic domain
+- For events: Background, Timeline, Key figures, Impact, Aftermath
+- For organizations: History, Structure, Operations, Services, Controversies
+- For people: Early life, Career, Major achievements, Legacy
+- For places: Geography, History, Demographics, Economy, Culture
+- For concepts: Definition, Development, Applications, Criticism
+
+FORMAT:
 # {topic}
 
-[Introduction paragraph with key facts]
+[Write a comprehensive 2-3 paragraph introduction that defines the topic, explains its significance, and provides key contextual information. Include specific dates, locations, and quantitative details.]
 
-## Background
-[Historical context and background information]
+## [Specific Domain-Relevant Heading 1]
+[2-3 detailed paragraphs with specific facts, dates, and examples]
 
-## [Specific aspect like Development/History/Technology]
-[Detailed content about this aspect]
+## [Specific Domain-Relevant Heading 2]
+[2-3 detailed paragraphs with technical details and concrete information]
 
-## [Another specific aspect like Operations/Services/Impact]
-[Content about this aspect]
+## [Specific Domain-Relevant Heading 3]
+[2-3 detailed paragraphs focusing on impact, applications, or significance]
 
-## [Additional specific sections as relevant]
+## [Specific Domain-Relevant Heading 4]
+[2-3 detailed paragraphs with current status, future developments, or related topics]
+
+## [Additional sections as needed]
 [Continue with domain-specific sections]
 
-## [Future/Current status section]
-[Information about current state and future plans]
-
-Now write the article with specific, descriptive section headings:"""
+Write the article now, ensuring each section is information-dense and entity-rich:"""
 
 
 def extract_storm_output(topic: str, storm_output_dir: str) -> str:
@@ -118,19 +135,35 @@ def log_result(method: str, article: Article):
 
 
 def generate_search_queries(
-    client, model_config, topic: str, num_queries: int = 3
+    client, model_config, topic: str, num_queries: int = 5
 ) -> List[str]:
-    """Generate diverse search queries for retrieval."""
-    prompt = f"""Generate {num_queries} diverse search queries to research "{topic}".
-Each query should explore a different key aspect of the topic.
+    """Generate diverse, high-quality search queries for retrieval."""
+    prompt = f"""Generate {num_queries} strategic search queries to comprehensively research "{topic}".
 
-Requirements:
-- Make queries specific and focused
-- Cover different aspects (history, current state, key facts, etc.)
-- Keep queries concise and searchable
-- One query per line, no numbering
+You are a research librarian creating targeted search queries. Each query should:
+1. Focus on a distinct aspect of the topic
+2. Use specific terminology and keywords
+3. Be optimized for finding factual, detailed information
+4. Cover different temporal periods (historical, current, future)
+5. Include both general and specific subtopics
 
-Queries:"""
+For the topic "{topic}", create queries that would find:
+- Historical background and origins
+- Key people, organizations, or entities involved
+- Technical details, processes, or mechanisms
+- Current status, recent developments, or statistics
+- Impact, significance, or broader implications
+
+Format: One query per line, no numbering or prefixes.
+
+Examples for reference:
+- "origins history foundation established"
+- "key figures leaders founders important people"
+- "technical specifications details process how works"
+- "current status recent developments 2023 2024"
+- "impact significance effects implications"
+
+Search queries for "{topic}":"""
 
     wrapper = get_model_wrapper(client, model_config, "fast")
     response = wrapper(prompt)
@@ -143,12 +176,28 @@ Queries:"""
         content = str(response)
 
     queries = [q.strip() for q in content.split("\n") if q.strip()]
-    queries = [q for q in queries if len(q) > 5]
+    # Clean up queries (remove numbering, bullets, etc.)
+    cleaned_queries = []
+    for q in queries:
+        q = q.strip()
+        # Remove common prefixes
+        q = re.sub(r"^\d+[\.\)]\s*", "", q)
+        q = re.sub(r"^[-•*]\s*", "", q)
+        q = re.sub(r'^"([^"]*)"$', r"\1", q)  # Remove quotes
+        if len(q) > 5 and q not in cleaned_queries:
+            cleaned_queries.append(q)
 
-    if not queries:
-        queries = [topic, f"{topic} history", f"{topic} overview"]
+    # Fallback queries if generation failed
+    if not cleaned_queries:
+        cleaned_queries = [
+            f"{topic} history background origins",
+            f"{topic} key people important figures",
+            f"{topic} technical details specifications",
+            f"{topic} current status recent developments",
+            f"{topic} impact significance effects",
+        ]
 
-    return queries[:num_queries]
+    return cleaned_queries[:num_queries]
 
 
 def retrieve_and_format_passages(retrieval_system, queries: List[str]) -> List[dict]:
@@ -172,8 +221,8 @@ def retrieve_and_format_passages(retrieval_system, queries: List[str]) -> List[d
     return all_passages
 
 
-def create_context_from_passages(passages: List[dict], max_passages: int = 5) -> str:
-    """Create context string from retrieved passages."""
+def create_context_from_passages(passages: List[dict], max_passages: int = 8) -> str:
+    """Create enhanced context string from retrieved passages."""
     if not passages:
         return ""
 
@@ -181,27 +230,52 @@ def create_context_from_passages(passages: List[dict], max_passages: int = 5) ->
     sorted_passages = sorted(
         passages, key=lambda x: x.get("relevance", 0), reverse=True
     )
+
+    # Increase max_passages for better coverage
     top_passages = sorted_passages[:max_passages]
 
-    # Remove duplicates based on content similarity
+    # Enhanced duplicate removal based on content similarity
     unique_passages = []
     for passage in top_passages:
         content = passage.get("content", "").strip()
-        if content and not any(
-            content in p.get("content", "") for p in unique_passages
-        ):
+        if not content:
+            continue
+
+        # Check for substantial overlap with existing passages
+        is_duplicate = False
+        for existing in unique_passages:
+            existing_content = existing.get("content", "")
+            # Simple overlap check - could be enhanced with semantic similarity
+            if len(content) > 0 and len(existing_content) > 0:
+                shorter_len = min(len(content), len(existing_content))
+                longer_len = max(len(content), len(existing_content))
+                # If one passage is substantially contained in another, skip it
+                if shorter_len / longer_len > 0.8 and (
+                    content in existing_content or existing_content in content
+                ):
+                    is_duplicate = True
+                    break
+
+        if not is_duplicate:
             unique_passages.append(passage)
 
-    # Format context
+    # Enhanced context formatting with better structure
     context_parts = []
     for i, passage in enumerate(unique_passages, 1):
-        title = passage.get("title", "Unknown")
+        title = passage.get("title", "Unknown Source")
         content = passage.get("content", "")
         if content:
-            context_parts.append(f"[Source {i} - {title}]: {content}")
+            # Clean up content (remove excessive whitespace, etc.)
+            content = re.sub(r"\s+", " ", content).strip()
+            # Limit individual passage length to prevent overwhelming context
+            if len(content) > 800:
+                content = content[:800] + "..."
+            context_parts.append(f"[Source {i} - {title}]:\n{content}")
 
     context = "\n\n".join(context_parts)
-    logger.debug(f"Created context with {len(unique_passages)} unique passages")
+    logger.debug(
+        f"Created context with {len(unique_passages)} unique passages, {len(context)} chars"
+    )
 
     return context
 
@@ -209,32 +283,55 @@ def create_context_from_passages(passages: List[dict], max_passages: int = 5) ->
 def generate_article_with_context(
     client, model_config, topic: str, context: str = ""
 ) -> str:
-    """Generate article using retrieved context."""
+    """Generate article using retrieved context with enhanced integration."""
     if context:
-        prompt = f"""Write a comprehensive article about "{topic}" using the following retrieved information.
+        prompt = f"""You are an expert encyclopedia writer. Write a comprehensive Wikipedia-style article about "{topic}" using the provided research information.
 
-Retrieved Information:
+RESEARCH INFORMATION:
 {context}
 
-Instructions:
-1. Write a well-structured article with clear sections
-2. Use the retrieved information to support your writing
-3. Include specific facts and details from the sources
-4. Start with "# {topic}" as the main title
-5. Use markdown formatting for structure
-6. Be comprehensive but concise
-
-Article:"""
-    else:
-        prompt = f"""Write a comprehensive article about "{topic}".
-
-Instructions:
-1. Write a well-structured article with clear sections
+WRITING INSTRUCTIONS:
+1. Synthesize information from multiple sources to create a coherent narrative
 2. Start with "# {topic}" as the main title
-3. Use markdown formatting for structure
-4. Be comprehensive but concise
+3. Create 4-6 well-structured sections with specific, descriptive headings
+4. Each section should be 2-3 substantial paragraphs
+5. Include specific facts, dates, numbers, and names from the research
+6. Use proper citations format [1], [2], etc. when referencing sources
+7. Maintain encyclopedic tone and neutral point of view
+8. Ensure logical flow between sections
+9. Include entity-rich content with proper nouns and technical terms
+10. Aim for 1200-1600 words total
 
-Article:"""
+SECTION STRATEGY:
+- Begin with a comprehensive introduction (2-3 paragraphs)
+- Choose domain-specific section headings based on the topic type
+- Prioritize the most important aspects covered in the research
+- End with current status, impact, or future developments
+
+QUALITY REQUIREMENTS:
+- Every paragraph should contain specific, verifiable information
+- Use transitional phrases to connect ideas smoothly
+- Include quantitative data where available
+- Mention key stakeholders, organizations, or individuals
+- Reference geographic locations, time periods, and technical specifications
+
+Write the article now:"""
+    else:
+        prompt = f"""Write a comprehensive Wikipedia-style article about "{topic}".
+
+You are an expert encyclopedia writer. Create a detailed, factual article without external sources.
+
+INSTRUCTIONS:
+1. Start with "# {topic}" as the main title
+2. Write a comprehensive introduction explaining the topic's significance
+3. Create 4-6 sections with specific, descriptive headings (not generic ones)
+4. Each section should contain 2-3 substantial paragraphs
+5. Include plausible specific details, dates, and examples
+6. Use encyclopedic tone and professional writing style
+7. Aim for 1200-1600 words total
+8. Focus on entity-rich content with proper nouns and technical terms
+
+Write the article now:"""
 
     wrapper = get_model_wrapper(client, model_config, "writing")
     response = wrapper(prompt)
@@ -251,3 +348,88 @@ Article:"""
         content = f"# {topic}\n\n{content}"
 
     return content
+
+
+def post_process_article(content: str, topic: str) -> str:
+    """Post-process article content to improve quality and structure."""
+    if not content or not content.strip():
+        return content
+
+    lines = content.split("\n")
+    processed_lines = []
+
+    # Ensure proper title formatting
+    if not lines[0].strip().startswith("#"):
+        processed_lines.append(f"# {topic}")
+        processed_lines.append("")
+
+    # Process each line
+    for line in lines:
+        line = line.strip()
+        if not line:
+            processed_lines.append("")
+            continue
+
+        # Fix heading hierarchy
+        if line.startswith("#"):
+            # Ensure proper spacing after headings
+            if line.startswith("##") and not line.startswith("### "):
+                processed_lines.append(line)
+                processed_lines.append("")
+            else:
+                processed_lines.append(line)
+                processed_lines.append("")
+        else:
+            processed_lines.append(line)
+
+    # Join and clean up excessive whitespace
+    processed_content = "\n".join(processed_lines)
+    # Remove excessive blank lines
+    processed_content = re.sub(r"\n\n\n+", "\n\n", processed_content)
+
+    return processed_content.strip()
+
+
+def enhance_article_content(
+    client, model_config, article_content: str, topic: str
+) -> str:
+    """Use LLM to enhance article content with better structure and details."""
+    if not article_content or len(article_content.strip()) < 100:
+        return article_content
+
+    enhancement_prompt = f"""Improve the following Wikipedia-style article about "{topic}".
+
+ORIGINAL ARTICLE:
+{article_content}
+
+ENHANCEMENT INSTRUCTIONS:
+1. Preserve all existing factual information
+2. Improve section organization and flow
+3. Add more specific details where appropriate
+4. Ensure proper encyclopedic tone
+5. Enhance paragraph structure and transitions
+6. Add entity-rich content (proper nouns, dates, numbers)
+7. Maintain markdown formatting
+8. Keep the same general length (don't make it significantly longer)
+
+ENHANCED ARTICLE:"""
+
+    try:
+        wrapper = get_model_wrapper(client, model_config, "polish")
+        response = wrapper(enhancement_prompt)
+
+        if hasattr(response, "choices") and response.choices:
+            enhanced_content = response.choices[0].message.content
+        elif hasattr(response, "content"):
+            enhanced_content = response.content
+        else:
+            enhanced_content = str(response)
+
+        # Ensure proper title format
+        if not enhanced_content.strip().startswith("#"):
+            enhanced_content = f"# {topic}\n\n{enhanced_content}"
+
+        return enhanced_content
+    except Exception as e:
+        logger.warning(f"Article enhancement failed: {e}")
+        return article_content

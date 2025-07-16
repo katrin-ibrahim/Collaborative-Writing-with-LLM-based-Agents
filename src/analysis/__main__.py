@@ -15,31 +15,31 @@ def main():
     """Main entry point for the analysis module."""
     parser = argparse.ArgumentParser(description="Run analysis on experiment results")
     parser.add_argument(
-        "results_file",
-        nargs="?",
-        default="results.json",
-        help="Path to results.json file (default: results.json)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        "-o",
-        default="analysis_output",
-        help="Output directory for analysis results (default: analysis_output)",
+        "results_dir", help="Path to results directory (must contain results.json)"
     )
 
     args = parser.parse_args()
 
-    # Check if results file exists
-    if not Path(args.results_file).exists():
-        print(f"Error: {args.results_file} not found!")
+    # Check if input is a directory and contains results.json
+    input_path = Path(args.results_dir)
+    if not input_path.is_dir():
+        print(f"Error: {args.results_dir} is not a directory!")
         sys.exit(1)
 
-    print(f"Running analysis on {args.results_file}...")
-    print(f"Output will be saved to {args.output_dir}/")
+    results_file = input_path / "results.json"
+    if not results_file.exists():
+        print(f"Error: {results_file} not found!")
+        sys.exit(1)
+
+    print(f"Running analysis on {results_file}...")
+
+    # Output directory will be created inside the results directory
+    output_dir = input_path / "analysis_output"
+    print(f"Output will be saved to {output_dir}/")
 
     try:
         # Run the analysis
-        results = analyze_results(args.results_file, args.output_dir)
+        results = analyze_results(args.results_dir)
 
         print("\n" + "=" * 50)
         print("ANALYSIS COMPLETE")
@@ -49,6 +49,7 @@ def main():
         data = results["data"]
         aggregated = results["aggregated"]
         charts = results["charts"]
+        aggregated_file = results.get("aggregated_file", "")
 
         print(f"\nData Summary:")
         print(f"- Timestamp: {data.get('timestamp', 'N/A')}")
@@ -63,7 +64,10 @@ def main():
             if chart_path:
                 print(f"- {chart_name}: {chart_path}")
 
-        print(f"\nDetailed results saved to: {args.output_dir}/")
+        print(f"\nOutput Files:")
+        if aggregated_file:
+            print(f"- Aggregated metrics: {aggregated_file}")
+        print(f"- Detailed results saved to: {output_dir}/")
 
     except Exception as e:
         print(f"Error running analysis: {e}")

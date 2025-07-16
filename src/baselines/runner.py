@@ -5,17 +5,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from typing import List, Optional
 
-from baselines.configure_storm import setup_storm_runner
-from baselines.runner_utils import (
-    build_direct_prompt,
+from config.baselines_model_config import ModelConfig
+from utils.data_models import Article
+from utils.ollama_client import OllamaClient
+from utils.output_manager import OutputManager
+
+from .configure_storm import setup_storm_runner
+from .runner_utils import (
     error_article,
     extract_storm_output,
     get_model_wrapper,
 )
-from config.model_config import ModelConfig
-from utils.data_models import Article
-from utils.ollama_client import OllamaClient
-from utils.output_manager import OutputManager
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,14 @@ class BaselineRunner:
 
     # ---------------------------------------- Direct Prompting Baseline ----------------------------------------
     def run_direct_prompting(self, topic: str) -> Article:
-        logger.info(f"Running Direct Prompting for: {topic}")
+        logger.info(f"Running Enhanced Direct Prompting for: {topic}")
+
+        from .runner_utils import (
+            build_direct_prompt,
+            enhance_article_content,
+            post_process_article,
+        )
+
         prompt = build_direct_prompt(topic)
 
         try:
@@ -62,14 +69,24 @@ class BaselineRunner:
             logger.debug(
                 f"Extracted content type: {type(content)}, length: {len(content) if content else 0}"
             )
-            logger.debug(
-                f"Content preview: {content[:200] if content else 'No content'}..."
-            )
-            content_words = len(content.split()) if content else 0
-            generation_time = time.time() - start_time
+
+            # Post-process the content for better quality
+            if content:
+                content = post_process_article(content, topic)
+                logger.debug(f"Post-processed content length: {len(content)}")
+
+                # Optionally enhance content with additional LLM pass
+                if len(content.split()) < 800:  # Only enhance if content is too short
+                    content = enhance_article_content(
+                        self.client, self.model_config, content, topic
+                    )
+                    logger.debug(f"Enhanced content length: {len(content)}")
 
             if content and not content.startswith("#"):
                 content = f"# {topic}\n\n{content}"
+
+            content_words = len(content.split()) if content else 0
+            generation_time = time.time() - start_time
 
             article = Article(
                 title=topic,
@@ -81,21 +98,28 @@ class BaselineRunner:
                     "word_count": content_words,
                     "generation_time": generation_time,
                     "temperature": wrapper.temperature,
+                    "enhanced": True,
                 },
             )
 
             if self.output_manager:
                 self.output_manager.save_article(article, "direct")
 
+            logger.info(
+                f"Enhanced Direct Prompting completed for {topic} ({content_words} words)"
+            )
             return article
 
         except Exception as e:
-            logger.error(f"Direct Prompting failed: {e}")
-            raise RuntimeError(f"Direct Prompting error for {topic}: {e}")
+            logger.error(f"Enhanced Direct Prompting failed: {e}")
+            raise RuntimeError(f"Enhanced Direct Prompting error for {topic}: {e}")
 
     def run_direct_batch(
-        self, topics: List[str], max_workers: int = 3
+        self, topics: List[str], max_workers: int = 2
     ) -> List[Article]:
+        # Reduce max_workers to prevent overwhelming the model
+        max_workers = min(max_workers, 2)
+
         # Filter out completed topics using state manager
         remaining_topics = self.filter_completed_topics(topics, "direct")
 
@@ -104,7 +128,7 @@ class BaselineRunner:
             return []
 
         logger.info(
-            f"Running Direct Prompting batch for {len(remaining_topics)} remaining topics"
+            f"Running Enhanced Direct Prompting batch for {len(remaining_topics)} remaining topics (max_workers={max_workers})"
         )
         results = []
 
@@ -134,7 +158,7 @@ class BaselineRunner:
                     results.append(future.result())
                 except Exception as e:
                     topic = futures[future]
-                    logger.error(f"Direct batch failed for {topic}: {e}")
+                    logger.error(f"Enhanced Direct batch failed for {topic}: {e}")
                     results.append(error_article(topic, e, "direct_batch"))
 
         return results
@@ -226,24 +250,34 @@ class BaselineRunner:
 
     # ---------------------------------------- RAG Baseline ----------------------------------------
     def run_rag(self, topic: str) -> Article:
-        logger.info(f"Running RAG for: {topic}")
+        logger.info(f"Running Enhanced RAG for: {topic}")
 
         try:
-            from baselines.runner_utils import (
+            from .runner_utils import (
                 create_context_from_passages,
                 generate_article_with_context,
                 generate_search_queries,
                 retrieve_and_format_passages,
             )
-            from baselines.wikipedia_rm import WikipediaSearchRM
+            from .wikipedia_rm import WikipediaSearchRM
 
             start_time = time.time()
-            retrieval_system = WikipediaSearchRM(k=3)
+            # Use enhanced retrieval with higher k value
+            retrieval_system = WikipediaSearchRM(k=5)
 
-            # RAG pipeline
-            queries = generate_search_queries(self.client, self.model_config, topic)
+            # Enhanced RAG pipeline with more queries
+            queries = generate_search_queries(
+                self.client, self.model_config, topic, num_queries=5
+            )
+            logger.info(f"Generated {len(queries)} search queries for {topic}")
+
             passages = retrieve_and_format_passages(retrieval_system, queries)
-            context = create_context_from_passages(passages, max_passages=5)
+            logger.info(f"Retrieved {len(passages)} passages for {topic}")
+
+            # Use more passages for better context
+            context = create_context_from_passages(passages, max_passages=8)
+            logger.info(f"Created context with {len(context)} characters for {topic}")
+
             content = generate_article_with_context(
                 self.client, self.model_config, topic, context
             )
@@ -261,17 +295,18 @@ class BaselineRunner:
                     "model": self.model_config.get_model_for_task("writing"),
                     "queries_used": len(queries),
                     "passages_retrieved": len(passages),
+                    "context_length": len(context),
                 },
             )
 
             if self.output_manager:
                 self.output_manager.save_article(article, "rag")
 
-            logger.info(f"RAG completed for {topic} in {generation_time:.2f}s")
+            logger.info(f"Enhanced RAG completed for {topic} in {generation_time:.2f}s")
             return article
 
         except Exception as e:
-            logger.error(f"RAG failed for {topic}: {e}")
+            logger.error(f"Enhanced RAG failed for {topic}: {e}")
             return error_article(topic, e, "rag")
 
     def run_rag_batch(self, topics: List[str], max_workers: int = 2) -> List[Article]:

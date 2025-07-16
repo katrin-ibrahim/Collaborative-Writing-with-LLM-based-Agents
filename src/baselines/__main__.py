@@ -13,17 +13,16 @@ import logging
 import os
 from typing import Dict, List
 
-from utils.experiment_state_manager import ExperimentStateManager
-
 # Add src directory to path
-src_dir = Path(__file__).parent / "src"
+src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 from baselines.runner import BaselineRunner
 from cli_args import parse_arguments  # Import from new file
-from config.model_config import ModelConfig
+from config.baselines_model_config import ModelConfig
 from evaluation.evaluator import ArticleEvaluator
+from utils.experiment_state_manager import ExperimentStateManager
 from utils.freshwiki_loader import FreshWikiLoader
 from utils.logging_setup import setup_logging
 from utils.output_manager import OutputManager

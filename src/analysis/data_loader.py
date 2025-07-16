@@ -99,12 +99,12 @@ class ResultsLoader:
             if not isinstance(topic_data, dict):
                 continue
             for method in topic_data.keys():
-                if method in ["direct", "storm"]:
+                if method in ["direct", "storm", "rag"]:
                     valid_methods.add(method)
 
         if not valid_methods:
             raise ValueError(
-                "No valid method results found (expected 'direct' or 'storm')"
+                "No valid method results found (expected 'direct', 'storm', or 'rag')"
             )
 
         logger.info(f"Validation passed. Found methods: {sorted(valid_methods)}")
@@ -134,7 +134,7 @@ class ResultsLoader:
 
         for topic, topic_data in results.items():
             for method, method_data in topic_data.items():
-                if method not in ["direct", "storm"]:
+                if method not in ["direct", "storm", "rag"]:
                     continue
 
                 # Extract evaluation metrics if available
@@ -198,7 +198,7 @@ class ResultsLoader:
                 method
                 for topic_data in self.data["results"].values()
                 for method in topic_data.keys()
-                if method in ["direct", "storm"]
+                if method in ["direct", "storm", "rag"]
             )
         )
 
