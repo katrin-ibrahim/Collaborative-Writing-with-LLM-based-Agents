@@ -37,9 +37,9 @@ def setup_storm_runner(
 
     engine_args = STORMWikiRunnerArguments(
         output_dir=storm_output_dir,
-        max_conv_turn=2,
-        max_perspective=2,
-        search_top_k=2,
+        max_conv_turn=4,
+        max_perspective=4,
+        search_top_k=5,
         max_thread_num=4,
     )
 

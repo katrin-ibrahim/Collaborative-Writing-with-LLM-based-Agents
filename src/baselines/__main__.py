@@ -18,10 +18,9 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+from baselines.cli_args import parse_arguments  # Import from new file
 from baselines.runner import BaselineRunner
-from cli_args import parse_arguments  # Import from new file
 from config.baselines_model_config import ModelConfig
-from evaluation.evaluator import ArticleEvaluator
 from utils.experiment_state_manager import ExperimentStateManager
 from utils.freshwiki_loader import FreshWikiLoader
 from utils.logging_setup import setup_logging
@@ -124,9 +123,13 @@ def setup_output_directory(args) -> Path:
 
     # If no resume_dir specified, create new experiment directory
 
-    # Create new run directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = base_output_dir / f"run_{timestamp}"
+    # Create new run directory with format: method(s)_n{samples}_d{dd.mm_HH:MM}
+    timestamp = datetime.now().strftime("%d.%m_%H:%M")
+    if args.methods.count == 3:
+        methods_str = "all"
+    else:
+        methods_str = "_".join(sorted(args.methods))  # Sort for consistency
+    output_dir = base_output_dir / f"{methods_str}_N={args.num_topics}_T={timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"📂 Created new run directory: {output_dir}")
     return output_dir
@@ -152,12 +155,6 @@ def main():
     args = parse_arguments()
 
     setup_logging(args.log_level)
-    if args.log_level == "DEBUG":
-        logging.getLogger("evaluation.metrics.entity_metrics").setLevel(logging.DEBUG)
-        logging.getLogger("evaluation.evaluator").setLevel(logging.DEBUG)
-    else:
-        logging.getLogger("evaluation.metrics.entity_metrics").setLevel(logging.INFO)
-        logging.getLogger("evaluation.evaluator").setLevel(logging.INFO)
 
     logger.info("🦙 Ollama Baseline Experiment Runner")
     logger.info(f"📡 Ollama host: {args.ollama_host}")
@@ -267,27 +264,6 @@ def main():
 
         total_time = time.time() - start_time
         logger.info(f"⏱️ Total time: {total_time:.1f}s")
-
-        # Run evaluation if not skipped (EVALUATION SECTION PRESERVED)
-        if not args.skip_evaluation:
-            logger.info("🔍 Starting evaluation...")
-            evaluator = ArticleEvaluator()
-
-            for topic, results in all_results.items():
-                entry = next(e for e in entries if e.topic == topic)
-
-                for method in args.methods:
-                    if method in results and results[method].get("success"):
-                        try:
-                            article = results[method]["article"]
-                            eval_results = evaluator.evaluate_article(article, entry)
-                            results[method]["evaluation"] = eval_results
-                            logger.info(f"✅ Evaluated {method} for {topic}")
-                        except Exception as e:
-                            logger.error(
-                                f"❌ Evaluation failed for {method}/{topic}: {e}"
-                            )
-                            results[method]["evaluation_error"] = str(e)
 
         # Convert articles to serializable format for saving
         def make_serializable(obj):

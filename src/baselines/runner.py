@@ -1,9 +1,16 @@
 # FILE: runners/ollama_runner.py
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import logging
 from typing import List, Optional
+
+# Add src directory to path
+src_dir = Path(__file__).parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
 
 from config.baselines_model_config import ModelConfig
 from utils.data_models import Article

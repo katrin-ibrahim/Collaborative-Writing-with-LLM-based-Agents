@@ -43,9 +43,6 @@ Examples:
         help="Model configuration file",
     )
     parser.add_argument(
-        "-s", "--skip_evaluation", action="store_true", help="Skip automatic evaluation"
-    )
-    parser.add_argument(
         "-o",
         "--output_dir",
         default="results/ollama",
