@@ -113,21 +113,21 @@ class FreshWikiLoader:
                 )
 
     def get_evaluation_sample(self, n: int = 5) -> List[FreshWikiEntry]:
-        """Get random sample of entries for evaluation."""
-        import random
-
+        """Get first n entries in deterministic order for reproducible experiments."""
         if not self.entries:
             logger.error("No FreshWiki entries available. Run extraction script first.")
             return []
 
-        # All entries are already quality-filtered, so just sample
+        # Simply take the first n entries (they're already loaded in consistent order)
         sample_size = min(n, len(self.entries))
         if sample_size < n:
             logger.warning(f"Requested {n} topics but only {sample_size} available")
 
-        selected = random.sample(self.entries, sample_size)
+        selected = self.entries[:sample_size]
 
-        logger.info(f"Selected {len(selected)} topics for evaluation:")
+        logger.info(
+            f"Selected first {len(selected)} topics for evaluation (deterministic order):"
+        )
         for i, entry in enumerate(selected, 1):
             word_count = len(entry.reference_content.split())
             section_count = len(entry.reference_outline)

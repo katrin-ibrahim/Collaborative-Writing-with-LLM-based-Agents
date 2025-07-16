@@ -27,7 +27,7 @@ class Config:
                 "max_tokens": 50,
                 "temperature": 0.7,
             },
-            "retrieval": {"top_k": 5, "search_engine": "duckduckgo"},
+            "retrieval": {"top_k": 5},
             "evaluation": {"rouge_types": ["rouge1", "rouge2", "rougeL"]},
         }
 

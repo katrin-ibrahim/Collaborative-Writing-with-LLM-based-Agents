@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+
 import logging
 from knowledge_storm import (
     STORMWikiLMConfigs,
@@ -5,10 +8,16 @@ from knowledge_storm import (
     STORMWikiRunnerArguments,
 )
 
-from baselines.runner_utils import get_model_wrapper
-from baselines.wikipedia_rm import WikipediaSearchRM
-from config.model_config import ModelConfig
+# Add src directory to path
+src_dir = Path(__file__).parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
+from config.baselines_model_config import ModelConfig
 from utils.ollama_client import OllamaClient
+
+from .runner_utils import get_model_wrapper
+from .wikipedia_rm import WikipediaSearchRM
 
 
 def setup_storm_runner(
