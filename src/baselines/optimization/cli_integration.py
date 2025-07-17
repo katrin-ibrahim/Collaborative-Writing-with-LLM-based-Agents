@@ -51,6 +51,18 @@ def add_optimization_args(parser: argparse.ArgumentParser):
         help="Maximum configurations to test per method (default: 10 for STORM, 5 for RAG)",
     )
 
+    optimization_group.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume optimization from previous state if available",
+    )
+
+    optimization_group.add_argument(
+        "--resume-dir",
+        type=str,
+        help="Specific directory to resume optimization from (must contain optimization_state.json)",
+    )
+
 
 def load_model_config(config_file: str) -> ModelConfig:
     """Load model configuration from file."""
@@ -75,6 +87,9 @@ def run_optimization(args):
     setup_logging("DEBUG" if args.debug else "INFO")
     logger = logging.getLogger(__name__)
 
+    if args.resume:
+        logger.info("🔄 Resume flag set - will attempt to resume from previous state")
+
     logger.info("🚀 Starting Adaptive Configuration Optimization")
     logger.info("=" * 80)
 
@@ -87,21 +102,54 @@ def run_optimization(args):
         logger.error(f"Failed to load model configuration: {e}")
         sys.exit(1)
 
+    # Handle resume-dir if specified
+    output_dir = args.output_dir
+    resume_state_path = None
+
+    if args.resume_dir:
+        resume_dir = Path(args.resume_dir)
+        state_file = resume_dir / "optimization" / "optimization_state.json"
+
+        if state_file.exists():
+            logger.info(
+                f"🔄 Found state file in specified resume directory: {state_file}"
+            )
+            resume_state_path = state_file
+
+            # If resuming from specific directory but no output dir specified, use the same dir
+            if args.resume and not args.output_dir:
+                output_dir = str(resume_dir)
+                logger.info(
+                    f"🔄 Using resume directory as output directory: {output_dir}"
+                )
+        else:
+            logger.warning(
+                f"❌ No optimization_state.json found in {resume_dir}/optimization"
+            )
+            if args.resume:
+                logger.warning("Will attempt to resume from default location")
+
     # Initialize optimizer
     try:
         optimizer = AdaptiveOptimizer(
             ollama_host=args.ollama_host,
             model_config=model_config,
-            output_dir=args.output_dir,
+            output_dir=output_dir,
             topics_per_test=args.opt_topics,
+            resume=args.resume,
+            resume_state_path=resume_state_path,
         )
 
         logger.info(f"🎯 Optimization Configuration:")
         logger.info(f"   📡 Ollama Host: {args.ollama_host}")
-        logger.info(f"   📁 Output Dir: {args.output_dir}")
+        logger.info(f"   📁 Output Dir: {output_dir}")
         logger.info(f"   📝 Topics per test: {args.opt_topics}")
         logger.info(f"   🎯 Methods: {args.opt_methods}")
         logger.info(f"   📊 Metric: {args.opt_metric}")
+        if args.resume:
+            logger.info(f"   🔄 Resume: Enabled")
+            if resume_state_path:
+                logger.info(f"   🔄 Resume State: {resume_state_path}")
 
     except Exception as e:
         logger.error(f"Failed to initialize optimizer: {e}")

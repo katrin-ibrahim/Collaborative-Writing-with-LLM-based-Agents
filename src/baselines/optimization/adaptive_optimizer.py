@@ -53,10 +53,25 @@ class OptimizationState:
 class PerformanceTracker:
     """Tracks performance and handles rollback logic."""
 
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path, resume_state_path: Optional[Path] = None):
         self.output_dir = Path(output_dir)
-        self.state_file = self.output_dir / "optimization_state.json"
-        self.state = OptimizationState()
+
+        # If a specific resume state path is provided, use it to load but save to the output_dir
+        if resume_state_path:
+            self.resume_state_path = resume_state_path
+            self.state_file = self.output_dir / "optimization_state.json"
+            self.state = self.load_state(self.resume_state_path)
+            logger.info(f"Loaded state from: {resume_state_path}")
+            # Save a copy of the loaded state to the new output directory
+            if self.resume_state_path != self.state_file and self.state:
+                self.save_state()
+                logger.info(f"Copied state to new location: {self.state_file}")
+        else:
+            # Normal operation - load and save from the same directory
+            self.state_file = self.output_dir / "optimization_state.json"
+            self.state = (
+                self.load_state() if self.state_file.exists() else OptimizationState()
+            )
 
     def calculate_composite_score(self, metrics: Dict[str, float]) -> float:
         """Calculate weighted composite score from STORM metrics."""
@@ -71,9 +86,9 @@ class PerformanceTracker:
 
         logger.debug(
             f"Composite calculation: "
-            f"ROUGE-1({rouge_1:.3f}) * 0.4 + "
-            f"HSR({heading_soft_recall:.3f}) * 0.3 + "
-            f"AER({article_entity_recall:.3f}) * 0.3 = {composite:.3f}"
+            f"ROUGE-1({rouge_1:.2f}%) * 0.4 + "
+            f"HSR({heading_soft_recall:.2f}%) * 0.3 + "
+            f"AER({article_entity_recall:.2f}%) * 0.3 = {composite:.2f}"
         )
 
         return composite
@@ -142,38 +157,131 @@ class PerformanceTracker:
             with open(self.state_file, "w") as f:
                 json.dump(state_data, f, indent=2)
 
+            logger.info(f"Optimization state saved to {self.state_file}")
+
         except Exception as e:
             logger.warning(f"Failed to save optimization state: {e}")
+
+    def load_state(self, state_path: Optional[Path] = None) -> OptimizationState:
+        """Load optimization state from disk if it exists."""
+        try:
+            # Use provided path or default to self.state_file
+            file_path = state_path if state_path else self.state_file
+
+            if not file_path.exists():
+                logger.info(
+                    f"No previous optimization state found at {file_path}. Starting fresh."
+                )
+                return OptimizationState()
+
+            logger.info(f"Loading optimization state from: {file_path}")
+            with open(file_path, "r") as f:
+                state_data = json.load(f)
+
+            state = OptimizationState(
+                total_tests_run=state_data.get("total_tests_run", 0),
+                optimization_start_time=state_data.get(
+                    "optimization_start_time", time.time()
+                ),
+            )
+
+            # Restore best configurations if available
+            if state_data.get("current_best_storm"):
+                storm_data = state_data["current_best_storm"]
+                state.current_best_storm = OptimizationConfig(
+                    method="storm",
+                    parameters=storm_data["parameters"],
+                    composite_score=storm_data["composite_score"],
+                    individual_scores=storm_data["individual_scores"],
+                    test_results=storm_data["test_results"],
+                    generation_time=storm_data["generation_time"],
+                )
+
+            if state_data.get("current_best_rag"):
+                rag_data = state_data["current_best_rag"]
+                state.current_best_rag = OptimizationConfig(
+                    method="rag",
+                    parameters=rag_data["parameters"],
+                    composite_score=rag_data["composite_score"],
+                    individual_scores=rag_data["individual_scores"],
+                    test_results=rag_data["test_results"],
+                    generation_time=rag_data["generation_time"],
+                )
+
+            if state_data.get("baseline_storm"):
+                storm_data = state_data["baseline_storm"]
+                state.baseline_storm = OptimizationConfig(
+                    method="storm",
+                    parameters=storm_data["parameters"],
+                    composite_score=storm_data["composite_score"],
+                    individual_scores=storm_data["individual_scores"],
+                    test_results=storm_data["test_results"],
+                    generation_time=storm_data["generation_time"],
+                )
+
+            if state_data.get("baseline_rag"):
+                rag_data = state_data["baseline_rag"]
+                state.baseline_rag = OptimizationConfig(
+                    method="rag",
+                    parameters=rag_data["parameters"],
+                    composite_score=rag_data["composite_score"],
+                    individual_scores=rag_data["individual_scores"],
+                    test_results=rag_data["test_results"],
+                    generation_time=rag_data["generation_time"],
+                )
+
+            # Restore tested configurations
+            if state_data.get("tested_configurations"):
+                for config_data in state_data["tested_configurations"]:
+                    config = OptimizationConfig(
+                        method=config_data["method"],
+                        parameters=config_data["parameters"],
+                        composite_score=config_data["composite_score"],
+                        individual_scores=config_data["individual_scores"],
+                        test_results=config_data["test_results"],
+                        generation_time=config_data["generation_time"],
+                    )
+                    state.tested_configurations.append(config)
+
+            logger.info(
+                f"Resuming from previous state: {len(state.tested_configurations)} configurations tested so far"
+            )
+            return state
+
+        except Exception as e:
+            logger.warning(f"Failed to load previous optimization state: {e}")
+            logger.warning("Starting with a fresh optimization state")
+            return OptimizationState()
 
 
 class ConfigurationManager:
     """Manages parameter spaces and generates configurations to test."""
 
     def __init__(self):
-        # STORM parameter space - reduced for faster optimization
+        # STORM parameter space - expanded for better quality optimization
         self.storm_param_space = {
-            "max_conv_turn": [3, 4, 5],
-            "max_perspective": [3, 5, 7],
-            "search_top_k": [3, 5, 7],
-            "max_thread_num": [1, 2],
+            "max_conv_turn": [4, 5, 6, 7, 8],
+            "max_perspective": [4, 6, 8, 10, 12],
+            "search_top_k": [5, 7, 9, 11, 13],
+            "max_thread_num": [2, 4, 6],
         }
 
-        # RAG parameter space - minimal for faster optimization
+        # RAG parameter space - expanded for better performance
         self.rag_param_space = {
-            "retrieval_k": [3, 5, 7],
-            "num_queries": [3, 5, 7],
-            "max_passages": [5, 10, 15],
+            "retrieval_k": [5, 7, 9, 11],
+            "num_queries": [5, 7, 9, 11],
+            "max_passages": [10, 15, 20, 25],
         }
 
-        # Current baseline configurations
+        # Current baseline configurations - using original hardcoded values as baseline
         self.storm_baseline = {
-            "max_conv_turn": 2,
-            "max_perspective": 2,
-            "search_top_k": 2,
+            "max_conv_turn": 4,
+            "max_perspective": 4,
+            "search_top_k": 5,
             "max_thread_num": 4,
         }
 
-        self.rag_baseline = {"retrieval_k": 5, "num_queries": 5, "max_passages": 8}
+        self.rag_baseline = {"retrieval_k": 7, "num_queries": 7, "max_passages": 15}
 
     def get_baseline_config(self, method: str) -> Dict[str, Any]:
         """Get baseline configuration for method."""
@@ -185,7 +293,7 @@ class ConfigurationManager:
             raise ValueError(f"Unknown method: {method}")
 
     def generate_storm_configurations(
-        self, max_configs: int = 50
+        self, max_configs: int = 75
     ) -> List[Dict[str, Any]]:
         """Generate STORM configurations to test."""
         # Start with baseline
@@ -203,19 +311,40 @@ class ConfigurationManager:
         promising_combinations = []
 
         # High conversation turns + high perspectives (STORM's strength)
-        for conv_turn in [4, 5, 6]:
-            for perspective in [4, 6, 8]:
-                for search_k in [5, 7]:
+        for conv_turn in [6, 7, 8]:
+            for perspective in [8, 10, 12]:
+                for search_k in [9, 11]:
                     config = self.storm_baseline.copy()
                     config.update(
                         {
                             "max_conv_turn": conv_turn,
                             "max_perspective": perspective,
                             "search_top_k": search_k,
-                            "max_thread_num": 1,  # Conservative threading
+                            "max_thread_num": 4,  # Use more threads for higher quality
                         }
                     )
                     promising_combinations.append(config)
+
+        # Also test some extreme high-quality configurations
+        extreme_configs = [
+            {
+                "max_conv_turn": 8,
+                "max_perspective": 12,
+                "search_top_k": 13,
+                "max_thread_num": 6,
+            },
+            {
+                "max_conv_turn": 7,
+                "max_perspective": 10,
+                "search_top_k": 11,
+                "max_thread_num": 4,
+            },
+        ]
+
+        for config in extreme_configs:
+            full_config = self.storm_baseline.copy()
+            full_config.update(config)
+            promising_combinations.append(full_config)
 
         configs.extend(promising_combinations)
 
@@ -271,18 +400,42 @@ class AdaptiveOptimizer:
     """Main optimization orchestrator with STORM priority."""
 
     def __init__(
-        self, ollama_host: str, model_config, output_dir: str, topics_per_test: int = 5
+        self,
+        ollama_host: str,
+        model_config,
+        output_dir: str,
+        topics_per_test: int = 5,
+        resume: bool = False,
+        resume_state_path: Optional[Path] = None,
     ):
         self.ollama_host = ollama_host
         self.model_config = model_config
         self.output_dir = Path(output_dir) / "optimization"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Create configs directory for individual configuration test results
+        (self.output_dir / "configs").mkdir(parents=True, exist_ok=True)
+
+        self.resume = resume
+        self.resume_state_path = resume_state_path
+
         self.topics_per_test = topics_per_test
 
         # Initialize components
         self.config_manager = ConfigurationManager()
-        self.performance_tracker = PerformanceTracker(self.output_dir)
+
+        # Initialize performance tracker with resume capabilities
+        if resume and resume_state_path and resume_state_path.exists():
+            # Use the specified state file path directly
+            self.performance_tracker = PerformanceTracker(
+                self.output_dir, resume_state_path
+            )
+            logger.info(f"Resuming from specific state file: {resume_state_path}")
+        else:
+            self.performance_tracker = PerformanceTracker(self.output_dir)
+            if resume:
+                logger.info(f"Will attempt to resume from state in: {self.output_dir}")
+
         self.evaluator = ArticleEvaluator()
 
         # Load test topics
@@ -303,17 +456,21 @@ class AdaptiveOptimizer:
 
         start_time = time.time()
 
-        # Create modified runner for this configuration
-        output_manager = OutputManager(
-            str(self.output_dir / f"test_{method}"), debug_mode=True
-        )
-        runner = BaselineRunner(self.ollama_host, self.model_config, output_manager)
+        # Create a descriptive folder name for this configuration test
+        config_desc = []
+        for k, v in config.items():
+            short_key = k.replace("max_", "").replace("_", "")[
+                :5
+            ]  # Shorten keys like max_conv_turn to "conv"
+            config_desc.append(f"{short_key}{v}")
+        config_folder_name = f"{method}_{'-'.join(config_desc)}_{int(time.time())}"
 
-        # Apply configuration modifications
-        if method == "storm":
-            self._apply_storm_config(runner, config)
-        elif method == "rag":
-            self._apply_rag_config(runner, config)
+        # Create runner for this configuration with descriptive output folder
+        config_output_dir = self.output_dir / "configs" / config_folder_name
+        config_output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_manager = OutputManager(str(config_output_dir), debug_mode=False)
+        runner = BaselineRunner(self.ollama_host, self.model_config, output_manager)
 
         # Run tests on all topics
         results = []
@@ -329,17 +486,31 @@ class AdaptiveOptimizer:
             ]
         }
 
+        # Save configuration summary at the top level
+        config_summary_file = config_output_dir / "config_summary.json"
+        with open(config_summary_file, "w") as f:
+            summary = {
+                "method": method,
+                "config": config,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "test_topics": self.test_topics,
+            }
+            json.dump(summary, f, indent=2)
+
+        logger.info(f"Config details saved to: {config_summary_file}")
+
         for topic in self.test_topics:
             try:
-                # Generate article
+                # Generate article with configuration
                 if method == "storm":
-                    article = runner.run_storm(topic)
+                    article = runner.run_storm_with_config(topic, storm_config=config)
                 elif method == "rag":
-                    article = runner.run_rag(topic)
+                    article = runner.run_rag_with_config(topic, rag_config=config)
 
                 # Evaluate article
                 freshwiki = FreshWikiLoader()
-                reference = freshwiki.get_entry_by_title(topic)
+                # Fix: Use get_entry_by_topic instead of get_entry_by_title
+                reference = freshwiki.get_entry_by_topic(topic)
 
                 if reference:
                     metrics = self.evaluator.evaluate_article(article, reference)
@@ -349,18 +520,45 @@ class AdaptiveOptimizer:
                         if metric in total_metrics:
                             total_metrics[metric].append(value)
 
-                    results.append(
-                        {
-                            "topic": topic,
-                            "metrics": metrics,
-                            "word_count": (
-                                len(article.content.split()) if article.content else 0
-                            ),
-                        }
-                    )
+                    result_data = {
+                        "topic": topic,
+                        "config_used": config,
+                        "metrics": metrics,
+                        "word_count": (
+                            len(article.content.split()) if article.content else 0
+                        ),
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
 
-                    logger.debug(
-                        f"   ✅ {topic}: composite = {self.performance_tracker.calculate_composite_score(metrics):.3f}"
+                    results.append(result_data)
+
+                    # Save detailed result to topic folder
+                    topic_dir = output_manager.get_topic_directory(topic)
+
+                    # Save configuration and results to separate files for easy reference
+                    config_file = Path(topic_dir) / "configuration.json"
+                    results_file = Path(topic_dir) / "metrics.json"
+                    try:
+                        with open(config_file, "w") as f:
+                            json.dump(config, f, indent=2)
+
+                        with open(results_file, "w") as f:
+                            json.dump(result_data, f, indent=2)
+
+                        logger.debug(f"Configuration and metrics saved to {topic_dir}")
+                    except Exception as e:
+                        logger.warning(f"Failed to save files to {topic_dir}: {e}")
+
+                    composite = self.performance_tracker.calculate_composite_score(
+                        metrics
+                    )
+                    logger.debug(f"   ✅ {topic}: composite = {composite:.3f}")
+                else:
+                    logger.error(
+                        f"   ❌ {topic}: Reference article not found in FreshWiki data"
+                    )
+                    results.append(
+                        {"topic": topic, "error": "Reference article not found"}
                     )
 
             except Exception as e:
@@ -390,161 +588,105 @@ class AdaptiveOptimizer:
             generation_time=generation_time,
         )
 
+        # Save summary metrics to the config folder
+        metrics_summary_file = config_output_dir / "metrics_summary.json"
+        try:
+            with open(metrics_summary_file, "w") as f:
+                summary = {
+                    "method": method,
+                    "config": config,
+                    "composite_score": composite_score,
+                    "metrics": avg_metrics,
+                    "generation_time": generation_time,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "test_topics": self.test_topics,
+                }
+                json.dump(summary, f, indent=2)
+            logger.info(f"Metrics summary saved to: {metrics_summary_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save metrics summary: {e}")
+
         logger.info(f"📊 {method.upper()} Test Complete:")
-        logger.info(f"   🎯 Composite Score: {composite_score:.3f}")
-        logger.info(f"   📈 ROUGE-1: {avg_metrics.get('rouge_1', 0):.3f}")
+        logger.info(f"   🎯 Composite Score: {composite_score:.2f}")
+        logger.info(f"   📈 ROUGE-1: {avg_metrics.get('rouge_1', 0):.2f}%")
         logger.info(
-            f"   📋 Heading Soft Recall: {avg_metrics.get('heading_soft_recall', 0):.3f}"
+            f"   📋 Heading Soft Recall: {avg_metrics.get('heading_soft_recall', 0):.2f}%"
         )
         logger.info(
-            f"   🏷️  Article Entity Recall: {avg_metrics.get('article_entity_recall', 0):.3f}"
+            f"   🏷️  Article Entity Recall: {avg_metrics.get('article_entity_recall', 0):.2f}%"
         )
         logger.info(f"   ⏱️  Time: {generation_time:.1f}s")
+        logger.info(f"   📁 Results saved to: {config_output_dir}")
 
         return opt_config
-
-    def _apply_storm_config(self, runner: BaselineRunner, config: Dict[str, Any]):
-        """Apply STORM configuration to runner."""
-        # Monkey patch the setup_storm_runner function to use our config
-        runner.__class__.__module__
-
-        def custom_setup_storm_runner(client, model_config, storm_output_dir):
-            from knowledge_storm import (
-                STORMWikiLMConfigs,
-                STORMWikiRunner,
-                STORMWikiRunnerArguments,
-            )
-
-            from baselines.runner_utils import get_model_wrapper
-            from baselines.wikipedia_rm import WikipediaSearchRM
-
-            lm_config = STORMWikiLMConfigs()
-            lm_config.set_conv_simulator_lm(
-                get_model_wrapper(client, model_config, "fast")
-            )
-            lm_config.set_question_asker_lm(
-                get_model_wrapper(client, model_config, "fast")
-            )
-            lm_config.set_outline_gen_lm(
-                get_model_wrapper(client, model_config, "outline")
-            )
-            lm_config.set_article_gen_lm(
-                get_model_wrapper(client, model_config, "writing")
-            )
-            lm_config.set_article_polish_lm(
-                get_model_wrapper(client, model_config, "polish")
-            )
-
-            search_rm = WikipediaSearchRM(k=config.get("search_top_k", 3))
-
-            # Use our optimized configuration
-            engine_args = STORMWikiRunnerArguments(
-                output_dir=storm_output_dir,
-                max_conv_turn=config.get("max_conv_turn", 2),
-                max_perspective=config.get("max_perspective", 2),
-                search_top_k=config.get("search_top_k", 2),
-                max_thread_num=config.get("max_thread_num", 4),
-            )
-
-            return STORMWikiRunner(engine_args, lm_config, search_rm), storm_output_dir
-
-        # Replace the setup function temporarily
-        import baselines.configure_storm
-
-        baselines.configure_storm.setup_storm_runner = custom_setup_storm_runner
-
-    def _apply_rag_config(self, runner: BaselineRunner, config: Dict[str, Any]):
-        """Apply RAG configuration to runner."""
-        # Monkey patch the RAG method to use our config
-        runner.run_rag
-
-        def custom_run_rag(topic):
-            logger.info(f"Running Enhanced RAG with config {config} for: {topic}")
-
-            try:
-                from baselines.runner_utils import (
-                    create_context_from_passages,
-                    generate_article_with_context,
-                    generate_search_queries,
-                    retrieve_and_format_passages,
-                )
-                from baselines.wikipedia_rm import WikipediaSearchRM
-                from utils.data_models import Article
-
-                start_time = time.time()
-
-                # Use configured parameters
-                retrieval_system = WikipediaSearchRM(k=config.get("retrieval_k", 5))
-
-                queries = generate_search_queries(
-                    runner.client,
-                    runner.model_config,
-                    topic,
-                    num_queries=config.get("num_queries", 5),
-                )
-
-                passages = retrieve_and_format_passages(retrieval_system, queries)
-
-                context = create_context_from_passages(
-                    passages, max_passages=config.get("max_passages", 8)
-                )
-
-                content = generate_article_with_context(
-                    runner.client, runner.model_config, topic, context
-                )
-
-                generation_time = time.time() - start_time
-
-                article = Article(
-                    title=topic,
-                    content=content,
-                    sections={},
-                    metadata={
-                        "method": "rag",
-                        "word_count": len(content.split()) if content else 0,
-                        "generation_time": generation_time,
-                        "model": runner.model_config.get_model_for_task("writing"),
-                        "config": config.copy(),
-                    },
-                )
-
-                return article
-
-            except Exception as e:
-                logger.error(f"Enhanced RAG failed for {topic}: {e}")
-                from baselines.runner_utils import error_article
-
-                return error_article(topic, e, "rag")
-
-        runner.run_rag = custom_run_rag
 
     def optimize_storm(self) -> OptimizationConfig:
         """Optimize STORM configuration with comprehensive search."""
         logger.info("🌪️  STARTING STORM OPTIMIZATION")
         logger.info("=" * 60)
 
-        # Test baseline first
-        baseline_config = self.config_manager.get_baseline_config("storm")
-        baseline_result = self.run_configuration_test("storm", baseline_config)
+        # Check if we're resuming from previous optimization
+        resume_optimization = False
+        if (
+            self.performance_tracker.state.baseline_storm
+            and self.performance_tracker.state.current_best_storm
+        ):
+            resume_optimization = True
+            logger.info(f"🔄 Resuming STORM optimization from previous state")
+            logger.info(
+                f"📊 Current best STORM score: {self.performance_tracker.state.current_best_storm.composite_score:.3f}"
+            )
+        else:
+            # Test baseline first
+            baseline_config = self.config_manager.get_baseline_config("storm")
+            baseline_result = self.run_configuration_test("storm", baseline_config)
 
-        self.performance_tracker.state.baseline_storm = baseline_result
-        self.performance_tracker.state.current_best_storm = baseline_result
-        self.performance_tracker.state.tested_configurations.append(baseline_result)
+            self.performance_tracker.state.baseline_storm = baseline_result
+            self.performance_tracker.state.current_best_storm = baseline_result
+            self.performance_tracker.state.tested_configurations.append(baseline_result)
 
-        logger.info(f"📊 STORM Baseline: {baseline_result.composite_score:.3f}")
+            # Save initial state
+            self.performance_tracker.save_state()
 
-        # Generate configurations to test (reduced for faster optimization)
+            logger.info(f"📊 STORM Baseline: {baseline_result.composite_score:.3f}")
+
+        # Generate configurations to test (expanded for better optimization)
         configs_to_test = self.config_manager.generate_storm_configurations(
-            max_configs=10
+            max_configs=25
         )
         logger.info(f"🎯 Generated {len(configs_to_test)} STORM configurations to test")
 
+        # Filter out already tested configurations if resuming
+        if resume_optimization:
+            tested_config_params = [
+                config.parameters
+                for config in self.performance_tracker.state.tested_configurations
+                if config.method == "storm"
+            ]
+
+            configs_to_test = [
+                config
+                for config in configs_to_test
+                if config not in tested_config_params
+            ]
+            logger.info(
+                f"🔄 Resuming with {len(configs_to_test)} untested configurations"
+            )
+
+            if not configs_to_test:
+                logger.info(
+                    "✅ All configurations already tested. Returning best result."
+                )
+                return self.performance_tracker.state.current_best_storm
+
         # Test each configuration
         improvements_found = 0
-        for i, config in enumerate(
-            configs_to_test[1:], 1
-        ):  # Skip baseline (already tested)
-            logger.info(f"\n🧪 STORM Test {i}/{len(configs_to_test)-1}")
+        for i, config in enumerate(configs_to_test, 1):
+            if not resume_optimization and i == 1:
+                # Skip baseline if not resuming (already tested)
+                continue
+
+            logger.info(f"\n🧪 STORM Test {i}/{len(configs_to_test)}")
             logger.info("-" * 40)
 
             try:
@@ -562,6 +704,8 @@ class AdaptiveOptimizer:
 
                 else:
                     logger.info("📉 No improvement - continuing search...")
+                    # Still save state to record this test
+                    self.performance_tracker.save_state()
 
             except Exception as e:
                 logger.error(f"❌ STORM test failed: {e}")
@@ -585,24 +729,66 @@ class AdaptiveOptimizer:
         logger.info("\n🔍 STARTING RAG OPTIMIZATION")
         logger.info("=" * 60)
 
-        # Test baseline first
-        baseline_config = self.config_manager.get_baseline_config("rag")
-        baseline_result = self.run_configuration_test("rag", baseline_config)
+        # Check if we're resuming from previous optimization
+        resume_optimization = False
+        if (
+            self.performance_tracker.state.baseline_rag
+            and self.performance_tracker.state.current_best_rag
+        ):
+            resume_optimization = True
+            logger.info(f"🔄 Resuming RAG optimization from previous state")
+            logger.info(
+                f"📊 Current best RAG score: {self.performance_tracker.state.current_best_rag.composite_score:.3f}"
+            )
+        else:
+            # Test baseline first
+            baseline_config = self.config_manager.get_baseline_config("rag")
+            baseline_result = self.run_configuration_test("rag", baseline_config)
 
-        self.performance_tracker.state.baseline_rag = baseline_result
-        self.performance_tracker.state.current_best_rag = baseline_result
-        self.performance_tracker.state.tested_configurations.append(baseline_result)
+            self.performance_tracker.state.baseline_rag = baseline_result
+            self.performance_tracker.state.current_best_rag = baseline_result
+            self.performance_tracker.state.tested_configurations.append(baseline_result)
 
-        logger.info(f"📊 RAG Baseline: {baseline_result.composite_score:.3f}")
+            # Save initial state
+            self.performance_tracker.save_state()
+
+            logger.info(f"📊 RAG Baseline: {baseline_result.composite_score:.3f}")
 
         # Generate configurations to test (reduced for faster optimization)
         configs_to_test = self.config_manager.generate_rag_configurations(max_configs=5)
         logger.info(f"🎯 Generated {len(configs_to_test)} RAG configurations to test")
 
+        # Filter out already tested configurations if resuming
+        if resume_optimization:
+            tested_config_params = [
+                config.parameters
+                for config in self.performance_tracker.state.tested_configurations
+                if config.method == "rag"
+            ]
+
+            configs_to_test = [
+                config
+                for config in configs_to_test
+                if config not in tested_config_params
+            ]
+            logger.info(
+                f"🔄 Resuming with {len(configs_to_test)} untested configurations"
+            )
+
+            if not configs_to_test:
+                logger.info(
+                    "✅ All configurations already tested. Returning best result."
+                )
+                return self.performance_tracker.state.current_best_rag
+
         # Test each configuration
         improvements_found = 0
-        for i, config in enumerate(configs_to_test[1:], 1):  # Skip baseline
-            logger.info(f"\n🧪 RAG Test {i}/{len(configs_to_test)-1}")
+        for i, config in enumerate(configs_to_test, 1):
+            if not resume_optimization and i == 1:
+                # Skip baseline if not resuming (already tested)
+                continue
+
+            logger.info(f"\n🧪 RAG Test {i}/{len(configs_to_test)}")
             logger.info("-" * 40)
 
             try:
@@ -620,6 +806,8 @@ class AdaptiveOptimizer:
 
                 else:
                     logger.info("📉 No improvement - continuing search...")
+                    # Still save state to record this test
+                    self.performance_tracker.save_state()
 
             except Exception as e:
                 logger.error(f"❌ RAG test failed: {e}")
@@ -693,4 +881,131 @@ class AdaptiveOptimizer:
         # Save final state
         self.performance_tracker.save_state()
 
+        # Generate configuration index for easy comparison
+        self.generate_config_index()
+
+        logger.info(
+            f"📁 Configuration details and summaries available at: {self.output_dir}"
+        )
+        logger.info(
+            f"📊 View config_summary.md for a ranked list of all configurations"
+        )
+
         return best_storm, best_rag
+
+    def generate_config_index(self):
+        """Generate an index file with all configurations and their results for easy comparison."""
+        configs_dir = self.output_dir / "configs"
+        if not configs_dir.exists():
+            logger.info("No configuration folders to index")
+            return
+
+        index_data = []
+
+        # Collect data from all configuration folders
+        for config_dir in sorted(
+            configs_dir.glob("*"), key=lambda x: x.stat().st_mtime
+        ):
+            metrics_file = config_dir / "metrics_summary.json"
+
+            if not metrics_file.exists():
+                continue
+
+            try:
+                with open(metrics_file, "r") as f:
+                    metrics_data = json.load(f)
+
+                index_entry = {
+                    "folder": config_dir.name,
+                    "method": metrics_data.get("method", "unknown"),
+                    "config": metrics_data.get("config", {}),
+                    "composite_score": metrics_data.get("composite_score", 0),
+                    "rouge_1": metrics_data.get("metrics", {}).get("rouge_1", 0),
+                    "heading_soft_recall": metrics_data.get("metrics", {}).get(
+                        "heading_soft_recall", 0
+                    ),
+                    "article_entity_recall": metrics_data.get("metrics", {}).get(
+                        "article_entity_recall", 0
+                    ),
+                    "generation_time": metrics_data.get("generation_time", 0),
+                    "timestamp": metrics_data.get("timestamp", ""),
+                }
+                index_data.append(index_entry)
+
+            except Exception as e:
+                logger.warning(f"Error processing {metrics_file}: {e}")
+
+        # Sort by composite score (highest first)
+        index_data.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
+
+        # Generate the index file
+        index_file = self.output_dir / "config_index.json"
+        try:
+            with open(index_file, "w") as f:
+                json.dump(
+                    {
+                        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "total_configs": len(index_data),
+                        "configs": index_data,
+                    },
+                    f,
+                    indent=2,
+                )
+
+            logger.info(
+                f"Generated configuration index with {len(index_data)} entries at {index_file}"
+            )
+
+            # Also create a readable markdown summary
+            md_file = self.output_dir / "config_summary.md"
+            with open(md_file, "w") as f:
+                f.write("# Optimization Configuration Results\n\n")
+                f.write(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write(f"Total configurations tested: {len(index_data)}\n\n")
+
+                f.write("## Top 5 Configurations\n\n")
+                f.write(
+                    "| Rank | Method | Composite | ROUGE-1 | HSR | AER | Configuration | Folder |\n"
+                )
+                f.write(
+                    "|------|--------|-----------|---------|-----|-----|--------------|--------|\n"
+                )
+
+                for i, entry in enumerate(index_data[:5], 1):
+                    config_str = ", ".join(
+                        [f"{k}={v}" for k, v in entry.get("config", {}).items()]
+                    )
+                    f.write(
+                        f"| {i} | {entry.get('method', 'unknown')} | "
+                        f"{entry.get('composite_score', 0):.2f} | "
+                        f"{entry.get('rouge_1', 0):.2f} | "
+                        f"{entry.get('heading_soft_recall', 0):.2f} | "
+                        f"{entry.get('article_entity_recall', 0):.2f} | "
+                        f"{config_str} | {entry.get('folder', '')} |\n"
+                    )
+
+                f.write("\n## All Configurations\n\n")
+                f.write(
+                    "| Rank | Method | Composite | ROUGE-1 | HSR | AER | Configuration | Folder |\n"
+                )
+                f.write(
+                    "|------|--------|-----------|---------|-----|-----|--------------|--------|\n"
+                )
+
+                for i, entry in enumerate(index_data, 1):
+                    config_str = ", ".join(
+                        [f"{k}={v}" for k, v in entry.get("config", {}).items()]
+                    )
+                    f.write(
+                        f"| {i} | {entry.get('method', 'unknown')} | "
+                        f"{entry.get('composite_score', 0):.2f} | "
+                        f"{entry.get('rouge_1', 0):.2f} | "
+                        f"{entry.get('heading_soft_recall', 0):.2f} | "
+                        f"{entry.get('article_entity_recall', 0):.2f} | "
+                        f"{config_str} | {entry.get('folder', '')} |\n"
+                    )
+
+            logger.info(f"Generated readable configuration summary at {md_file}")
+
+        except Exception as e:
+            logger.error(f"Failed to generate configuration index: {e}")

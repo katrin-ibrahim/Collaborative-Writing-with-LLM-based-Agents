@@ -12,11 +12,6 @@ class ModelConfig:
     critique_model: str = "qwen2.5:14b"  # Reasoning, for self-critique
     polish_model: str = "qwen2.5:7b"  # Final polish
 
-    # Self-RAG specific models
-    retrieval_model: str = "mistral:7b-instruct"  # Fast retrieval decisions
-    generation_model: str = "qwen2.5:14b"  # Main generation
-    reflection_model: str = "qwen2.5:14b"  # Self-reflection
-
     # Default fallback
     default_model: str = "qwen2.5:7b"
 
@@ -58,9 +53,6 @@ class ModelConfig:
             "writing": self.writing_model,
             "critique": self.critique_model,
             "polish": self.polish_model,
-            "retrieval": self.retrieval_model,
-            "generation": self.generation_model,
-            "reflection": self.reflection_model,
         }
         return task_model_map.get(task, self.default_model)
 

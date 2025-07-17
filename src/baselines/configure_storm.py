@@ -21,8 +21,20 @@ from .wikipedia_rm import WikipediaSearchRM
 
 
 def setup_storm_runner(
-    client: OllamaClient, config: ModelConfig, storm_output_dir: str
+    client: OllamaClient,
+    config: ModelConfig,
+    storm_output_dir: str,
+    storm_config: dict = None,
 ):
+    """
+    Setup STORM runner with optional configuration override.
+
+    Args:
+        client: Ollama client
+        config: Model configuration
+        storm_output_dir: Output directory for STORM
+        storm_config: Optional Storm configuration parameters
+    """
     lm_config = STORMWikiLMConfigs()
 
     lm_config.set_conv_simulator_lm(get_model_wrapper(client, config, "fast"))
@@ -31,16 +43,28 @@ def setup_storm_runner(
     lm_config.set_article_gen_lm(get_model_wrapper(client, config, "writing"))
     lm_config.set_article_polish_lm(get_model_wrapper(client, config, "polish"))
 
-    # search_rm = MockSearchRM(k=3)
-    search_rm = WikipediaSearchRM(k=3)
+    # Default Storm configuration
+    default_config = {
+        "max_conv_turn": 4,
+        "max_perspective": 4,
+        "search_top_k": 5,
+        "max_thread_num": 4,
+    }
+
+    # Merge with provided config
+    if storm_config:
+        default_config.update(storm_config)
+
+    # Setup search retrieval with configured parameters
+    search_rm = WikipediaSearchRM(k=default_config["search_top_k"])
     logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
 
     engine_args = STORMWikiRunnerArguments(
         output_dir=storm_output_dir,
-        max_conv_turn=4,
-        max_perspective=4,
-        search_top_k=5,
-        max_thread_num=4,
+        max_conv_turn=default_config["max_conv_turn"],
+        max_perspective=default_config["max_perspective"],
+        search_top_k=default_config["search_top_k"],
+        max_thread_num=default_config["max_thread_num"],
     )
 
     runner = STORMWikiRunner(engine_args, lm_config, search_rm)

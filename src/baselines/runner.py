@@ -172,6 +172,61 @@ class BaselineRunner:
 
     # ---------------------------------------- STORM Baseline ----------------------------------------
     def run_storm(self, topic: str) -> Article:
+        """Run STORM with default configuration."""
+        return self.run_storm_with_config(topic, storm_config=None)
+
+    def run_storm_with_config(self, topic: str, storm_config: dict = None) -> Article:
+        """Run STORM with custom configuration parameters."""
+        config_desc = f" (config: {storm_config})" if storm_config else ""
+        logger.info(f"Running STORM for: {topic}{config_desc}")
+
+        try:
+            storm_output_dir = self.output_manager.setup_storm_output_dir(topic)
+            runner, storm_output_dir = setup_storm_runner(
+                self.client, self.model_config, storm_output_dir, storm_config
+            )
+
+            start_time = time.time()
+            runner.run(
+                topic=topic,
+                do_research=True,
+                do_generate_outline=True,
+                do_generate_article=True,
+                do_polish_article=True,
+            )
+            generation_time = time.time() - start_time
+            content = extract_storm_output(topic, storm_output_dir)
+
+            # Include configuration in metadata
+            metadata = {
+                "method": "storm",
+                "word_count": len(content.split()) if content else 0,
+                "generation_time": generation_time,
+                "model": self.model_config.get_model_for_task("writing"),
+            }
+
+            if storm_config:
+                metadata["storm_config"] = storm_config.copy()
+
+            article = Article(
+                title=topic,
+                content=content,
+                sections={},
+                metadata=metadata,
+            )
+
+            if self.output_manager:
+                self.output_manager.save_article(article, "storm")
+                # self.output_manager.cleanup_storm_temp(topic)
+
+            return article
+
+        except Exception as e:
+            logger.error(f"STORM failed: {e}")
+            raise RuntimeError(f"STORM error for {topic}: {e}")
+
+    def run_storm_legacy(self, topic: str) -> Article:
+        """Original run_storm method (kept for backward compatibility)."""
         logger.info(f"Running STORM for: {topic}")
 
         try:
@@ -213,51 +268,26 @@ class BaselineRunner:
             logger.error(f"STORM failed: {e}")
             raise RuntimeError(f"STORM error for {topic}: {e}")
 
-    def run_storm_batch(self, topics: List[str], max_workers: int = 3) -> List[Article]:
-        # Filter out completed topics using state manager
-        remaining_topics = self.filter_completed_topics(topics, "storm")
-
-        if not remaining_topics:
-            logger.info("All STORM topics already completed")
-            return []
-
-        logger.info(f"Running STORM batch for {len(remaining_topics)} remaining topics")
-        results = []
-
-        def run_topic(topic):
-            # Mark as in progress at start
-            if hasattr(self, "state_manager") and self.state_manager:
-                self.state_manager.mark_topic_in_progress(topic, "storm")
-
-            try:
-                article = self.run_storm(topic)
-                # Mark as completed on success
-                if hasattr(self, "state_manager") and self.state_manager:
-                    self.state_manager.mark_topic_completed(topic, "storm")
-                return article
-            except Exception as e:
-                # Clean up in-progress state on failure
-                if hasattr(self, "state_manager") and self.state_manager:
-                    self.state_manager.cleanup_in_progress_topic(topic, "storm")
-                raise e
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(run_topic, topic): topic for topic in remaining_topics
-            }
-            for future in as_completed(futures):
-                try:
-                    results.append(future.result())
-                except Exception as e:
-                    topic = futures[future]
-                    logger.error(f"STORM batch failed for {topic}: {e}")
-                    results.append(error_article(topic, e, "storm_batch"))
-
-        return results
-
     # ---------------------------------------- RAG Baseline ----------------------------------------
     def run_rag(self, topic: str) -> Article:
-        logger.info(f"Running Enhanced RAG for: {topic}")
+        """Run RAG with default configuration."""
+        return self.run_rag_with_config(topic, rag_config=None)
+
+    def run_rag_with_config(self, topic: str, rag_config: dict = None) -> Article:
+        """Run RAG with custom configuration parameters."""
+        # Default RAG configuration
+        default_config = {
+            "retrieval_k": 5,
+            "num_queries": 5,
+            "max_passages": 8,
+        }
+
+        # Merge with provided config
+        if rag_config:
+            default_config.update(rag_config)
+
+        config_desc = f" (config: {rag_config})" if rag_config else ""
+        logger.info(f"Running Enhanced RAG for: {topic}{config_desc}")
 
         try:
             from .runner_utils import (
@@ -269,20 +299,25 @@ class BaselineRunner:
             from .wikipedia_rm import WikipediaSearchRM
 
             start_time = time.time()
-            # Use enhanced retrieval with higher k value
-            retrieval_system = WikipediaSearchRM(k=5)
+            # Use configured retrieval parameters
+            retrieval_system = WikipediaSearchRM(k=default_config["retrieval_k"])
 
-            # Enhanced RAG pipeline with more queries
+            # Enhanced RAG pipeline with configurable queries
             queries = generate_search_queries(
-                self.client, self.model_config, topic, num_queries=5
+                self.client,
+                self.model_config,
+                topic,
+                num_queries=default_config["num_queries"],
             )
             logger.info(f"Generated {len(queries)} search queries for {topic}")
 
             passages = retrieve_and_format_passages(retrieval_system, queries)
             logger.info(f"Retrieved {len(passages)} passages for {topic}")
 
-            # Use more passages for better context
-            context = create_context_from_passages(passages, max_passages=8)
+            # Use configurable passages for context
+            context = create_context_from_passages(
+                passages, max_passages=default_config["max_passages"]
+            )
             logger.info(f"Created context with {len(context)} characters for {topic}")
 
             content = generate_article_with_context(
@@ -291,19 +326,24 @@ class BaselineRunner:
 
             generation_time = time.time() - start_time
 
+            metadata = {
+                "method": "rag",
+                "word_count": len(content.split()) if content else 0,
+                "generation_time": generation_time,
+                "model": self.model_config.get_model_for_task("writing"),
+                "queries_used": len(queries),
+                "passages_retrieved": len(passages),
+                "context_length": len(context),
+            }
+
+            if rag_config:
+                metadata["rag_config"] = rag_config.copy()
+
             article = Article(
                 title=topic,
                 content=content,
                 sections={},
-                metadata={
-                    "method": "rag",
-                    "word_count": len(content.split()) if content else 0,
-                    "generation_time": generation_time,
-                    "model": self.model_config.get_model_for_task("writing"),
-                    "queries_used": len(queries),
-                    "passages_retrieved": len(passages),
-                    "context_length": len(context),
-                },
+                metadata=metadata,
             )
 
             if self.output_manager:

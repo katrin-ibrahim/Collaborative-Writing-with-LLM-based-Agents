@@ -35,7 +35,7 @@ class ArticleEvaluator:
         """
         Evaluate article using STORM paper metrics only.
 
-        Returns the 6 core STORM metrics:
+        Returns the 6 core STORM metrics in percentage scale (0-100):
         - rouge_1, rouge_2, rouge_l (content overlap)
         - heading_soft_recall (topic coverage)
         - heading_entity_recall (entities in headings)
@@ -48,36 +48,37 @@ class ArticleEvaluator:
             rouge_scores = self.rouge_metrics.calculate_all_rouge(
                 article.content, reference.reference_content
             )
-            metrics.update(rouge_scores)
+            # Convert ROUGE scores to percentage scale (0-100)
+            for metric, score in rouge_scores.items():
+                metrics[metric] = score * 100.0
 
             # 2. Heading Soft Recall (HSR) - using semantic similarity
             generated_headings = self.heading_metrics.extract_headings_from_content(
                 article.content
             )
-            metrics["heading_soft_recall"] = (
-                self.heading_metrics.calculate_heading_soft_recall(
-                    generated_headings, reference.reference_outline
-                )
-            )
-
-            # 3. Heading Entity Recall (HER) - entities specifically in headings
-            metrics["heading_entity_recall"] = self._calculate_heading_entity_recall(
+            hsr_score = self.heading_metrics.calculate_heading_soft_recall(
                 generated_headings, reference.reference_outline
             )
+            metrics["heading_soft_recall"] = hsr_score * 100.0
+
+            # 3. Heading Entity Recall (HER) - entities specifically in headings
+            her_score = self._calculate_heading_entity_recall(
+                generated_headings, reference.reference_outline
+            )
+            metrics["heading_entity_recall"] = her_score * 100.0
 
             # 4. Article Entity Recall (AER) - overall factual coverage using smart heuristics
-            metrics["article_entity_recall"] = (
-                self.entity_metrics.calculate_overall_entity_recall(
-                    article.content, reference.reference_content
-                )
+            aer_score = self.entity_metrics.calculate_overall_entity_recall(
+                article.content, reference.reference_content
             )
+            metrics["article_entity_recall"] = aer_score * 100.0
 
             self.logger.debug(f"Evaluation completed: {metrics}")
             return metrics
 
         except Exception as e:
             self.logger.error(f"Evaluation failed: {e}")
-            # Return zeros for all STORM metrics on failure
+            # Return zeros for all STORM metrics on failure (in percentage scale)
             return {
                 "rouge_1": 0.0,
                 "rouge_2": 0.0,
@@ -150,10 +151,10 @@ class ArticleEvaluator:
     def get_metric_descriptions() -> Dict[str, str]:
         """Get descriptions of STORM metrics for documentation."""
         return {
-            "rouge_1": "STORM: Unigram overlap between generated and reference content",
-            "rouge_2": "STORM: Bigram overlap between generated and reference content",
-            "rouge_l": "STORM: Longest common subsequence overlap",
-            "heading_soft_recall": "STORM HSR: Semantic topic coverage in headings",
-            "heading_entity_recall": "STORM HER: Entity coverage in headings only",
-            "article_entity_recall": "STORM AER: Overall factual content coverage",
+            "rouge_1": "STORM: Unigram overlap between generated and reference content (0-100%)",
+            "rouge_2": "STORM: Bigram overlap between generated and reference content (0-100%)",
+            "rouge_l": "STORM: Longest common subsequence overlap (0-100%)",
+            "heading_soft_recall": "STORM HSR: Semantic topic coverage in headings (0-100%)",
+            "heading_entity_recall": "STORM HER: Entity coverage in headings only (0-100%)",
+            "article_entity_recall": "STORM AER: Overall factual content coverage (0-100%)",
         }
