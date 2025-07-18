@@ -31,3 +31,6 @@ PyYAML>=6.0
 tqdm>=4.65.0
 langgraph>=0.0.40
 langchain-core>=0.1.0
+
+matplotlib
+seaborn

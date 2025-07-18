@@ -302,3 +302,5 @@ srun --mem=16G --cpus-per-task=4 --gres=gpu:1 --time=01:00:00 --pty bash
 source /storage/ukp/work/ibrahim1/python_env/bin/activate
 ./scripts/run_pipeline.sh -m direct -n 5 --baselines-only
 ```
+
+cd /storage/ukp/work/ibrahim1/Writer-Reviewer && export TRANSFORMERS_CACHE=/tmp/transformers_cache_eval && export HF_HOME=/tmp/hf_cache_eval && mkdir -p $TRANSFORMERS_CACHE $HF_HOME && python -m src.evaluation results/local/local_qwen32b_20250718_153017
