@@ -16,10 +16,10 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from evaluation.evaluator import ArticleEvaluator
-from utils.data_models import Article
-from utils.freshwiki_loader import FreshWikiLoader
-from utils.logging_setup import setup_logging
+from src.evaluation.evaluator import ArticleEvaluator
+from src.utils.data_models import Article
+from src.utils.freshwiki_loader import FreshWikiLoader
+from src.utils.logging_setup import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +82,29 @@ def get_article_content(results_dir: Path, method: str, topic: str) -> Optional[
     """Get article content from file without storing in memory."""
     articles_dir = results_dir / "articles"
 
-    # Try method_topic.md format
+    # Create normalized topic name for file matching
+    # Replace parentheses with underscores to match file naming convention
+    normalized_topic = topic.replace("(", "").replace(")", "")
+
+    # Try method_topic.md format with normalized topic
+    article_file = articles_dir / f"{method}_{normalized_topic}.md"
+    if article_file.exists():
+        with open(article_file, "r") as f:
+            return f.read()
+
+    # Try method_topic.md format with original topic
     article_file = articles_dir / f"{method}_{topic}.md"
     if article_file.exists():
         with open(article_file, "r") as f:
             return f.read()
 
-    # Try method/topic.md format
+    # Try method/topic.md format with normalized topic
+    article_file = articles_dir / method / f"{normalized_topic}.md"
+    if article_file.exists():
+        with open(article_file, "r") as f:
+            return f.read()
+
+    # Try method/topic.md format with original topic
     article_file = articles_dir / method / f"{topic}.md"
     if article_file.exists():
         with open(article_file, "r") as f:
@@ -250,7 +266,12 @@ def main():
                     with open(article_path, "r") as f:
                         article_content = f.read()
                 elif "article" in method_result:  # Backward compatibility
-                    article_content = method_result["article"]
+                    article_data = method_result["article"]
+                    # Check if article is a dict (new format) or string (old format)
+                    if isinstance(article_data, dict):
+                        article_content = article_data.get("content", "")
+                    else:
+                        article_content = article_data
                     # Remove the article content from results to save space
                     method_result.pop("article")
                 else:

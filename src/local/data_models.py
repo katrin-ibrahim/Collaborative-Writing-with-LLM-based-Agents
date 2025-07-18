@@ -1,32 +1,25 @@
 """
 Data models for local experiments.
-Standalone version without external dependencies.
+Uses shared data models from utils for compatibility.
 """
+
+import sys
+from pathlib import Path
+
+# Add src directory to path
+src_dir = Path(__file__).parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 from dataclasses import dataclass
-from typing import Optional
-import time
+
+# Import shared Article model for compatibility with baselines
 
 
 @dataclass
-class Article:
-    """Data model for generated articles."""
-    title: str
-    content: str
-    word_count: int = 0
-    generation_time: float = 0.0
-    method: str = "direct_prompting"
-    timestamp: float = 0.0
-    
-    def __post_init__(self):
-        if self.word_count == 0:
-            self.word_count = len(self.content.split()) if self.content else 0
-        if self.timestamp == 0.0:
-            self.timestamp = time.time()
-
-
-@dataclass  
 class ExperimentConfig:
     """Configuration for experiments."""
+
     experiment_name: str
     methods: list
     topic_limit: int

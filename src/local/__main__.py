@@ -4,13 +4,10 @@ Main runner for local model-based baseline experiments.
 Uses locally hosted Qwen models instead of Ollama.
 """
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
 
 import json
 import logging
-import os
 from typing import Dict, List
 
 # Add src directory to path
@@ -113,7 +110,7 @@ def main():
         base_output_dir=str(output_dir),
         debug_mode=args.debug,
     )
-    
+
     # Create results file path
     results_file = output_dir / "results.json"
 
@@ -176,16 +173,20 @@ def main():
             if topic in existing_results.get("results", {}):
                 existing_topic_results = existing_results["results"][topic]
                 if "direct_prompting" in existing_topic_results:
-                    from local.data_models import Article
+                    from utils.data_models import Article
+
                     result_data = existing_topic_results["direct_prompting"]
                     # For resume: create minimal Article object (content not needed for resume)
                     direct_results[i] = Article(
                         title=result_data["title"],
                         content="",  # Content is in articles/ folder, not needed for resume
-                        word_count=result_data["word_count"],
-                        generation_time=result_data["generation_time"],
-                        timestamp=result_data["timestamp"],
-                        method=result_data.get("method", "local_direct_prompting"),
+                        sections={},
+                        metadata={
+                            "method": "direct",
+                            "word_count": result_data["word_count"],
+                            "generation_time": result_data["generation_time"],
+                            "timestamp": result_data["timestamp"],
+                        },
                     )
             continue
 
