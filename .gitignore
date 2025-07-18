@@ -6,7 +6,7 @@ __pycache__
 .DS_Store
 .idea
 .vscode
-/results
+# /results
 .env
 # ignore files that start with test_
 test_*.out
@@ -14,4 +14,3 @@ test_*.err
 /models
 cache.db
 
-/analysis_output/
