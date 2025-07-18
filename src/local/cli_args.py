@@ -6,7 +6,7 @@ from datetime import datetime
 def parse_arguments(default_methods=None):
     if default_methods is None:
         default_methods = ["direct_prompting"]
-    
+
     parser = argparse.ArgumentParser(
         description="Run baseline experiments with local models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -35,17 +35,14 @@ Examples:
         help="Which Qwen2.5 model size to use (3b, 32b, or 72b)",
     )
     parser.add_argument(
-        "--topic_limit", 
-        type=int, 
-        default=5, 
-        help="Number of topics to evaluate"
+        "--topic_limit", type=int, default=5, help="Number of topics to evaluate"
     )
     parser.add_argument(
         "--methods",
         nargs="+",
         default=default_methods,
-        choices=["direct_prompting"],
-        help="Methods to run (currently only direct_prompting is supported)",
+        choices=["direct_prompting", "storm"],
+        help="Methods to run (direct_prompting, storm)",
     )
     parser.add_argument(
         "--model_config",

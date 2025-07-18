@@ -28,6 +28,7 @@ def merge_results_with_existing(
     existing_results: Dict,
     all_topics: List[str],
     direct_results: List,
+    storm_results: List,
     methods: List[str],
 ) -> Dict:
     """Merge new results with existing completed results."""
@@ -52,6 +53,20 @@ def merge_results_with_existing(
                 "method": result.method,
                 # Note: content is saved separately in articles/ folder
             }
+
+    # Process storm results
+    if "storm" in methods:
+        for i, result in enumerate(storm_results):
+            if i < len(all_topics) and result is not None:
+                topic = all_topics[i]
+                all_results[topic]["storm"] = {
+                    "title": result.title,
+                    "word_count": result.word_count,
+                    "generation_time": result.generation_time,
+                    "timestamp": result.timestamp,
+                    "method": result.method,
+                    # Note: content is saved separately in articles/ folder
+                }
 
     return {"results": all_results}
 
@@ -84,6 +99,7 @@ def save_partial_results(
     results_file: Path,
     all_topics: List[str],
     direct_results: List,
+    storm_results: List,
     methods: List[str],
     existing_results: Dict = None,
 ):
@@ -92,7 +108,7 @@ def save_partial_results(
         existing_results = {}
 
     results = merge_results_with_existing(
-        existing_results, all_topics, direct_results, methods
+        existing_results, all_topics, direct_results, storm_results, methods
     )
 
     with open(results_file, "w") as f:
@@ -165,6 +181,25 @@ def main():
 
     # Initialize result lists
     direct_results = [None] * len(all_topics)
+    storm_results = [None] * len(all_topics)
+
+    # Initialize STORM runner if needed
+    storm_runner = None
+    if "storm" in args.methods:
+        try:
+            from local.storm_runner import LocalSTORMRunner
+
+            storm_runner = LocalSTORMRunner(
+                model_path=model_path,
+                output_manager=output_manager,
+            )
+            logger.info("Local STORM runner initialized")
+        except ImportError as e:
+            logger.error(f"Failed to initialize STORM runner: {e}")
+            logger.error(
+                "Make sure knowledge-storm is installed: pip install knowledge-storm"
+            )
+            storm_runner = None
 
     # Process each topic
     for i, topic in enumerate(all_topics):
@@ -188,6 +223,23 @@ def main():
                             "timestamp": result_data["timestamp"],
                         },
                     )
+
+                if "storm" in existing_topic_results:
+                    from utils.data_models import Article
+
+                    result_data = existing_topic_results["storm"]
+                    # For resume: create minimal Article object (content not needed for resume)
+                    storm_results[i] = Article(
+                        title=result_data["title"],
+                        content="",  # Content is in articles/ folder, not needed for resume
+                        sections={},
+                        metadata={
+                            "method": "storm",
+                            "word_count": result_data["word_count"],
+                            "generation_time": result_data["generation_time"],
+                            "timestamp": result_data["timestamp"],
+                        },
+                    )
             continue
 
         logger.info(f"Processing topic {i+1}/{len(all_topics)}: {topic}")
@@ -205,14 +257,32 @@ def main():
                 logger.error(f"Direct prompting failed for '{topic}': {e}")
                 direct_results[i] = None
 
+        # Run STORM
+        if "storm" in args.methods and storm_runner:
+            try:
+                result = storm_runner.run_storm(topic)
+                storm_results[i] = result
+                logger.info(
+                    f"STORM completed for '{topic}': "
+                    f"{result.word_count} words in {result.generation_time:.2f}s"
+                )
+            except Exception as e:
+                logger.error(f"STORM failed for '{topic}': {e}")
+                storm_results[i] = None
+
         # Save partial results after each topic
         save_partial_results(
-            results_file, all_topics, direct_results, args.methods, existing_results
+            results_file,
+            all_topics,
+            direct_results,
+            storm_results,
+            args.methods,
+            existing_results,
         )
 
     # Final results merge and save
     final_results = merge_results_with_existing(
-        existing_results, all_topics, direct_results, args.methods
+        existing_results, all_topics, direct_results, storm_results, args.methods
     )
 
     with open(results_file, "w") as f:
@@ -220,12 +290,18 @@ def main():
 
     # Print summary
     successful_direct = sum(1 for r in direct_results if r is not None)
+    successful_storm = sum(1 for r in storm_results if r is not None)
 
     logger.info("\n" + "=" * 50)
     logger.info("EXPERIMENT COMPLETED")
     logger.info("=" * 50)
     logger.info(f"Total topics: {len(all_topics)}")
-    logger.info(f"Direct prompting successful: {successful_direct}/{len(all_topics)}")
+    if "direct_prompting" in args.methods:
+        logger.info(
+            f"Direct prompting successful: {successful_direct}/{len(all_topics)}"
+        )
+    if "storm" in args.methods:
+        logger.info(f"STORM successful: {successful_storm}/{len(all_topics)}")
     logger.info(f"Results saved to: {results_file}")
     logger.info("=" * 50)
 
