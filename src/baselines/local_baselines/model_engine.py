@@ -13,6 +13,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from transformers.utils import logging as transformers_logging
 from typing import Dict, List
 
+from src.config.baselines_model_config import ModelConfig
+
 # Suppress unnecessary warnings for performance
 transformers_logging.set_verbosity_error()
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -35,28 +37,36 @@ class LocalModelEngine:
 
     def __init__(
         self,
-        model_path: str,
+        model_path: str = None,
         device: str = "auto",
-        model: str = None,
-        temperature: float = 0.7,
-        max_tokens: int = 1000,
+        config: ModelConfig = None,
+        task: str = "writing",
     ):
-        self.model_path = model_path
-        self.device = device
-        self.model_name = model or f"local/{Path(model_path).name}"
-        self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.config = config or ModelConfig()
+        self.task = task
 
-        # LiteLLM compatibility attributes (like OllamaLiteLLMWrapper)
+        # Ensure we're using local mode
+        if self.config.mode != "local":
+            self.config.mode = "local"
+            logger.info("Switched to local mode for model configuration")
+
+        # Use provided model path or get from config
+        self.model_path = model_path
+        if not self.model_path:
+            self.model_path = self.config.get_model_path(task)
+
+        self.device = device
+        # Just use the model path name without adding "local/" prefix
+        self.model_name = Path(self.model_path).name
+        self.temperature = self.config.get_temperature_for_task(task)
+        self.max_tokens = self.config.get_token_limit_for_task(task)
+
+        # LiteLLM compatibility attributes
         self.kwargs = {
             "model": self.model_name,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
         }
-
-        # Cost tracking (always 0 for local models)
-        self.completion_cost = 0.0
-        self.prompt_cost = 0.0
 
         self.model = None
         self.tokenizer = None
@@ -86,6 +96,23 @@ class LocalModelEngine:
 
         # Default case
         return self.complete(str(kwargs), **kwargs)
+
+    def list_available_models(self) -> List[str]:
+        """List available models in the local directory."""
+        try:
+            model_dir = Path("models")
+            if not model_dir.exists() or not model_dir.is_dir():
+                logger.warning(f"Model directory {model_dir} does not exist")
+                return []
+
+            # List all subdirectories as available models
+            available_models = [str(p.name) for p in model_dir.iterdir() if p.is_dir()]
+            logger.info(f"Available models: {available_models}")
+            return available_models
+
+        except Exception as e:
+            logger.error(f"Failed to list available models: {e}")
+            return []
 
     def _load_and_optimize_model(self):
         """Load model with maximum performance optimizations."""
@@ -377,7 +404,8 @@ class LocalModelEngine:
         messages = [{"role": "user", "content": prompt}]
         return self.complete(messages, **kwargs)
 
-    def _messages_to_prompt(self, messages: list) -> str:
+    @staticmethod
+    def _messages_to_prompt(messages: list) -> str:
         """Convert messages format to a single prompt string."""
         prompt_parts = []
         for message in messages:

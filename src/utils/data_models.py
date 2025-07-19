@@ -53,7 +53,8 @@ class Article(BaseModel):
             "metadata": self._serialize_metadata(self.metadata),
         }
 
-    def _serialize_metadata(self, metadata):
+    @staticmethod
+    def _serialize_metadata(metadata):
         """Serialize metadata to JSON-compatible format."""
         serialized = {}
         for key, value in metadata.items():
@@ -83,13 +84,20 @@ class Article(BaseModel):
         )
 
 
+class ModelConfig(BaseModel):
+    """Configuration for model parameters and paths."""
+
+    name: str = Field(default_factory=str)
+    temperature: float = 0.7
+    token_limit: int = 1024
+
+
 class EvaluationResult(BaseModel):
     """Evaluation metrics for a generated article."""
 
     heading_soft_recall: float
     heading_entity_recall: float
     rouge_1: float
-    rouge_2: float
     rouge_l: float
     article_entity_recall: float
 
@@ -99,7 +107,6 @@ class EvaluationResult(BaseModel):
             "heading_soft_recall": self.heading_soft_recall,
             "heading_entity_recall": self.heading_entity_recall,
             "rouge_1": self.rouge_1,
-            "rouge_2": self.rouge_2,
             "rouge_l": self.rouge_l,
             "article_entity_recall": self.article_entity_recall,
         }

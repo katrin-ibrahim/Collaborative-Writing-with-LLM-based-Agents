@@ -3,13 +3,13 @@
 Shared utility functions for baseline experiments.
 Used by both Ollama and local baseline implementations to maintain DRY principles.
 """
-
+from datetime import datetime
 from pathlib import Path
 
 import logging
-import re
+from typing import Dict, List
 
-from utils.data_models import Article
+from src.utils.data_models import Article
 
 logger = logging.getLogger(__name__)
 
@@ -70,44 +70,44 @@ FORMAT:
 Write the complete article now."""
 
 
-def post_process_article(content: str, topic: str) -> str:
-    """Post-process article content for better formatting (shared utility)."""
-    if not content:
-        return content
-
-    # Remove excessive whitespace
-    content = re.sub(r"\n\s*\n\s*\n", "\n\n", content)
-    content = re.sub(r"[ \t]+", " ", content)
-
-    # Ensure proper heading format
-    lines = content.split("\n")
-    processed_lines = []
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            processed_lines.append("")
-            continue
-
-        # Fix heading formatting
-        if line.startswith("#"):
-            # Ensure space after hash
-            line = re.sub(r"^#+", lambda m: m.group() + " ", line)
-            line = re.sub(r"^# +", "# ", line)
-            line = re.sub(r"^## +", "## ", line)
-
-        processed_lines.append(line)
-
-    content = "\n".join(processed_lines)
-
-    # Ensure article starts with main heading
-    if not content.startswith(f"# {topic}"):
-        if content.startswith("# "):
-            content = f"# {topic}\n\n" + content[content.find("\n\n") + 2 :]
-        else:
-            content = f"# {topic}\n\n{content}"
-
-    return content.strip()
+# def post_process_article(content: str, topic: str) -> str:
+#     """Post-process article content for better formatting (shared utility)."""
+#     if not content:
+#         return content
+#
+#     # Remove excessive whitespace
+#     content = re.sub(r"\n\s*\n\s*\n", "\n\n", content)
+#     content = re.sub(r"[ \t]+", " ", content)
+#
+#     # Ensure proper heading format
+#     lines = content.split("\n")
+#     processed_lines = []
+#
+#     for line in lines:
+#         line = line.strip()
+#         if not line:
+#             processed_lines.append("")
+#             continue
+#
+#         # Fix heading formatting
+#         if line.startswith("#"):
+#             # Ensure space after hash
+#             line = re.sub(r"^#+", lambda m: m.group() + " ", line)
+#             line = re.sub(r"^# +", "# ", line)
+#             line = re.sub(r"^## +", "## ", line)
+#
+#         processed_lines.append(line)
+#
+#     content = "\n".join(processed_lines)
+#
+#     # Ensure article starts with main heading
+#     if not content.startswith(f"# {topic}"):
+#         if content.startswith("# "):
+#             content = f"# {topic}\n\n" + content[content.find("\n\n") + 2 :]
+#         else:
+#             content = f"# {topic}\n\n{content}"
+#
+#     return content.strip()
 
 
 def error_article(topic: str, error_msg: str, method: str) -> Article:
@@ -238,3 +238,120 @@ def validate_article_quality(content: str, min_words: int = 800) -> dict:
         "has_main_heading": has_main_heading,
         "has_sections": has_sections,
     }
+
+
+def merge_results_with_existing(
+    existing_results: Dict,
+    all_topics: List[str],
+    direct_results: List,
+    storm_results: List,
+    rag_results: List,
+    methods: List[str],
+) -> Dict:
+    """Merge new results with existing completed results."""
+
+    # Start with existing results structure
+    all_results = existing_results.get("results", {})
+
+    # Ensure all topics have entries
+    for topic in all_topics:
+        if topic not in all_results:
+            all_results[topic] = {}
+
+    # Process direct results
+    if "direct" in methods:
+        # Add new direct results
+        for result in direct_results:
+            topic = result.title
+            all_results[topic]["direct"] = {
+                "success": True,
+                "word_count": result.metadata.get("word_count", 0),
+                "article": result,
+            }
+
+        # Ensure all topics have direct entries (mark missing as not found)
+        for topic in all_topics:
+            if "direct" not in all_results[topic]:
+                # Check if it should be completed (this handles the case where
+                # the topic was completed but not in our current batch)
+                all_results[topic]["direct"] = {
+                    "success": False,
+                    "error": "Direct result not found in current batch",
+                }
+
+    # Process storm results
+    if "storm" in methods:
+        # Add new storm results
+        for result in storm_results:
+            topic = result.title
+            all_results[topic]["storm"] = {
+                "success": True,
+                "word_count": result.metadata.get("word_count", 0),
+                "article": result,
+            }
+
+        # Ensure all topics have storm entries
+        for topic in all_topics:
+            if "storm" not in all_results[topic]:
+                all_results[topic]["storm"] = {
+                    "success": False,
+                    "error": "STORM result not found in current batch",
+                }
+
+    # Process rag results
+    if "rag" in methods:
+        # Add new rag results
+        for result in rag_results:
+            topic = result.title
+            all_results[topic]["rag"] = {
+                "success": True,
+                "word_count": result.metadata.get("word_count", 0),
+                "article": result,
+            }
+
+        # Ensure all topics have rag entries
+        for topic in all_topics:
+            if "rag" not in all_results[topic]:
+                all_results[topic]["rag"] = {
+                    "success": False,
+                    "error": "RAG result not found in current batch",
+                }
+
+    return all_results
+
+
+def setup_output_directory(args) -> Path:
+    """Setup output directory for new or resumed experiments."""
+    base_output_dir = Path(args.output_dir)
+
+    if args.resume_dir:
+        # Resume from specific directory
+        output_dir = Path(args.resume_dir)
+        if not output_dir.exists():
+            raise ValueError(f"Resume directory does not exist: {output_dir}")
+        logger.info(f"📂 Resuming from specified directory: {output_dir}")
+        return output_dir
+
+    # If no resume_dir specified, create new experiment directory
+
+    # Create new run directory with format: method(s)_n{samples}_d{dd.mm_HH:MM}
+    timestamp = datetime.now().strftime("%d.%m_%H:%M")
+    if args.methods.count == 3:
+        methods_str = "all"
+    else:
+        methods_str = "_".join(sorted(args.methods))  # Sort for consistency
+    output_dir = base_output_dir / f"{methods_str}_N={args.num_topics}_T={timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"📂 Created new run directory: {output_dir}")
+    return output_dir
+
+
+def make_serializable(obj):
+    if hasattr(obj, "__dict__"):
+        return {k: make_serializable(v) for k, v in obj.__dict__.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: make_serializable(v) for k, v in obj.items()}
+    else:
+        return obj

@@ -6,6 +6,9 @@ from typing import Dict
 class ModelConfig:
     """Configuration for model selection based on task complexity."""
 
+    # Mode of operation: "local" or "ollama"
+    mode: str = "local"
+
     # Task-specific model assignments
     outline_model: str = "qwen2.5:14b"  # Balanced, for structure
     writing_model: str = "qwen2.5:32b"  # Quality, for content
@@ -14,6 +17,12 @@ class ModelConfig:
 
     # Default fallback
     default_model: str = "qwen2.5:7b"
+
+    # Local models configuration
+    local_model_mapping: Dict[str, str] = None
+
+    # Ollama models configuration
+    ollama_model_mapping: Dict[str, str] = None
 
     # Temperature settings per task
     temperatures: Dict[str, float] = None
@@ -37,12 +46,26 @@ class ModelConfig:
             self.token_limits = {
                 "fast": 500,  # Increased for better query generation
                 "outline": 600,  # Increased for better structure
-                "writing": 2500,  # Increased for longer articles
+                "writing": 2500,  # Increased for better articles
                 "critique": 1000,  # Increased for thorough critique
                 "polish": 1000,  # Increased for better polishing
                 "retrieval": 300,  # Increased for better retrieval
                 "generation": 1500,  # Increased for better generation
                 "reflection": 800,  # Increased for better reflection
+            }
+
+        if self.local_model_mapping is None:
+            self.local_model_mapping = {
+                "qwen2.5:7b": "models/Qwen2.5-7B-Instruct",
+                "qwen2.5:14b": "models/Qwen2.5-14B-Instruct",
+                "qwen2.5:32b": "models/Qwen2.5-32B-Instruct",
+            }
+
+        if self.ollama_model_mapping is None:
+            self.ollama_model_mapping = {
+                "qwen2.5:7b": "qwen2:7b",
+                "qwen2.5:14b": "qwen2:14b",
+                "qwen2.5:32b": "qwen2:32b",
             }
 
     def get_model_for_task(self, task: str) -> str:
@@ -63,6 +86,26 @@ class ModelConfig:
     def get_token_limit_for_task(self, task: str) -> int:
         """Get appropriate token limit for a specific task."""
         return self.token_limits.get(task, 1000)
+
+    def get_model_path(self, task: str) -> str:
+        """Get full model path based on mode and task."""
+        model_name = self.get_model_for_task(task)
+
+        if self.mode == "local":
+            # For local mode, convert the model name to a local path
+            local_path = self.local_model_mapping.get(model_name)
+            if local_path:
+                # Ensure path is properly formatted
+                return local_path
+            # Fallback to a default model directory
+            return f"models/{model_name.replace(':', '-')}"
+        elif self.mode == "ollama":
+            # For ollama mode, convert to appropriate ollama model name
+            ollama_name = self.ollama_model_mapping.get(model_name, model_name)
+            return ollama_name
+        else:
+            # For any other mode, just return the model name as is
+            return model_name
 
     @classmethod
     def from_dict(cls, config_dict: Dict) -> "ModelConfig":

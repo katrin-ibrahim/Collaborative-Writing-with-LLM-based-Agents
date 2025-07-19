@@ -5,10 +5,10 @@ import json
 import logging
 import numpy as np
 from dataclasses import asdict, dataclass
+from src.ollama_baselines.runner import BaselineRunner
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.evaluation.evaluator import ArticleEvaluator
-from src.ollama_baselines.runner import BaselineRunner
 from src.utils.freshwiki_loader import FreshWikiLoader
 from src.utils.output_manager import OutputManager
 

@@ -29,10 +29,6 @@ class OllamaLiteLLMWrapper:
             "max_tokens": max_tokens,
         }
 
-        # Cost tracking (always 0 for local models)
-        self.completion_cost = 0.0
-        self.prompt_cost = 0.0
-
         logger.info(f"OllamaLiteLLMWrapper initialized with model: {model}")
 
     def __call__(self, messages=None, **kwargs):
