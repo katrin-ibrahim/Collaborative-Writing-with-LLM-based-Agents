@@ -5,5 +5,6 @@ Usage: python -m local [options]
 """
 
 if __name__ == "__main__":
-    from local.__main__ import main
+    from local_baselines.__main__ import main
+
     main()

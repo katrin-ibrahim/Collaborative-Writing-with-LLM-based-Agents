@@ -18,9 +18,9 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from baselines.cli_args import parse_arguments  # Import from new file
-from baselines.runner import BaselineRunner
 from config.baselines_model_config import ModelConfig
+from ollama_baselines.cli_args import parse_arguments  # Import from new file
+from ollama_baselines.runner import BaselineRunner
 from utils.experiment_state_manager import ExperimentStateManager
 from utils.freshwiki_loader import FreshWikiLoader
 from utils.logging_setup import setup_logging

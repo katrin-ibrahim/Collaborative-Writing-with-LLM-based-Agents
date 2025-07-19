@@ -13,7 +13,7 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from local.storm_runner import LocalSTORMRunner
+from local_baselines.storm_runner import LocalSTORMRunner
 from utils.logging_setup import setup_logging
 from utils.output_manager import OutputManager
 

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import logging
 
-from src.baselines.optimization.adaptive_optimizer import AdaptiveOptimizer
 from src.config.baselines_model_config import ModelConfig
+from src.ollama_baselines.optimization.adaptive_optimizer import AdaptiveOptimizer
 from src.utils.logging_setup import setup_logging
 
 

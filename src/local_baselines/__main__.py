@@ -15,8 +15,8 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from local.cli_args import parse_arguments
-from local.runner import LocalBaselineRunner
+from local_baselines.cli_args import parse_arguments
+from local_baselines.runner import LocalBaselineRunner
 from utils.freshwiki_loader import FreshWikiLoader
 from utils.logging_setup import setup_logging
 from utils.output_manager import OutputManager
@@ -187,7 +187,7 @@ def main():
     storm_runner = None
     if "storm" in args.methods:
         try:
-            from local.storm_runner import LocalSTORMRunner
+            from local_baselines.storm_runner import LocalSTORMRunner
 
             storm_runner = LocalSTORMRunner(
                 model_path=model_path,

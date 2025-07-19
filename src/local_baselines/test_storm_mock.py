@@ -37,7 +37,7 @@ def test_storm_wrapper():
     """Test the LocalLiteLLMWrapper functionality."""
     print("🔧 Testing LocalLiteLLMWrapper...")
 
-    from local.storm_runner import LocalLiteLLMWrapper
+    from local_baselines.storm_runner import LocalLiteLLMWrapper
 
     # Create mock model wrapper
     mock_model = create_mock_model_wrapper()
@@ -73,7 +73,7 @@ def test_storm_runner_init():
     with patch("local.runner.LocalBaselineRunner") as mock_runner_class:
         mock_runner_class.return_value = create_mock_local_runner()
 
-        from local.storm_runner import LocalSTORMRunner
+        from local_baselines.storm_runner import LocalSTORMRunner
 
         # Create temp directory for output
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -100,7 +100,7 @@ def test_storm_config():
         mock_runner_class.return_value = create_mock_local_runner()
         mock_search.return_value = Mock()
 
-        from local.storm_runner import LocalSTORMRunner
+        from local_baselines.storm_runner import LocalSTORMRunner
 
         runner = LocalSTORMRunner()
 

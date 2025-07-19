@@ -17,7 +17,7 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from local.utils import (
+from local_baselines.utils import (
     build_direct_prompt,
     error_article,
     post_process_article,
