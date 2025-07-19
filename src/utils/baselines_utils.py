@@ -3,7 +3,6 @@
 Shared utility functions for baseline experiments.
 Used by both Ollama and local baseline implementations to maintain DRY principles.
 """
-from datetime import datetime
 from pathlib import Path
 
 import logging
@@ -322,25 +321,19 @@ def merge_results_with_existing(
 
 def setup_output_directory(args) -> Path:
     """Setup output directory for new or resumed experiments."""
-    base_output_dir = Path(args.output_dir)
+    from src.utils.output_manager import OutputManager
 
     if args.resume_dir:
         # Resume from specific directory
-        output_dir = Path(args.resume_dir)
-        if not output_dir.exists():
-            raise ValueError(f"Resume directory does not exist: {output_dir}")
-        logger.info(f"📂 Resuming from specified directory: {output_dir}")
-        return output_dir
+        resume_dir = OutputManager.verify_resume_dir(args.resume_dir)
+        logger.info(f"📂 Resuming from specified directory: {resume_dir}")
+        return Path(resume_dir)
 
-    # If no resume_dir specified, create new experiment directory
-
-    # Create new run directory with format: method(s)_n{samples}_d{dd.mm_HH:MM}
-    timestamp = datetime.now().strftime("%d.%m_%H:%M")
-    if args.methods.count == 3:
-        methods_str = "all"
-    else:
-        methods_str = "_".join(sorted(args.methods))  # Sort for consistency
-    output_dir = base_output_dir / f"{methods_str}_N={args.num_topics}_T={timestamp}"
+    # If no resume_dir specified, create new experiment directory using OutputManager
+    output_path = OutputManager.create_output_dir(
+        args.backend, args.methods, args.num_topics
+    )
+    output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"📂 Created new run directory: {output_dir}")
     return output_dir

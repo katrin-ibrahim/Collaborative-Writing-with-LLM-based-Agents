@@ -291,9 +291,14 @@ class ExperimentStateManager:
         logger.debug(f"Marked {topic} as completed for {method}")
 
     def mark_topic_in_progress(self, topic: str, method: str):
-        """Mark a topic as in progress for a method."""
-        self.in_progress_topics[method].add(topic)
-        logger.debug(f"Marked {topic} as in progress for {method}")
+        """Mark a topic as in-progress for a specific method."""
+        if topic not in self.in_progress_topics[method]:
+            self.in_progress_topics[method].add(topic)
+            self.save_checkpoint()
+
+    def is_complete(self, topic: str, method: str) -> bool:
+        """Check if a topic is completed for a specific method."""
+        return topic in self.completed_topics.get(method, set())
 
     def cleanup_and_restart_in_progress(self, topics: List[str]):
         """Clean up all in-progress topics and prepare for restart."""

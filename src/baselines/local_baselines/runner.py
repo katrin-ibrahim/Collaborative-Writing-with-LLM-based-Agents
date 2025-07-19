@@ -1,153 +1,111 @@
-# FILE: local_baselines/runner.py
-
-import sys
-import time
-from pathlib import Path
+"""
+Refactored local baseline runner implementation.
+Uses standard BaseRunner interface for consistency with Ollama version.
+"""
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
-# Add src directory to path
-src_dir = Path(__file__).parent.parent
-if str(src_dir) not in sys.path:
-    sys.path.insert(0, str(src_dir))
-
-from src.local_baselines.model_engine import LocalModelEngine
-
+from src.baselines.model_engines.local_engine import LocalModelEngine
+from src.baselines.rag_runner import run_rag
+from src.baselines.runner_base import BaseRunner
 from src.config.baselines_model_config import ModelConfig
-from src.utils.baselines_utils import (
-    build_direct_prompt,
-    error_article,
-)
 from src.utils.data_models import Article
 from src.utils.output_manager import OutputManager
 
 logger = logging.getLogger(__name__)
 
 
-class LocalBaselineRunner:
+class LocalBaselineRunner(BaseRunner):
     def __init__(
         self,
         model_config: Optional[ModelConfig] = None,
         output_manager: Optional[OutputManager] = None,
         device: str = "auto",
+        model_path: Optional[str] = None,
     ):
-        # Initialize with explicit local mode if not already set
-        self.state_manager = None
-        self.model_config = model_config or ModelConfig()
+        # Initialize base class
+        super().__init__(model_config=model_config, output_manager=output_manager)
+
+        # Ensure we're using local mode
         self.model_config.mode = "local"
 
-        self.output_manager = output_manager
+        # Store device for model initialization
         self.device = device
 
-        # Get model path for the writing task
-        self.model_path = self.model_config.get_model_path(task="writing")
+        # Store model path
+        self.model_path = model_path
 
-        # Initialize the engine with the proper parameters
-        self.engine = LocalModelEngine(
-            model_path=self.model_path,
+        # Cache for model engines
+        self._engine_cache = {}
+
+        logger.info("LocalBaselineRunner initialized")
+        logger.info(f"Using device: {self.device}")
+
+    def get_model_engine(self, task: str) -> LocalModelEngine:
+        """
+        Get an appropriate LocalModelEngine for the specified task.
+        Uses caching to avoid creating multiple instances for the same task.
+
+        Args:
+            task: Task name (e.g. "writing", "critique")
+
+        Returns:
+            LocalModelEngine instance
+        """
+        # Return cached engine if it exists
+        if task in self._engine_cache:
+            return self._engine_cache[task]
+
+        # Create a new engine
+        model_path = self.model_path or self.model_config.get_model_path(task)
+
+        engine = LocalModelEngine(
+            model_path=model_path,
             device=self.device,
             config=self.model_config,
-            task="writing",
+            task=task,
         )
-        self.output_manager = output_manager
 
-        available_models = self.engine.list_available_models()
-        logger.info(
-            f"LocalBaselineRunner initialized with model: {self.model_path} and available device: {available_models}"
-        )
-        logger.info(f"Device: {self.device}")
+        # Cache the engine
+        self._engine_cache[task] = engine
 
-    # ---------------------------------------- Direct Prompting Baseline ----------------------------------------
-    def run_direct_prompting(self, topic: str) -> Article:
-        logger.info(f"Running Optimized Local Direct Prompting for: {topic}")
+        return engine
 
-        prompt = build_direct_prompt(topic)
+    # run_direct_prompting is implemented in the BaseRunner class
 
-        try:
-            start_time = time.time()
-            response = self.engine.generate(
-                prompt,
-                max_length=1024,
-                temperature=0.3,
-            )
+    def run_storm(self, topic: str) -> Article:
+        """
+        Run STORM using local models.
 
-            content = response
-            logger.debug(f"Generated content length: {len(content)}")
+        Args:
+            topic: The topic to generate an article about
 
-            # if content and not content.startswith("#"):
-            #     content = f"# {topic}\n\n{content}"
+        Returns:
+            Generated Article object
+        """
+        # This is a placeholder, STORM requires a separate implementation
+        logger.warning(f"STORM is not currently implemented for local models: {topic}")
+        return None
 
-            content_words = len(content.split()) if content else 0
-            generation_time = time.time() - start_time
+    def run_rag(self, topic: str) -> Article:
+        """
+        Run RAG using local models.
 
-            # Create article with same structure as Ollama baselines
-            article = Article(
-                title=topic,
-                content=content,
-                sections={},
-                metadata={
-                    "method": "direct",
-                    "model": str(self.model_path),
-                    "word_count": content_words,
-                    "generation_time": generation_time,
-                    "temperature": 0.3,  # TODO: This should be from the model wrapper
-                    "max_tokens": 1024,
-                },
-            )
+        Args:
+            topic: The topic to generate an article about
 
-            if self.output_manager:
-                self.output_manager.save_article(article, "direct")
+        Returns:
+            Generated Article object
+        """
+        # Get the writing engine
+        engine = self.get_model_engine("writing")
 
-            logger.info(
-                f"Direct Prompting completed for {topic} ({content_words} words, {generation_time:.2f}s)"
-            )
-            return article
+        # Run the unified RAG implementation
+        article = run_rag(engine, topic)
 
-        except Exception as e:
-            logger.error(f"Direct prompting failed for '{topic}': {e}")
-            return error_article(topic, str(e), "direct")
+        # Save article if output manager available
+        if article and self.output_manager:
+            self.output_manager.save_article(article, "rag")
 
-    # ---------------------------------------- STORM Baseline ----------------------------------------
-
-    # ---------------------------------------- RAG Baseline ----------------------------------------
-
-    # ---------------------------------------- Batch Processing ----------------------------------------
-    def run_batch(self, topics: List[str], methods: List[str]) -> List[Article]:
-        """Run multiple topics and methods efficiently."""
-        results = []
-
-        for topic in topics:
-            for method in methods:
-                if method == "direct":
-                    article = self.run_direct_prompting(topic)
-                else:
-                    logger.warning(f"Unknown method: {method}")
-                    continue
-
-                results.append(article)
-
-        return results
-
-    # ---------------------------------------- State Management ----------------------------------------
-
-    def set_state_manager(self, state_manager):
-        """Set the state manager for checkpoint tracking."""
-        self.state_manager = state_manager
-
-    def filter_completed_topics(self, topics: List[str], method: str) -> List[str]:
-        """Filter out already completed topics for a method."""
-        if not hasattr(self, "state_manager") or not self.state_manager:
-            return topics
-
-        remaining = [
-            topic
-            for topic in topics
-            if topic not in self.state_manager.completed_topics.get(method, set())
-        ]
-
-        skipped_count = len(topics) - len(remaining)
-        if skipped_count > 0:
-            logger.info(f"Skipping {skipped_count} already completed {method} topics")
-
-        return remaining
+        return article

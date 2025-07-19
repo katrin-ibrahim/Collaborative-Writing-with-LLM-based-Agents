@@ -63,9 +63,9 @@ class ModelConfig:
 
         if self.ollama_model_mapping is None:
             self.ollama_model_mapping = {
-                "qwen2.5:7b": "qwen2:7b",
-                "qwen2.5:14b": "qwen2:14b",
-                "qwen2.5:32b": "qwen2:32b",
+                "qwen2.5:7b": "qwen2.5:7b",
+                "qwen2.5:14b": "qwen2.5:14b",
+                "qwen2.5:32b": "qwen2.5:32b",
             }
 
     def get_model_for_task(self, task: str) -> str:

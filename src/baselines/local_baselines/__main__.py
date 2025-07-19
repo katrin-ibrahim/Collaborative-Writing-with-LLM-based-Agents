@@ -1,26 +1,21 @@
 #!/usr/bin/env python3
 """
-Main runner for local model-based baseline experiments.
-Uses locally hosted Qwen models instead of Ollama.
+Entry point for local model baseline experiments.
+This is a wrapper around the unified entry point.
 """
 import sys
 from pathlib import Path
 
 # Add src directory to path
-src_dir = Path(__file__).parent.parent
+src_dir = Path(__file__).parent.parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from src.local_baselines.cli_args import parse_arguments
-from src.local_baselines.runner import LocalBaselineRunner
-
-from baselines.baseline_runner_base import run_baseline_experiment
-
-
-def main():
-    args = parse_arguments()
-    return run_baseline_experiment(args, LocalBaselineRunner, "Local")
-
+# Import the main entry point
+from src.baselines.__main__ import main
 
 if __name__ == "__main__":
+    # Force backend to local
+    if "--backend" not in sys.argv:
+        sys.argv.extend(["--backend", "local"])
     exit(main())

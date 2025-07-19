@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Any, Dict, List
 
-from knowledge.wikipedia_retriever import WikipediaRetriever
+from src.knowledge.wikipedia_retriever import WikipediaRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,36 @@ class WikipediaSearchRM:
 
         # Limit results
         return unique_results[:max_results]
+
+    def search(self, queries, max_results=5):
+        """
+        Search method to make this class compatible with the RAG runner.
+        Adapts the retrieve method for standard RAG interface.
+
+        Args:
+            queries: List of query strings
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of passages
+        """
+        # Set limit for number of results
+        old_k = self.k
+        self.k = max_results
+
+        # Get results using retrieve method
+        results = self.retrieve(queries)
+
+        # Restore original k
+        self.k = old_k
+
+        # Convert to simple passages
+        passages = []
+        for result in results:
+            if "text" in result:
+                passages.append(result["text"])
+
+        return passages
 
     def _clean_storm_query(self, query: str) -> str:
         """Clean STORM-generated queries quickly and efficiently."""

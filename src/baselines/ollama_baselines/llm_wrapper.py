@@ -156,8 +156,6 @@ class OllamaLiteLLMWrapper:
                 }
 
             def __getitem__(self, key):
-                print(f"Accessing key: {key}")
-                # print(f"Data keys: {self._data}")
                 if isinstance(key, int):
                     # Return choice at index key
                     # print(f"Returning choice at index {key} with content: {self._data['choices'][key].message.content}")

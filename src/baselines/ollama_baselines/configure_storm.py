@@ -9,21 +9,21 @@ from knowledge_storm import (
 )
 
 # Add src directory to path
-src_dir = Path(__file__).parent.parent
+src_dir = Path(__file__).parent.parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from config.baselines_model_config import ModelConfig
-from utils.ollama_client import OllamaClient
+from src.config.baselines_model_config import ModelConfig
+from src.utils.ollama_client import OllamaClient
 
 from .runner_utils import get_model_wrapper
 from .wikipedia_rm import WikipediaSearchRM
 
 
 def setup_storm_runner(
-    client: OllamaClient,
-    config: ModelConfig,
-    storm_output_dir: str,
+    client: OllamaClient = None,
+    config: ModelConfig = None,
+    storm_output_dir: str = None,
     storm_config: dict = None,
 ):
     """

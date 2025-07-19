@@ -31,8 +31,22 @@ def get_model_wrapper(
     )
 
 
-def extract_storm_output_ollama(topic: str, storm_output_dir: str) -> str:
-    topic_dir = Path(storm_output_dir) / topic.replace(" ", "_").replace("/", "_")
+def extract_storm_output_ollama(topic, storm_output_dir: str):
+    """
+    Extract STORM output content and metadata from output files.
+
+    Args:
+        topic: Topic string or FreshWikiEntry object
+        storm_output_dir: Directory with STORM output
+
+    Returns:
+        tuple: (content, storm_metadata)
+    """
+    # Extract topic string if it's a FreshWikiEntry object
+    topic_str = topic.topic if hasattr(topic, "topic") else str(topic)
+
+    # Handle directory path
+    topic_dir = Path(storm_output_dir) / topic_str.replace(" ", "_").replace("/", "_")
     output_files = [
         "storm_gen_article_polished.txt",
         "storm_gen_article.txt",

@@ -146,7 +146,10 @@ def main():
         dir_name = results_dir.name
         methods = set()
 
+        # First check for articles
+        has_articles = False
         for item in articles_dir.iterdir():
+            has_articles = True
             if item.is_file() and item.suffix == ".md":
                 # Extract method from filename (e.g., direct_TopicName.md -> direct)
                 method = item.stem.split("_")[0]
@@ -154,6 +157,21 @@ def main():
             elif item.is_dir():
                 # Also check for subdirectories as methods
                 methods.add(item.name)
+
+        # If no articles, check if methods can be inferred from directory name
+        if not has_articles:
+            # Format: all_N=1_T=19.07_22:39 or direct+storm_N=5_T=date_time
+            dir_parts = dir_name.split("_")[0]
+            if dir_parts != "all":
+                # Extract methods from directory name (e.g., direct+storm -> [direct, storm])
+                for method in dir_parts.split("+"):
+                    methods.add(method)
+            else:
+                # Fallback to common methods
+                methods.update(["direct", "storm", "rag"])
+                logger.warning(
+                    "⚠️ No articles found, using default methods: direct, storm, rag"
+                )
 
         methods = list(methods)
 
@@ -184,8 +202,17 @@ def main():
             # First check for method_topic.md files
             for article_file in articles_dir.glob(f"{method}_*.md"):
                 # Extract topic from filename (e.g., direct_TopicName.md -> TopicName)
-                topic_parts = article_file.stem.split("_")[1:]
-                topic = "_".join(topic_parts)
+                # If the filename had slashes replaced with underscores, we need to convert back
+                filename = article_file.stem
+                # Remove method prefix (e.g., direct_)
+                topic_part = filename[len(method) + 1 :]
+
+                # Check if this is a topic with slashes that were replaced with underscores
+                if "and_or" in topic_part:
+                    # Special case for "and/or" which was converted to "and_or"
+                    topic = topic_part.replace("and_or", "and/or")
+                else:
+                    topic = topic_part
 
                 if topic not in data["results"]:
                     data["results"][topic] = {}
@@ -233,7 +260,23 @@ def main():
         # Find the corresponding FreshWiki entry
         entry = None
         for e in entries:
+            # Try exact match first
             if e.topic == topic:
+                entry = e
+                break
+
+            # Try handling cases where slashes were replaced with underscores
+            # Normalize both strings for comparison
+            normalized_topic = topic.lower().replace("_", " ")
+            normalized_e_topic = e.topic.lower().replace("_", " ").replace("/", " ")
+            if normalized_topic == normalized_e_topic:
+                logger.info(f"📌 Found match for '{topic}' -> '{e.topic}'")
+                entry = e
+                break
+
+            # Special case for and/or which might be written as and_or
+            if "and/or" in e.topic and topic.replace("and_or", "and/or") == e.topic:
+                logger.info(f"📌 Found match for '{topic}' -> '{e.topic}'")
                 entry = e
                 break
 

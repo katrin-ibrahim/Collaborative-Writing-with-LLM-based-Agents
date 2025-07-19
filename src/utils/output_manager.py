@@ -1,15 +1,73 @@
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import logging
 
-from utils.data_models import Article
+from src.utils.data_models import Article
 
 logger = logging.getLogger(__name__)
 
 
 class OutputManager:
     """Unified output management for all baseline methods."""
+
+    @staticmethod
+    def create_output_dir(
+        backend: str, methods: list, num_topics: int, timestamp: str = None
+    ) -> str:
+        """
+        Create standardized output directory path following the convention:
+        results/[backend]/[method(s)]_N=[num_of_topics]_T=[timestamp]
+
+        Args:
+            backend: The backend name (e.g., "ollama", "local")
+            methods: List of methods to be used
+            num_topics: Number of topics to process
+            timestamp: Optional timestamp, if not provided current time will be used
+
+        Returns:
+            Full directory path as string
+        """
+        # Use current timestamp if not provided
+        if timestamp is None:
+            now = datetime.now()
+            timestamp = now.strftime("%d.%m_%H:%M")
+
+        # Determine method name for directory
+        if set(methods) == {"direct", "storm", "rag"}:
+            method_str = "all"
+        else:
+            method_str = "_".join(methods)
+
+        # Create output directory with correct structure
+        return f"results/{backend}/{method_str}_N={num_topics}_T={timestamp}"
+
+    @staticmethod
+    def verify_resume_dir(resume_dir: str) -> str:
+        """
+        Verify a resume directory exists and is valid.
+
+        Args:
+            resume_dir: Path to the directory to resume from
+
+        Returns:
+            The verified directory path
+
+        Raises:
+            ValueError: If directory doesn't exist
+        """
+        dir_path = Path(resume_dir)
+        if not dir_path.exists():
+            raise ValueError(f"Resume directory does not exist: {resume_dir}")
+
+        # Verify this is likely a valid experiment directory
+        if not (dir_path / "articles").exists():
+            logger.warning(
+                f"Resume directory may not be a valid experiment directory: {resume_dir}"
+            )
+
+        return str(dir_path)
 
     def __init__(self, base_output_dir: str, debug_mode: bool = False):
         self.base_dir = Path(base_output_dir)
@@ -38,29 +96,53 @@ class OutputManager:
             logger.error(f"Failed to save article {filepath}: {e}")
             raise
 
-    def setup_storm_output_dir(self, topic: str) -> str:
-        """Setup STORM output directory based on debug mode."""
+    def setup_storm_output_dir(self, topic) -> str:
+        """
+        Setup STORM output directory based on debug mode.
+
+        Args:
+            topic: Topic string or FreshWikiEntry object
+
+        Returns:
+            String path to the output directory
+        """
+        # Extract topic string if it's a FreshWikiEntry object
+        topic_str = topic.topic if hasattr(topic, "topic") else str(topic)
+
         if self.debug_mode:
             # Use debug directory for STORM intermediate files
             storm_dir = (
-                self.debug_dir / "storm" / topic.replace(" ", "_").replace("/", "_")
+                self.debug_dir / "storm" / topic_str.replace(" ", "_").replace("/", "_")
             )
             storm_dir.mkdir(parents=True, exist_ok=True)
             return str(storm_dir)
         else:
             # Use temporary directory that gets cleaned up
             temp_dir = (
-                self.base_dir / "temp_storm" / topic.replace(" ", "_").replace("/", "_")
+                self.base_dir
+                / "temp_storm"
+                / topic_str.replace(" ", "_").replace("/", "_")
             )
             temp_dir.mkdir(parents=True, exist_ok=True)
             return str(temp_dir)
 
-    def cleanup_storm_temp(self, topic: str):
-        """Clean up temporary STORM files if not in debug mode."""
+    def cleanup_storm_temp(self, topic):
+        """
+        Clean up temporary STORM files if not in debug mode.
+
+        Args:
+            topic: Topic string or FreshWikiEntry object
+        """
+        # Extract topic string if it's a FreshWikiEntry object
+        topic_str = topic.topic if hasattr(topic, "topic") else str(topic)
+
         if not self.debug_mode:
             temp_dir = (
-                self.base_dir / "temp_storm" / topic.replace(" ", "_").replace("/", "_")
+                self.base_dir
+                / "temp_storm"
+                / topic_str.replace(" ", "_").replace("/", "_")
             )
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
+                logger.debug(f"Cleaned up temporary STORM files for {topic_str}")
                 logger.debug(f"Cleaned up temporary STORM files for {topic}")
