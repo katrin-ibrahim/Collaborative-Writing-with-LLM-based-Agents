@@ -13,15 +13,24 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 from config.baselines_model_config import ModelConfig
+from utils.baselines_utils import (
+    build_direct_prompt,
+    error_article,
+    post_process_article,
+)
 from utils.data_models import Article
 from utils.ollama_client import OllamaClient
 from utils.output_manager import OutputManager
 
 from .configure_storm import setup_storm_runner
 from .runner_utils import (
-    error_article,
-    extract_storm_output,
+    create_context_from_passages,
+    enhance_article_content,
+    extract_storm_output_ollama,
+    generate_article_with_context,
+    generate_search_queries,
     get_model_wrapper,
+    retrieve_and_format_passages,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,12 +59,6 @@ class BaselineRunner:
     # ---------------------------------------- Direct Prompting Baseline ----------------------------------------
     def run_direct_prompting(self, topic: str) -> Article:
         logger.info(f"Running Enhanced Direct Prompting for: {topic}")
-
-        from .runner_utils import (
-            build_direct_prompt,
-            enhance_article_content,
-            post_process_article,
-        )
 
         prompt = build_direct_prompt(topic)
 
@@ -195,7 +198,7 @@ class BaselineRunner:
                 do_polish_article=True,
             )
             generation_time = time.time() - start_time
-            content = extract_storm_output(topic, storm_output_dir)
+            content = extract_storm_output_ollama(topic, storm_output_dir)
 
             # Include configuration in metadata
             metadata = {
@@ -244,7 +247,7 @@ class BaselineRunner:
                 do_polish_article=True,
             )
             generation_time = time.time() - start_time
-            content = extract_storm_output(topic, storm_output_dir)
+            content = extract_storm_output_ollama(topic, storm_output_dir)
 
             article = Article(
                 title=topic,
@@ -290,12 +293,6 @@ class BaselineRunner:
         logger.info(f"Running Enhanced RAG for: {topic}{config_desc}")
 
         try:
-            from .runner_utils import (
-                create_context_from_passages,
-                generate_article_with_context,
-                generate_search_queries,
-                retrieve_and_format_passages,
-            )
             from .wikipedia_rm import WikipediaSearchRM
 
             start_time = time.time()
