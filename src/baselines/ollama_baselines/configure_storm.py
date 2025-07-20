@@ -1,7 +1,54 @@
 import sys
 from pathlib import Path
-
+import tempfile
+import os
 import logging
+
+def setup_cache_directories():
+    import sys
+    import builtins
+    
+    # Setup temp dirs first
+    temp_dir = tempfile.gettempdir()
+    pid = os.getpid()
+    joblib_cache = os.path.join(temp_dir, f"joblib_cache_{pid}")
+    os.makedirs(joblib_cache, exist_ok=True)
+    
+    original_import = builtins.__import__
+    
+    def patched_import(name, *args, **kwargs):
+        module = original_import(name, *args, **kwargs)
+        
+        # Patch the main litellm module when it's imported
+        if name == 'litellm':
+            # Set cache to a no-op object that doesn't do anything
+            class NoOpCache:
+                def __init__(self, *args, **kwargs):
+                    pass
+                def __getattr__(self, name):
+                    return lambda *args, **kwargs: None
+                def __setattr__(self, name, value):
+                    pass
+            
+            # Set cache to disabled state immediately
+            module.cache = NoOpCache()
+            
+            # Also override the cache attribute to prevent future assignments
+            class CacheProperty:
+                def __set__(self, obj, value):
+                    pass  # Ignore future cache assignments
+                def __get__(self, obj, objtype=None):
+                    return module.cache  # Return our no-op cache
+            
+            type(module).cache = CacheProperty()
+            logging.info("Set litellm.cache to disabled no-op object")
+        
+        return module
+    
+    builtins.__import__ = patched_import
+
+setup_cache_directories()
+# Set up cache before any imports
 from knowledge_storm import (
     STORMWikiLMConfigs,
     STORMWikiRunner,

@@ -212,6 +212,9 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
         # Create model config
         model_config = ModelConfig(mode=args.backend)
+        if hasattr(args, 'model_name'):
+            model_config.override_model = args.model_name
+            logger.info(f"Using CLI model override: {args.model_name}")
 
         # Create output manager with proper directory structure
         num_topics = getattr(args, "num_topics", 5)

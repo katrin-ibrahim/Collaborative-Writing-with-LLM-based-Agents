@@ -9,6 +9,8 @@ class ModelConfig:
     # Mode of operation: "local" or "ollama"
     mode: str = "local"
 
+    override_model: str = None
+
     # Task-specific model assignments
     outline_model: str = "qwen2.5:14b"  # Balanced, for structure
     writing_model: str = "qwen2.5:32b"  # Quality, for content
@@ -56,11 +58,10 @@ class ModelConfig:
 
         if self.local_model_mapping is None:
             self.local_model_mapping = {
-                "qwen2.5:7b": "models/Qwen2.5-7B-Instruct",
-                "qwen2.5:14b": "models/Qwen2.5-14B-Instruct",
-                "qwen2.5:32b": "models/Qwen2.5-32B-Instruct",
-            }
-
+            "qwen2.5:7b": "models/models--Qwen2.5-7B-Instruct",
+            "qwen2.5:14b": "models/models--Qwen2.5-14B-Instruct", 
+            "qwen2.5:32b": "models/models--Qwen2.5-32B-Instruct",
+        }
         if self.ollama_model_mapping is None:
             self.ollama_model_mapping = {
                 "qwen2.5:7b": "qwen2.5:7b",
@@ -70,6 +71,11 @@ class ModelConfig:
 
     def get_model_for_task(self, task: str) -> str:
         """Get appropriate model for a specific task."""
+        # If override_model is set, use it for all tasks
+        if self.override_model:
+            return self.override_model
+            
+        # Otherwise use task-specific models
         task_model_map = {
             "fast": self.default_model,
             "outline": self.outline_model,

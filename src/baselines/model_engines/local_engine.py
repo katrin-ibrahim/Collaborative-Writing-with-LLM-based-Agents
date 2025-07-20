@@ -44,6 +44,10 @@ class LocalModelEngine(BaseModelEngine):
         # Initialize base class
         super().__init__(model_path=model_path, config=config, task=task)
 
+        logger.info(f"DEBUG: LocalModelEngine init - model_path param: {model_path}")
+        logger.info(f"DEBUG: After base init - self.model_path: {self.model_path}")
+        logger.info(f"DEBUG: Task: {task}")
+        logger.info(f"DEBUG: Config mode: {self.config.mode}")
         # Ensure we're using local mode
         if self.config.mode != "local":
             self.config.mode = "local"
@@ -140,11 +144,6 @@ class LocalModelEngine(BaseModelEngine):
             load_time = time.time() - start_time
             logger.info(f"Model loaded in {load_time:.2f}s")
 
-            # Apply model optimizations
-            if hasattr(self.model, "to_bettertransformer"):
-                logger.info("Converting to BetterTransformer for performance")
-                self.model = self.model.to_bettertransformer()
-
             # Warm up model for better first inference time
             self._warmup_model()
 
@@ -206,8 +205,8 @@ class LocalModelEngine(BaseModelEngine):
             # Get inputs (from cache if possible)
             inputs = self._get_cached_tokenization(prompt, max_length)
 
-            # Configure generation parameters
-            gen_config = self.generation_config.copy()
+            # Configure generation parameters - create a new instance instead of using copy()
+            gen_config = GenerationConfig(**self.generation_config.to_dict())
             gen_config.temperature = temperature
             gen_config.max_length = None  # Use max_new_tokens instead
             gen_config.max_new_tokens = max_length

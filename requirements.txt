@@ -34,3 +34,4 @@ langchain-core>=0.1.0
 
 matplotlib
 seaborn
+optimum

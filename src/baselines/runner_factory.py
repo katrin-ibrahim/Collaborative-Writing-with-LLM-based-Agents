@@ -4,10 +4,6 @@ Factory for creating the appropriate runner implementation.
 
 from typing import Tuple, Type
 
-from src.baselines.local_baselines import LocalBaselineRunner
-from src.baselines.ollama_baselines import BaselineRunner as OllamaRunner
-
-
 def create_runner(backend: str) -> Tuple[Type, str]:
     """
     Create the appropriate runner class for the specified backend.
@@ -22,8 +18,10 @@ def create_runner(backend: str) -> Tuple[Type, str]:
         ValueError: If an invalid backend is specified
     """
     if backend == "ollama":
+        from src.baselines.ollama_baselines import BaselineRunner as OllamaRunner
         return OllamaRunner, "Ollama"
     elif backend == "local":
+        from src.baselines.local_baselines import LocalBaselineRunner
         return LocalBaselineRunner, "Local"
     else:
         raise ValueError(f"Invalid backend: {backend}. Must be 'ollama' or 'local'.")
