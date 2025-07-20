@@ -159,6 +159,8 @@ class BaselineRunner(BaseRunner):
             # Save article
             if self.output_manager:
                 self.output_manager.save_article(article, "storm")
+                # Clean up temporary STORM files
+                self.output_manager.cleanup_storm_temp(topic)
 
             logger.info(
                 f"STORM completed for {topic} ({content_words} words, {generation_time:.2f}s)"
@@ -167,6 +169,9 @@ class BaselineRunner(BaseRunner):
 
         except Exception as e:
             logger.error(f"STORM failed for '{topic}': {e}")
+            # Clean up temporary STORM files even on failure
+            if self.output_manager:
+                self.output_manager.cleanup_storm_temp(topic)
             # Topics should already be strings now
             return error_article(topic, str(e), "storm")
 
