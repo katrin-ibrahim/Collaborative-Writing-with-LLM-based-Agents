@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 
 import logging
-from src.ollama_baselines.optimization.adaptive_optimizer import AdaptiveOptimizer
 
+from src.baselines.ollama_baselines.optimization.adaptive_optimizer import (
+    AdaptiveOptimizer,
+)
 from src.config.baselines_model_config import ModelConfig
 from src.utils.logging_setup import setup_logging
 
@@ -58,7 +60,8 @@ def add_optimization_args(parser: argparse.ArgumentParser):
     )
 
     optimization_group.add_argument(
-        "--resume-dir",
+        "--resume_dir",
+        "-rd",
         type=str,
         help="Specific directory to resume optimization from (must contain optimization_state.json)",
     )

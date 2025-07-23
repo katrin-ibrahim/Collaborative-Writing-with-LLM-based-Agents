@@ -5,7 +5,7 @@ Usage:
   python -m src.baselines.optimization [options]
 """
 
-from src.ollama_baselines.optimization.cli_integration import main
+from src.baselines.ollama_baselines.optimization.cli_integration import main
 
 if __name__ == "__main__":
     main()
