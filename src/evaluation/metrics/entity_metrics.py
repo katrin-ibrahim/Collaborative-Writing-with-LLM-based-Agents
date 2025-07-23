@@ -1,170 +1,125 @@
 # src/evaluation/metrics/entity_metrics.py
 import logging
-import re
+from flair.data import Sentence
+from flair.models import SequenceTagger
 from typing import Set
 
 logger = logging.getLogger(__name__)
 
 
 class EntityMetrics:
+
+    def debug_entity_extraction(self, text: str, label: str = "") -> Set[str]:
+        """
+        Debug version of extract_entities with detailed logging.
+        """
+        print(f"\n🔍 DEBUG: Extracting entities from {label}")
+        print(f"Text preview: {text[:200]}...")
+        if not hasattr(self, "ner_tagger") or self.ner_tagger is None:
+            print("❌ FLAIR not available!")
+            return set()
+        entities = set()
+        try:
+            from flair.data import Sentence
+
+            sentence = Sentence(text)
+            self.ner_tagger.predict(sentence)
+            print(f"FLAIR found {len(sentence.get_spans('ner'))} total entities:")
+            for entity in sentence.get_spans("ner"):
+                print(f"  - '{entity.text}' ({entity.tag}, {entity.score:.3f})")
+                if entity.score > 0.5:
+                    entity_text = entity.text.lower().strip()
+                    if len(entity_text) > 1:
+                        entities.add(entity_text)
+                        print(f"    ✅ Added: '{entity_text}'")
+                    else:
+                        print(f"    ❌ Skipped (too short): '{entity_text}'")
+                else:
+                    print(f"    ❌ Skipped (low confidence): {entity.score:.3f}")
+            print(f"Final entity set ({len(entities)}): {sorted(list(entities))}")
+        except Exception as e:
+            print(f"❌ FLAIR extraction failed: {e}")
+            raise
+        return entities
+
     """
     Entity extraction using simple heuristics.
     Focuses on patterns that work well without heavy NLP dependencies.
     """
 
+    def __init__(self):
+        self.ner_tagger = SequenceTagger.load("ner")
+        logger.info("Loaded FLAIR NER model for entity extraction")
+
     def extract_entities(self, text: str) -> Set[str]:
         """
-        Extract entities using simple but effective heuristics.
-
-        Combines multiple simple approaches:
-        1. Capitalized word sequences (names, places, organizations)
-        2. Number patterns (dates, statistics, money)
-        3. Common entity markers
-        4. Simple word matching for heading overlap
+        Extract entities using FLAIR NER (STORM-compliant) or regex fallback.
         """
-
         logger.debug(f"Extracting entities from text: {text[:200]}...")
         entities = set()
 
-        # 1. Simple word extraction for headings (improved for HER calculation)
-        # Extract individual meaningful words (lowercased) for basic overlap
-        import re
-
-        words = re.findall(r"\b[a-zA-Z]{3,}\b", text.lower())
-        stop_words = {
-            "the",
-            "and",
-            "for",
-            "are",
-            "with",
-            "was",
-            "this",
-            "that",
-            "have",
-            "from",
-            "will",
-            "can",
-            "not",
-        }
-        for word in words:
-            if word not in stop_words and len(word) >= 3:
-                entities.add(word)
-                logger.debug(f"Added word entity: {word}")
-
-        # 2. Multi-word phrases for compound headings
-        clean_text = re.sub(r"[^\w\s]", " ", text.lower()).strip()
-        if " " in clean_text and len(clean_text) > 3:
-            entities.add(clean_text)
-            logger.debug(f"Added phrase entity: {clean_text}")
-
-        # 3. Capitalized sequences (names, places, organizations)
-        # Matches "John Smith", "New York", "Google Inc"
-        cap_sequences = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", text)
-        logger.debug(
-            f"Found {len(cap_sequences)} capitalized sequences: {cap_sequences}"
-        )
-        for seq in cap_sequences:
-            # Filter out sentence starters and common words
-            if not self._is_sentence_starter(seq, text) and len(seq) > 2:
-                entities.add(seq.lower())
-                logger.debug(f"Added capitalized entity: {seq.lower()}")
-            else:
-                logger.debug(f"Filtered out: {seq} (sentence starter or too short)")
-
-        # 4. Numbers with context (years, percentages, money)
-        number_patterns = [
-            r"\b(19|20)\d{2}\b",  # Years
-            r"\b\d+(?:\.\d+)?%\b",  # Percentages
-            r"\$\d+(?:,\d{3})*(?:\.\d{2})?\b",  # Money
-            r"\b\d+(?:\.\d+)?\s*(?:million|billion|thousand)\b",  # Large numbers
-        ]
-
-        for pattern in number_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            entities.update(
-                match.lower() if isinstance(match, str) else str(match).lower()
-                for match in matches
-            )
-
-        # 5. Common entity markers
-        # Things like "Dr. Smith", "President Obama"
-        title_patterns = [
-            r"\b(?:Dr|Prof|President|CEO|Director)\.\s+[A-Z][a-z]+\b",
-            r"\b(?:Mr|Ms|Mrs)\.\s+[A-Z][a-z]+\b",
-        ]
-
-        for pattern in title_patterns:
-            matches = re.findall(pattern, text)
-            if matches:
-                logger.debug(f"Title pattern found {len(matches)} matches: {matches}")
-            entities.update(match.lower() for match in matches)
+        entities.update(self._extract_entities_flair(text))
 
         logger.debug(f"Total entities extracted: {len(entities)} - {entities}")
         return entities
 
-    def _is_sentence_starter(self, word_sequence: str, full_text: str) -> bool:
-        """Check if capitalized sequence is just a sentence starter."""
-        # Simple heuristic: if it appears after '. ' or at start, likely sentence starter
-        sentence_starters = {
-            "The",
-            "This",
-            "That",
-            "These",
-            "Those",
-            "A",
-            "An",
-            "In",
-            "On",
-            "At",
-            "For",
-        }
-        first_word = word_sequence.split()[0]
+    def _extract_entities_flair(self, text: str) -> Set[str]:
+        """Extract entities using FLAIR NER (STORM implementation)."""
+        entities = set()
 
-        # Check if it's a common sentence starter
-        if first_word in sentence_starters:
-            return True
+        try:
+            # Create FLAIR sentence
+            sentence = Sentence(text)
 
-        # Check if it appears after periods (sentence boundaries)
-        pattern = r"\.\s+" + re.escape(word_sequence)
-        return bool(re.search(pattern, full_text))
+            # Predict NER tags
+            self.ner_tagger.predict(sentence)
+
+            # Extract entities with confidence > 0.5 (STORM threshold)
+            for entity in sentence.get_spans("ner"):
+                if entity.score > 0.5:  # STORM confidence threshold
+                    entity_text = entity.text.lower().strip()
+                    if len(entity_text) > 1:
+                        entities.add(entity_text)
+                        logger.debug(
+                            f"FLAIR entity: {entity_text} ({entity.tag}, {entity.score:.3f})"
+                        )
+
+        except Exception as e:
+            logger.warning(f"FLAIR NER failed: {e}. returning empty set.")
+
+        return entities
 
     def calculate_overall_entity_recall(self, generated: str, reference: str) -> float:
         """
-        Calculate Article Entity Recall (AER) using simple entity extraction.
+        Calculate Article Entity Recall (AER) using STORM-compliant entity extraction.
 
-        This gives a good approximation of factual content overlap
-        without complex NLP dependencies.
+        AER = |NE(G_article) ∩ NE(P_article)| / |NE(G_article)|
         """
         logger.debug("=== Article Entity Recall Calculation ===")
-        gen_entities = self.extract_entities(generated)
-        ref_entities = self.extract_entities(reference)
 
-        logger.debug(f"Generated entities ({len(gen_entities)}): {gen_entities}")
-        logger.debug(f"Reference entities ({len(ref_entities)}): {ref_entities}")
+        try:
+            gen_entities = self.extract_entities(generated)
+            ref_entities = self.extract_entities(reference)
 
-        if not ref_entities:
-            logger.debug("No reference entities found, returning 1.0")
-            return 1.0
+            logger.debug(f"Generated entities ({len(gen_entities)}): {gen_entities}")
+            logger.debug(f"Reference entities ({len(ref_entities)}): {ref_entities}")
 
-        # Calculate overlap
-        overlap = len(ref_entities.intersection(gen_entities))
-        common_entities = ref_entities.intersection(gen_entities)
-        logger.debug(f"Common entities ({overlap}): {common_entities}")
-        recall = overlap / len(ref_entities)
-        logger.debug(f"Article Entity Recall: {overlap}/{len(ref_entities)} = {recall}")
-        return recall
-        """
-        Calculate Article Entity Recall (AER) using simple entity extraction.
+            if not ref_entities:
+                logger.debug("No reference entities found, returning 1.0")
+                return 1.0
 
-        This gives a good approximation of factual content overlap
-        without complex NLP dependencies.
-        """
-        gen_entities = self.extract_entities(generated)
-        ref_entities = self.extract_entities(reference)
+            # Calculate overlap using STORM formula
+            overlap = len(ref_entities.intersection(gen_entities))
+            common_entities = ref_entities.intersection(gen_entities)
+            logger.debug(f"Common entities ({overlap}): {common_entities}")
 
-        if not ref_entities:
-            return 1.0
+            recall = overlap / len(ref_entities)
+            logger.debug(
+                f"Article Entity Recall: {overlap}/{len(ref_entities)} = {recall}"
+            )
+            return recall
 
-        # Calculate overlap
-        overlap = len(ref_entities.intersection(gen_entities))
-        return overlap / len(ref_entities)
+        except Exception as e:
+            logger.error(f"Entity recall calculation failed: {e}")
+            # Since you removed regex fallback, return 0.0 on FLAIR failure
+            return 0.0

@@ -1,4 +1,5 @@
 # src/evaluation/metrics/heading_metrics.py
+import numpy as np
 import re
 from typing import List
 
@@ -19,7 +20,7 @@ class HeadingMetrics:
             import numpy as np
             from sentence_transformers import SentenceTransformer
 
-            self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            self.embedder = SentenceTransformer("paraphrase-MiniLM-L6-v2")
             self.np = np
 
         except ImportError:
@@ -80,14 +81,43 @@ class HeadingMetrics:
 
         return intersection / union if union > 0 else 0.0
 
+    # def calculate_heading_soft_recall(
+    #     self, generated_headings: List[str], reference_headings: List[str]
+    # ) -> float:
+    #     """
+    #     Calculate Heading Soft Recall (HSR) using semantic similarity.
+
+    #     For each reference heading, finds the best matching generated heading
+    #     and averages the similarity scores.
+    #     """
+    #     if not reference_headings:
+    #         return 1.0
+
+    #     if not generated_headings:
+    #         return 0.0
+
+    #     total_similarity = 0.0
+
+    #     for ref_heading in reference_headings:
+    #         best_similarity = 0.0
+
+    #         for gen_heading in generated_headings:
+    #             similarity = self.calculate_semantic_similarity(
+    #                 ref_heading, gen_heading
+    #             )
+    #             best_similarity = max(best_similarity, similarity)
+
+    #         total_similarity += best_similarity
+
+    #     return total_similarity / len(reference_headings)
     def calculate_heading_soft_recall(
         self, generated_headings: List[str], reference_headings: List[str]
     ) -> float:
         """
-        Calculate Heading Soft Recall (HSR) using semantic similarity.
+        Calculate Heading Soft Recall (HSR) using STORM's soft recall cardinality formula.
 
-        For each reference heading, finds the best matching generated heading
-        and averages the similarity scores.
+        Formula: HSR = card(G ∩ P) / card(G)
+        Where: card(A) = Σ count(Ai) and count(Ai) = 1 / Σ Sim(Ai, Aj)
         """
         if not reference_headings:
             return 1.0
@@ -95,17 +125,45 @@ class HeadingMetrics:
         if not generated_headings:
             return 0.0
 
-        total_similarity = 0.0
+        # Get embeddings for all headings
+        ref_embeddings = self.embedder.encode(reference_headings)
+        gen_embeddings = self.embedder.encode(generated_headings)
 
-        for ref_heading in reference_headings:
-            best_similarity = 0.0
+        # Calculate soft cardinality for reference headings (G)
+        ref_card = self._calculate_soft_cardinality(ref_embeddings)
 
-            for gen_heading in generated_headings:
-                similarity = self.calculate_semantic_similarity(
-                    ref_heading, gen_heading
-                )
-                best_similarity = max(best_similarity, similarity)
+        # Calculate soft cardinality for generated headings (P)
+        gen_card = self._calculate_soft_cardinality(gen_embeddings)
 
-            total_similarity += best_similarity
+        # Calculate soft cardinality for union (G ∪ P)
+        all_embeddings = np.vstack([ref_embeddings, gen_embeddings])
+        union_card = self._calculate_soft_cardinality(all_embeddings)
 
-        return total_similarity / len(reference_headings)
+        # Apply soft recall formula: card(G ∩ P) = card(G) + card(P) - card(G ∪ P)
+        intersection_card = ref_card + gen_card - union_card
+
+        # HSR = card(G ∩ P) / card(G)
+        hsr = intersection_card / ref_card if ref_card > 0 else 0.0
+
+        return max(0.0, min(1.0, hsr))  # Clamp to [0,1]
+
+    def _calculate_soft_cardinality(self, embeddings: np.ndarray) -> float:
+        """
+        Calculate soft cardinality using STORM's formula.
+        card(A) = Σ count(Ai) where count(Ai) = 1 / Σ Sim(Ai, Aj)
+        """
+        if len(embeddings) == 0:
+            return 0.0
+
+        # Calculate cosine similarity matrix
+        similarity_matrix = np.dot(embeddings, embeddings.T)
+
+        soft_cardinality = 0.0
+        for i in range(len(embeddings)):
+            # Sum of similarities for embedding i with all embeddings
+            sim_sum = np.sum(similarity_matrix[i])
+            # count(Ai) = 1 / sim_sum
+            count_i = 1.0 / sim_sum if sim_sum > 0 else 0.0
+            soft_cardinality += count_i
+
+        return soft_cardinality

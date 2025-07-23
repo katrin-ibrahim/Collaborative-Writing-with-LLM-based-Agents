@@ -134,8 +134,10 @@ class ArticleEvaluator:
         self.logger.debug(f"All generated heading entities: {gen_entities}")
 
         if not ref_entities:
-            self.logger.debug("No reference heading entities, returning 1.0")
-            return 1.0
+            self.logger.debug(
+                "No reference heading entities, returning 0.0 (undefined HER)"
+            )
+            return 0.0
 
         # Calculate overlap
         overlap = len(ref_entities.intersection(gen_entities))

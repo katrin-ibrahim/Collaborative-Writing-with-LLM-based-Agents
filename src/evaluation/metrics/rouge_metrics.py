@@ -14,36 +14,33 @@ class ROUGEMetrics:
     @staticmethod
     def preprocess_text(text: str) -> List[str]:
         """
-        Smart text preprocessing that adapts to content.
-
-        Uses heuristics to clean text effectively without hardcoded rules.
+        STORM-aligned text preprocessing with minimal modifications.
         """
-        # Convert to lowercase
+        # Convert to lowercase (STORM standard)
         text = text.lower()
 
-        # Smart punctuation removal - keep hyphens in compound words
-        text = re.sub(r"[^\w\s\-]", " ", text)
+        # More conservative punctuation handling (preserve important structure)
+        text = re.sub(r"[^\w\s\-\.]", " ", text)
 
         # Split into words
         words = text.split()
 
-        # Adaptive filtering based on content characteristics
+        # Minimal filtering (closer to STORM approach)
         filtered_words = []
         for word in words:
-            # Skip very short words (likely not meaningful)
+            # Skip very short words
             if len(word) < 2:
                 continue
 
-            # Skip pure numbers unless they look important (years, etc.)
+            # Keep years and significant numbers (STORM approach)
             if word.isdigit():
                 if len(word) == 4 and word.startswith(("19", "20")):  # Years
                     filtered_words.append(word)
                 elif len(word) >= 3:  # Other significant numbers
                     filtered_words.append(word)
-                # Skip single/double digit numbers
                 continue
 
-            # Keep hyphenated words but normalize them
+            # Normalize hyphenated words
             if "-" in word:
                 word = word.replace("-", "_")
 
@@ -65,31 +62,6 @@ class ROUGEMetrics:
         # Calculate recall-based ROUGE-1
         overlap = sum((gen_counter & ref_counter).values())
         return overlap / len(ref_words)
-
-    def calculate_rouge_2(self, generated: str, reference: str) -> float:
-        """Calculate ROUGE-2 (bigram overlap) with smart preprocessing."""
-        gen_words = self.preprocess_text(generated)
-        ref_words = self.preprocess_text(reference)
-
-        if len(ref_words) < 2:
-            return 0.0
-
-        # Create bigrams with separator
-        gen_bigrams = [
-            f"{gen_words[i]}||{gen_words[i + 1]}" for i in range(len(gen_words) - 1)
-        ]
-        ref_bigrams = [
-            f"{ref_words[i]}||{ref_words[i + 1]}" for i in range(len(ref_words) - 1)
-        ]
-
-        if not ref_bigrams:
-            return 0.0
-
-        gen_counter = Counter(gen_bigrams)
-        ref_counter = Counter(ref_bigrams)
-
-        overlap = sum((gen_counter & ref_counter).values())
-        return overlap / len(ref_bigrams)
 
     def calculate_rouge_l(self, generated: str, reference: str) -> float:
         """Calculate ROUGE-L (longest common subsequence) efficiently."""
@@ -123,6 +95,5 @@ class ROUGEMetrics:
         """Calculate all ROUGE metrics efficiently."""
         return {
             "rouge_1": self.calculate_rouge_1(generated, reference),
-            "rouge_2": self.calculate_rouge_2(generated, reference),
             "rouge_l": self.calculate_rouge_l(generated, reference),
         }
