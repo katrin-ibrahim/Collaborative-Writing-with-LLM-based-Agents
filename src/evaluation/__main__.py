@@ -4,8 +4,8 @@ Main runner for evaluation module.
 Evaluates articles from a results directory and adds evaluation metrics.
 """
 import argparse
-import concurrent.futures
 import sys
+import time
 from pathlib import Path
 
 import json
@@ -113,62 +113,10 @@ def get_article_content(results_dir: Path, method: str, topic: str) -> Optional[
     return None
 
 
-def evaluate_single_article(
-    topic,
-    method,
-    entry,
-    method_result_dict,
-    results_dir_str,
-    gen_entities=None,
-    ref_entities=None,
-):
-    """Evaluate a single article - thread-safe function."""
-    from src.evaluation.evaluator import ArticleEvaluator
-    from src.utils.data_models import Article
-
-    try:
-        evaluator = ArticleEvaluator()
-        evaluator.entity_metrics._precomputed_entities = {
-            "generated": gen_entities,
-            "reference": ref_entities,
-        }
-
-        # Get article content from file path
-        if "article_path" in method_result_dict:
-            article_path = Path(results_dir_str) / method_result_dict["article_path"]
-            with open(article_path, "r") as f:
-                article_content = f.read()
-        elif "article" in method_result_dict:
-            article_data = method_result_dict["article"]
-            if isinstance(article_data, dict):
-                article_content = article_data.get("content", "")
-            else:
-                article_content = str(article_data)
-        else:
-            # Fallback to get_article_content functionality
-            results_dir = Path(results_dir_str)
-            article_content = get_article_content(results_dir, method, topic)
-
-        if not article_content:
-            return (
-                topic,
-                method,
-                None,
-                f"Could not find article content for {method}/{topic}",
-            )
-
-        # Create Article object and evaluate
-        article = Article(title=topic, content=article_content)
-        eval_results = evaluator.evaluate_article(article, entry)
-
-        return (topic, method, eval_results, None)
-
-    except Exception as e:
-        return (topic, method, None, str(e))
-
-
 def main():
     """Main evaluation function."""
+    start_time = time.time()
+
     args = parse_arguments()
 
     # Setup logging
@@ -187,6 +135,19 @@ def main():
     try:
         data = load_results(results_dir)
         logger.info("📄 Loaded existing results")
+
+        # Extract methods from existing data structure
+        if "summary" in data and "methods" in data["summary"]:
+            methods = list(data["summary"]["methods"].keys())
+        elif "configuration" in data and "methods" in data["configuration"]:
+            methods = data["configuration"]["methods"]
+        else:
+            # Infer methods from results structure
+            methods = set()
+            for topic_data in data.get("results", {}).values():
+                methods.update(topic_data.keys())
+            methods = list(methods)
+
     except FileNotFoundError:
         logger.info("📝 No existing results.json found, creating new one")
 
@@ -328,22 +289,18 @@ def main():
                         "article_path": str(article_file.relative_to(results_dir)),
                     }
 
+        # Calculate total generation time from individual article times
+        total_generation_time = 0.0
+        for topic_data in data["results"].values():
+            for method_data in topic_data.values():
+                total_generation_time += method_data.get("generation_time", 0.0)
+
+        data["summary"]["total_time"] = total_generation_time
+
         logger.info(
             f"📊 Discovered {len(data['results'])} topics across {len(methods)} methods"
         )
-
-    # Calculate total generation time from individual article times
-    total_generation_time = 0.0
-    for topic_data in data["results"].values():
-        for method_data in topic_data.values():
-            total_generation_time += method_data.get("generation_time", 0.0)
-
-    data["summary"]["total_time"] = total_generation_time
-
-    logger.info(
-        f"📊 Discovered {len(data['results'])} topics across {len(methods)} methods"
-    )
-    logger.info(f"🕒 Total generation time: {total_generation_time:.2f}s")
+        logger.info(f"🕒 Total generation time: {total_generation_time:.2f}s")
 
     # Load FreshWiki dataset for evaluation
     logger.info("📚 Loading FreshWiki dataset...")
@@ -351,11 +308,10 @@ def main():
     entries = freshwiki.get_evaluation_sample(1000)  # Load all entries
 
     # Create evaluator
-    ArticleEvaluator()
+    evaluator = ArticleEvaluator()
 
     # Process each topic
     results = data.get("results", {})
-    methods = data.get("configuration", {}).get("methods", [])
 
     skipped_count = 0
     evaluated_count = 0
@@ -397,7 +353,7 @@ def main():
                 skipped_count += 1
                 continue
 
-            # Prepare task for threading
+            # Prepare task for evaluation
             eval_tasks.append((topic, method, entry, method_result, str(results_dir)))
 
     logger.info(f"🧪 Preparing to evaluate {len(eval_tasks)} articles")
@@ -407,66 +363,245 @@ def main():
         save_results(results_dir, data)
         return 0
 
-    # Pre-extract all entities in main thread to avoid threading issues with FLAIR
-    logger.info("🧬 Pre-extracting entities for thread-safe evaluation...")
-    from src.evaluation.metrics.entity_metrics import EntityMetrics
+    # Evaluate articles sequentially (no threading)
+    # Evaluate articles sequentially (no threading)
+    logger.info(f"🧪 Evaluating {len(eval_tasks)} articles sequentially...")
 
-    entity_extractor = EntityMetrics()
-
-    entity_cache = {}
     for topic, method, entry, method_result, results_dir_str in eval_tasks:
-        if topic not in entity_cache:
-            # Extract entities once per topic
-            gen_entities = entity_extractor.extract_entities(
-                get_article_content(Path(results_dir_str), method, topic) or ""
-            )
-            ref_entities = entity_extractor.extract_entities(entry.reference_content)
-            entity_cache[topic] = (gen_entities, ref_entities)
+        try:
+            # FIX 1: Get article content from stored article_path instead of reconstructing
+            article_content = None
+            if "article_path" in method_result:
+                article_path = Path(results_dir_str) / method_result["article_path"]
+                try:
+                    with open(article_path, "r") as f:
+                        article_content = f.read()
+                    logger.debug(f"✅ Read article from: {article_path}")
+                except Exception as e:
+                    logger.error(f"❌ Could not read file {article_path}: {e}")
+                    article_content = None
+            else:
+                # Fallback to old method if no article_path stored
+                logger.warning(
+                    f"⚠️ No article_path found for {method}/{topic}, using fallback"
+                )
+                article_content = get_article_content(
+                    Path(results_dir_str), method, topic
+                )
 
-    # Use ThreadPoolExecutor with pre-extracted entities
-    max_workers = min(4, len(eval_tasks))  # Can now use more workers safely
+            if not article_content:
+                logger.error(f"❌ Could not find article content for {method}/{topic}")
+                # Provide zero evaluation results for data_loader compatibility
+                method_result["evaluation"] = {
+                    "rouge_1": 0.0,
+                    "rouge_l": 0.0,
+                    "heading_soft_recall": 0.0,
+                    "heading_entity_recall": 0.0,
+                    "article_entity_recall": 0.0,
+                }
+                method_result["evaluation_error"] = "Could not find article content"
+                continue
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks with pre-extracted entities
-        future_to_task = {
-            executor.submit(
-                evaluate_single_article,
-                topic,
-                method,
-                entry,
-                method_result,
-                results_dir_str,
-                *entity_cache[topic],
-            ): (topic, method, entry, method_result, results_dir_str)
-            for topic, method, entry, method_result, results_dir_str in eval_tasks
-        }
+            # Create Article object and evaluate
+            from src.utils.data_models import Article
 
-        # Process completed tasks
-        for future in concurrent.futures.as_completed(future_to_task):
-            try:
-                topic, method, eval_results, error = future.result()
-                method_result = results[topic][method]
+            article = Article(title=topic, content=article_content)
 
-                if eval_results is not None:
-                    method_result["evaluation"] = eval_results
-                    if "word_count" not in method_result and article_content:
-                        method_result["word_count"] = len(article_content.split())
-                    logger.info(f"✅ Evaluated {method} for {topic}")
-                    evaluated_count += 1
-                else:
-                    logger.error(f"❌ Evaluation failed for {method}/{topic}: {error}")
-                    method_result["evaluation_error"] = error
+            # FIX 2 & 3: Add debug logging to evaluator for HER and HSR debugging
+            logger.debug(f"🔍 Starting evaluation for {method}/{topic}")
+            logger.debug(f"📄 Article content length: {len(article_content)} chars")
 
-            except Exception as e:
-                task = future_to_task[future]
-                topic, method = task[0], task[1]
-                logger.error(f"❌ Task execution failed for {method}/{topic}: {e}")
+            eval_results = evaluator.evaluate_article(article, entry)
+
+            if eval_results is not None:
+                method_result["evaluation"] = eval_results
+                # Ensure word_count is present for data_loader compatibility
+                if "word_count" not in method_result:
+                    method_result["word_count"] = len(article_content.split())
+
+                # FIX 2: Debug logging for Heading Entity Recall
+                logger.debug(f"🎯 Evaluation results for {method}/{topic}:")
+                logger.debug(f"   📊 ROUGE-1: {eval_results.get('rouge_1', 0):.2f}%")
+                logger.debug(
+                    f"   📊 Heading Soft Recall: {eval_results.get('heading_soft_recall', 0):.2f}%"
+                )
+                logger.debug(
+                    f"   📊 Heading Entity Recall: {eval_results.get('heading_entity_recall', 0):.2f}%"
+                )
+                logger.debug(
+                    f"   📊 Article Entity Recall: {eval_results.get('article_entity_recall', 0):.2f}%"
+                )
+
+                # Add manual debugging for HER if it's 0
+                if eval_results.get("heading_entity_recall", 0) == 0:
+                    logger.warning(
+                        f"🔍 DEBUG: HER is 0 for {method}/{topic} - investigating..."
+                    )
+                    # Extract headings manually for debugging
+                    from src.evaluation.metrics.heading_metrics import HeadingMetrics
+
+                    heading_extractor = HeadingMetrics()
+                    generated_headings = (
+                        heading_extractor.extract_headings_from_content(article_content)
+                    )
+                    logger.debug(f"   🏷️ Generated headings: {generated_headings}")
+                    logger.debug(f"   🏷️ Reference headings: {entry.reference_outline}")
+
+                    # Test entity extraction on headings
+                    from src.evaluation.metrics.entity_metrics import EntityMetrics
+
+                    entity_extractor = EntityMetrics()
+
+                    # Extract entities from each generated heading
+                    gen_heading_entities = set()
+                    for heading in generated_headings:
+                        heading_entities = entity_extractor.extract_entities(heading)
+                        gen_heading_entities.update(heading_entities)
+                        if heading_entities:
+                            logger.debug(
+                                f"   🔍 Heading '{heading}' entities: {heading_entities}"
+                            )
+                        else:
+                            logger.debug(f"   🔍 Heading '{heading}' entities: NONE")
+
+                    # Extract entities from each reference heading
+                    ref_heading_entities = set()
+                    for heading in entry.reference_outline:
+                        heading_entities = entity_extractor.extract_entities(heading)
+                        ref_heading_entities.update(heading_entities)
+                        if heading_entities:
+                            logger.debug(
+                                f"   🔍 Reference heading '{heading}' entities: {heading_entities}"
+                            )
+                        else:
+                            logger.debug(
+                                f"   🔍 Reference heading '{heading}' entities: NONE"
+                            )
+
+                    logger.debug(
+                        f"   🔍 Total generated heading entities: {gen_heading_entities}"
+                    )
+                    logger.debug(
+                        f"   🔍 Total reference heading entities: {ref_heading_entities}"
+                    )
+                    logger.debug(
+                        f"   🔍 Overlap: {gen_heading_entities.intersection(ref_heading_entities)}"
+                    )
+
+                # Add manual debugging for HSR if it seems too high
+                hsr_value = eval_results.get("heading_soft_recall", 0)
+                if hsr_value > 90:
+                    logger.warning(
+                        f"🔍 DEBUG: HSR is very high ({hsr_value:.2f}%) for {method}/{topic} - investigating..."
+                    )
+                    # Get the actual soft cardinality values for manual verification
+                    from src.evaluation.metrics.heading_metrics import HeadingMetrics
+
+                    heading_metrics = HeadingMetrics()
+                    generated_headings = heading_metrics.extract_headings_from_content(
+                        article_content
+                    )
+
+                    # Calculate HSR manually with debug logging
+                    logger.debug(f"   🔢 Manual HSR calculation:")
+                    logger.debug(
+                        f"   📝 Generated headings ({len(generated_headings)}): {generated_headings}"
+                    )
+                    logger.debug(
+                        f"   📝 Reference headings ({len(entry.reference_outline)}): {entry.reference_outline}"
+                    )
+
+                    # Get embeddings and calculate cardinalities manually
+                    if generated_headings and entry.reference_outline:
+                        import numpy as np
+
+                        ref_embeddings = heading_metrics.embedder.encode(
+                            entry.reference_outline
+                        )
+                        gen_embeddings = heading_metrics.embedder.encode(
+                            generated_headings
+                        )
+                        all_embeddings = np.vstack([ref_embeddings, gen_embeddings])
+
+                        ref_card = heading_metrics._calculate_soft_cardinality(
+                            ref_embeddings
+                        )
+                        gen_card = heading_metrics._calculate_soft_cardinality(
+                            gen_embeddings
+                        )
+                        union_card = heading_metrics._calculate_soft_cardinality(
+                            all_embeddings
+                        )
+                        intersection_card = ref_card + gen_card - union_card
+                        manual_hsr = (
+                            intersection_card / ref_card if ref_card > 0 else 0.0
+                        )
+
+                        logger.debug(
+                            f"   🔢 Manual calculation: ref_card={ref_card:.6f}, gen_card={gen_card:.6f}"
+                        )
+                        logger.debug(
+                            f"   🔢 Manual calculation: union_card={union_card:.6f}, intersection_card={intersection_card:.6f}"
+                        )
+                        logger.debug(
+                            f"   🔢 Manual HSR: {manual_hsr:.6f} ({manual_hsr*100:.2f}%)"
+                        )
+                        logger.debug(f"   🔢 Reported HSR: {hsr_value:.2f}%")
+
+                logger.info(f"✅ Evaluated {method} for {topic}")
+                evaluated_count += 1
+            else:
+                logger.error(
+                    f"❌ Evaluation failed for {method}/{topic}: evaluation returned None"
+                )
+                # Provide zero evaluation results for data_loader compatibility
+                method_result["evaluation"] = {
+                    "rouge_1": 0.0,
+                    "rouge_l": 0.0,
+                    "heading_soft_recall": 0.0,
+                    "heading_entity_recall": 0.0,
+                    "article_entity_recall": 0.0,
+                }
+                method_result["evaluation_error"] = "Evaluation returned None"
+
+        except Exception as e:
+            logger.error(f"❌ Evaluation failed for {method}/{topic}: {e}")
+            # Provide zero evaluation results for data_loader compatibility
+            method_result["evaluation"] = {
+                "rouge_1": 0.0,
+                "rouge_l": 0.0,
+                "heading_soft_recall": 0.0,
+                "heading_entity_recall": 0.0,
+                "article_entity_recall": 0.0,
+            }
+            method_result["evaluation_error"] = str(e)
+
+    # Calculate total evaluation time
+    total_time = time.time() - start_time
+
+    # Add evaluation summary to data if summary section exists
+    if "summary" in data:
+        data["summary"].update(
+            {
+                "evaluation_time": total_time,
+                "topics_evaluated": evaluated_count,
+                "topics_skipped": skipped_count,
+                "total_topics": len(
+                    [
+                        t
+                        for t in results.keys()
+                        if any(method in results[t] for method in methods)
+                    ]
+                ),
+            }
+        )
 
     # Save updated results
     save_results(results_dir, data)
 
     # Summary
     logger.info(f"📊 Evaluation Summary:")
+    logger.info(f"  - Total evaluation time: {total_time:.2f}s")
     logger.info(f"  - Evaluated: {evaluated_count} articles")
     logger.info(f"  - Skipped: {skipped_count} articles")
     logger.info(f"💾 Updated results saved to: {results_dir / 'results.json'}")
