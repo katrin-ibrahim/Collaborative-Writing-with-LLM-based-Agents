@@ -4,6 +4,7 @@ Main runner for evaluation module.
 Evaluates articles from a results directory and adds evaluation metrics.
 """
 import argparse
+import concurrent.futures
 import sys
 from pathlib import Path
 
@@ -112,6 +113,48 @@ def get_article_content(results_dir: Path, method: str, topic: str) -> Optional[
     return None
 
 
+def evaluate_single_article(topic, method, entry, method_result_dict, results_dir_str):
+    """Evaluate a single article - thread-safe function."""
+    from src.evaluation.evaluator import ArticleEvaluator
+    from src.utils.data_models import Article
+
+    try:
+        evaluator = ArticleEvaluator()
+
+        # Get article content from file path
+        if "article_path" in method_result_dict:
+            article_path = Path(results_dir_str) / method_result_dict["article_path"]
+            with open(article_path, "r") as f:
+                article_content = f.read()
+        elif "article" in method_result_dict:
+            article_data = method_result_dict["article"]
+            if isinstance(article_data, dict):
+                article_content = article_data.get("content", "")
+            else:
+                article_content = str(article_data)
+        else:
+            # Fallback to get_article_content functionality
+            results_dir = Path(results_dir_str)
+            article_content = get_article_content(results_dir, method, topic)
+
+        if not article_content:
+            return (
+                topic,
+                method,
+                None,
+                f"Could not find article content for {method}/{topic}",
+            )
+
+        # Create Article object and evaluate
+        article = Article(title=topic, content=article_content)
+        eval_results = evaluator.evaluate_article(article, entry)
+
+        return (topic, method, eval_results, None)
+
+    except Exception as e:
+        return (topic, method, None, str(e))
+
+
 def main():
     """Main evaluation function."""
     args = parse_arguments()
@@ -134,6 +177,7 @@ def main():
         logger.info("📄 Loaded existing results")
     except FileNotFoundError:
         logger.info("📝 No existing results.json found, creating new one")
+
         # Determine methods from directory structure
         articles_dir = results_dir / "articles"
         if not articles_dir.exists():
@@ -141,7 +185,6 @@ def main():
             return 1
 
         # Try to infer methods from files in the articles folder
-        # Check if we have method_topic.md naming pattern
         dir_name = results_dir.name
         methods = set()
 
@@ -196,19 +239,16 @@ def main():
         }
 
         # Scan articles directory to populate topics
-        # Check for both method_topic.md files and method/topic.md directories
         for method in methods:
             # First check for method_topic.md files
             for article_file in articles_dir.glob(f"{method}_*.md"):
-                # Extract topic from filename (e.g., direct_TopicName.md -> TopicName)
-                # If the filename had slashes replaced with underscores, we need to convert back
+                # Extract topic from filename
                 filename = article_file.stem
-                # Remove method prefix (e.g., direct_)
+                # Remove method prefix
                 topic_part = filename[len(method) + 1 :]
 
                 # Check if this is a topic with slashes that were replaced with underscores
                 if "and_or" in topic_part:
-                    # Special case for "and/or" which was converted to "and_or"
                     topic = topic_part.replace("and_or", "and/or")
                 else:
                     topic = topic_part
@@ -253,10 +293,11 @@ def main():
     methods = data.get("configuration", {}).get("methods", [])
 
     skipped_count = 0
+    evaluated_count = 0
 
     # Prepare evaluation tasks
     eval_tasks = []
-    topic_entry_map = {}
+
     for topic, topic_results in results.items():
         # Find the corresponding FreshWiki entry
         entry = None
@@ -274,81 +315,60 @@ def main():
             if "and/or" in e.topic and topic.replace("and_or", "and/or") == e.topic:
                 entry = e
                 break
+
         if not entry:
+            logger.warning(f"⚠️ No FreshWiki entry found for topic: {topic}")
             continue
-        topic_entry_map[topic] = entry
+
         for method in methods:
             if method not in results[topic]:
                 continue
+
             method_result = results[topic][method]
             if not method_result.get("success"):
                 continue
+
             if "evaluation" in method_result and not args.force:
                 skipped_count += 1
                 continue
-            eval_tasks.append((topic, method))
 
-    def eval_worker(args_tuple):
-        topic, method = args_tuple
-        topic_entry_map[topic]
-        results[topic][method]
-        # (removed duplicate nested try/except and logic)
+            # Prepare task for threading
+            eval_tasks.append((topic, method, entry, method_result, str(results_dir)))
 
+    logger.info(f"🧪 Preparing to evaluate {len(eval_tasks)} articles")
 
-def eval_worker(args_tuple):
-    topic, method, entry, method_result_dict, results_dir_str = args_tuple
-    import os
+    if not eval_tasks:
+        logger.info("✅ No articles to evaluate")
+        save_results(results_dir, data)
+        return 0
 
-    from src.evaluation.evaluator import ArticleEvaluator
-    from src.utils.data_models import Article
+    # Use ThreadPoolExecutor to evaluate articles
+    max_workers = min(1, len(eval_tasks))  # Limit workers for stability
 
-    # Re-import inside worker for multiprocessing safety
-    evaluator = ArticleEvaluator()
-    try:
-        # Get article content from file path
-        if "article_path" in method_result_dict:
-            article_path = os.path.join(
-                results_dir_str, method_result_dict["article_path"]
-            )
-            with open(article_path, "r") as f:
-                article_content = f.read()
-        elif "article" in method_result_dict:
-            article_data = method_result_dict["article"]
-            if isinstance(article_data, dict):
-                article_content = article_data.get("content", "")
-            else:
-                article_content = article_data
-            method_result_dict.pop("article")
-        else:
-            # get_article_content is not available in worker, fallback to None
-            article_content = None
-        if not article_content:
-            return (
-                topic,
-                method,
-                None,
-                f"Could not find article file for {method}/{topic}",
-            )
-        article = Article(title=topic, content=article_content)
-        eval_results = evaluator.evaluate_article(article, entry)
-        return (topic, method, eval_results, None)
-    except Exception as e:
-        return (topic, method, None, str(e))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(evaluate_single_article, *task): task for task in eval_tasks
+        }
 
-    # Use all available CPU cores
-    max_workers = None
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(eval_worker, task) for task in eval_tasks]
-        for future in concurrent.futures.as_completed(futures):
-            topic, method, eval_results, error = future.result()
-            method_result = results[topic][method]
-            if eval_results is not None:
-                method_result["evaluation"] = eval_results
-                logger.info(f"✅ Evaluated {method} for {topic}")
-                evaluated_count += 1
-            else:
-                logger.error(f"❌ Evaluation failed for {method}/{topic}: {error}")
-                method_result["evaluation_error"] = error
+        # Process completed tasks
+        for future in concurrent.futures.as_completed(future_to_task):
+            try:
+                topic, method, eval_results, error = future.result()
+                method_result = results[topic][method]
+
+                if eval_results is not None:
+                    method_result["evaluation"] = eval_results
+                    logger.info(f"✅ Evaluated {method} for {topic}")
+                    evaluated_count += 1
+                else:
+                    logger.error(f"❌ Evaluation failed for {method}/{topic}: {error}")
+                    method_result["evaluation_error"] = error
+
+            except Exception as e:
+                task = future_to_task[future]
+                topic, method = task[0], task[1]
+                logger.error(f"❌ Task execution failed for {method}/{topic}: {e}")
 
     # Save updated results
     save_results(results_dir, data)
