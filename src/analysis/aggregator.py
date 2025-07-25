@@ -59,7 +59,6 @@ class MetricsAggregator:
 
     STORM_METRICS = [
         "rouge_1",
-        "rouge_2",
         "rouge_l",
         "heading_soft_recall",
         "heading_entity_recall",

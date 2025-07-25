@@ -35,8 +35,8 @@ class ArticleEvaluator:
         """
         Evaluate article using STORM paper metrics only.
 
-        Returns the 6 core STORM metrics in percentage scale (0-100):
-        - rouge_1, rouge_2, rouge_l (content overlap)
+        Returns the 5 core STORM metrics in percentage scale (0-100):
+        - rouge_1, rouge_l (content overlap)
         - heading_soft_recall (topic coverage)
         - heading_entity_recall (entities in headings)
         - article_entity_recall (overall factual coverage)
@@ -81,7 +81,6 @@ class ArticleEvaluator:
             # Return zeros for all STORM metrics on failure (in percentage scale)
             return {
                 "rouge_1": 0.0,
-                "rouge_2": 0.0,
                 "rouge_l": 0.0,
                 "heading_soft_recall": 0.0,
                 "heading_entity_recall": 0.0,
@@ -154,7 +153,6 @@ class ArticleEvaluator:
         """Get descriptions of STORM metrics for documentation."""
         return {
             "rouge_1": "STORM: Unigram overlap between generated and reference content (0-100%)",
-            "rouge_2": "STORM: Bigram overlap between generated and reference content (0-100%)",
             "rouge_l": "STORM: Longest common subsequence overlap (0-100%)",
             "heading_soft_recall": "STORM HSR: Semantic topic coverage in headings (0-100%)",
             "heading_entity_recall": "STORM HER: Entity coverage in headings only (0-100%)",

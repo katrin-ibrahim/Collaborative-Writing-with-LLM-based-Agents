@@ -43,7 +43,6 @@ class ResultsLoader:
 
     REQUIRED_METRICS = [
         "rouge_1",
-        "rouge_2",
         "rouge_l",
         "heading_soft_recall",
         "heading_entity_recall",
@@ -83,7 +82,7 @@ class ResultsLoader:
         if not isinstance(self.data, dict):
             raise ValueError("Results must be a dictionary")
 
-        required_keys = ["timestamp", "configuration", "results", "summary"]
+        required_keys = ["timestamp", "configuration", "results"]
         missing_keys = [key for key in required_keys if key not in self.data]
         if missing_keys:
             raise ValueError(f"Missing required keys: {missing_keys}")

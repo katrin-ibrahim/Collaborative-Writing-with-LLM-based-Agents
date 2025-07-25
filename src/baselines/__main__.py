@@ -11,8 +11,8 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+from baselines.main_runner_base import run_baseline_experiment
 from src.baselines.cli_args import parse_arguments
-from src.baselines.runner_base import run_baseline_experiment
 from src.baselines.runner_factory import create_runner
 
 

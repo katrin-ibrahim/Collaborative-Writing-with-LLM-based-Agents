@@ -2,6 +2,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+import json
 import logging
 
 from src.utils.data_models import Article
@@ -83,17 +84,36 @@ class OutputManager:
             logger.info("Debug mode enabled - intermediate files will be saved")
 
     def save_article(self, article: Article, method: str) -> Path:
-        """Save article to standardized location."""
-        filename = f"{method}_{article.title.replace(' ', '_').replace('/', '_')}.md"
-        filepath = self.articles_dir / filename
+        """Save article content and metadata to standardized location."""
+        base_filename = f"{method}_{article.title.replace(' ', '_').replace('/', '_')}"
+        content_filepath = self.articles_dir / f"{base_filename}.md"
+        metadata_filepath = self.articles_dir / f"{base_filename}_metadata.json"
 
         try:
-            with open(filepath, "w", encoding="utf-8") as f:
+            # Save article content
+            with open(content_filepath, "w", encoding="utf-8") as f:
                 f.write(article.content)
-            logger.info(f"Saved {method} article: {filepath}")
-            return filepath
+
+            # Save article metadata including generation time and word count
+            metadata = {
+                "title": article.title,
+                "method": method,
+                "generation_time": article.metadata.get("generation_time", 0.0),
+                "word_count": article.metadata.get(
+                    "word_count", len(article.content.split())
+                ),
+                "model": article.metadata.get("model", "unknown"),
+                "timestamp": article.metadata.get("timestamp", "unknown"),
+                **article.metadata,  # Include all other metadata
+            }
+
+            with open(metadata_filepath, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2)
+
+            logger.info(f"Saved {method} article and metadata: {content_filepath}")
+            return content_filepath
         except Exception as e:
-            logger.error(f"Failed to save article {filepath}: {e}")
+            logger.error(f"Failed to save article {content_filepath}: {e}")
             raise
 
     def setup_storm_output_dir(self, topic) -> str:

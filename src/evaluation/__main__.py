@@ -113,13 +113,25 @@ def get_article_content(results_dir: Path, method: str, topic: str) -> Optional[
     return None
 
 
-def evaluate_single_article(topic, method, entry, method_result_dict, results_dir_str):
+def evaluate_single_article(
+    topic,
+    method,
+    entry,
+    method_result_dict,
+    results_dir_str,
+    gen_entities=None,
+    ref_entities=None,
+):
     """Evaluate a single article - thread-safe function."""
     from src.evaluation.evaluator import ArticleEvaluator
     from src.utils.data_models import Article
 
     try:
         evaluator = ArticleEvaluator()
+        evaluator.entity_metrics._precomputed_entities = {
+            "generated": gen_entities,
+            "reference": ref_entities,
+        }
 
         # Get article content from file path
         if "article_path" in method_result_dict:
@@ -226,15 +238,17 @@ def main():
         # Create new results structure
         # Extract timestamp from directory name if possible
         timestamp = "unknown"
-        if "run_" in dir_name:
-            # Format: run_YYYYMMDD_HHMMSS
-            timestamp = dir_name.replace("run_", "")
-        elif "T=" in dir_name:
-            # Legacy format: method_N=num_T=date_time
+        if "T=" in dir_name:
             timestamp = dir_name.split("T=")[1]
 
+        from datetime import datetime
+
         data = {
-            "configuration": {"methods": methods, "timestamp": timestamp},
+            "summary": {
+                "methods": {},  # Will be populated with model configs per method
+                "timestamp": datetime.now().isoformat(),
+                "total_time": 0.0,  # Will be calculated from individual generation times
+            },
             "results": {},
         }
 
@@ -256,11 +270,49 @@ def main():
                 if topic not in data["results"]:
                     data["results"][topic] = {}
 
-                # Add to results structure without storing article content
+                # Try to load metadata file
+                base_filename = article_file.stem
+                metadata_file = articles_dir / f"{base_filename}_metadata.json"
+
+                generation_time = 10.0  # Dummy value for backward compatibility
+                word_count = 0
+                model_info = "unknown"
+
+                if metadata_file.exists():
+                    try:
+                        with open(metadata_file, "r") as f:
+                            metadata = json.load(f)
+                            generation_time = metadata.get("generation_time", 10.0)
+                            word_count = metadata.get("word_count", 0)
+                            model_info = metadata.get("model", "unknown")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to load metadata for {article_file}: {e}"
+                        )
+
+                # Calculate word count from content if not in metadata
+                if word_count == 0:
+                    try:
+                        with open(article_file, "r") as f:
+                            content = f.read()
+                        word_count = len(content.split())
+                    except:
+                        word_count = 0
+
                 data["results"][topic][method] = {
                     "success": True,
+                    "generation_time": generation_time,
+                    "word_count": word_count,
                     "article_path": str(article_file.relative_to(results_dir)),
                 }
+
+                # Track model config per method for summary
+                if method not in data["summary"]["methods"]:
+                    data["summary"]["methods"][method] = {
+                        "model": model_info,
+                        "article_count": 0,
+                    }
+                data["summary"]["methods"][method]["article_count"] += 1
 
             # Also check for method/topic.md structure
             method_dir = articles_dir / method
@@ -279,6 +331,19 @@ def main():
         logger.info(
             f"📊 Discovered {len(data['results'])} topics across {len(methods)} methods"
         )
+
+    # Calculate total generation time from individual article times
+    total_generation_time = 0.0
+    for topic_data in data["results"].values():
+        for method_data in topic_data.values():
+            total_generation_time += method_data.get("generation_time", 0.0)
+
+    data["summary"]["total_time"] = total_generation_time
+
+    logger.info(
+        f"📊 Discovered {len(data['results'])} topics across {len(methods)} methods"
+    )
+    logger.info(f"🕒 Total generation time: {total_generation_time:.2f}s")
 
     # Load FreshWiki dataset for evaluation
     logger.info("📚 Loading FreshWiki dataset...")
@@ -342,13 +407,38 @@ def main():
         save_results(results_dir, data)
         return 0
 
-    # Use ThreadPoolExecutor to evaluate articles
-    max_workers = min(1, len(eval_tasks))  # Limit workers for stability
+    # Pre-extract all entities in main thread to avoid threading issues with FLAIR
+    logger.info("🧬 Pre-extracting entities for thread-safe evaluation...")
+    from src.evaluation.metrics.entity_metrics import EntityMetrics
+
+    entity_extractor = EntityMetrics()
+
+    entity_cache = {}
+    for topic, method, entry, method_result, results_dir_str in eval_tasks:
+        if topic not in entity_cache:
+            # Extract entities once per topic
+            gen_entities = entity_extractor.extract_entities(
+                get_article_content(Path(results_dir_str), method, topic) or ""
+            )
+            ref_entities = entity_extractor.extract_entities(entry.reference_content)
+            entity_cache[topic] = (gen_entities, ref_entities)
+
+    # Use ThreadPoolExecutor with pre-extracted entities
+    max_workers = min(4, len(eval_tasks))  # Can now use more workers safely
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
+        # Submit all tasks with pre-extracted entities
         future_to_task = {
-            executor.submit(evaluate_single_article, *task): task for task in eval_tasks
+            executor.submit(
+                evaluate_single_article,
+                topic,
+                method,
+                entry,
+                method_result,
+                results_dir_str,
+                *entity_cache[topic],
+            ): (topic, method, entry, method_result, results_dir_str)
+            for topic, method, entry, method_result, results_dir_str in eval_tasks
         }
 
         # Process completed tasks
@@ -359,6 +449,8 @@ def main():
 
                 if eval_results is not None:
                     method_result["evaluation"] = eval_results
+                    if "word_count" not in method_result and article_content:
+                        method_result["word_count"] = len(article_content.split())
                     logger.info(f"✅ Evaluated {method} for {topic}")
                     evaluated_count += 1
                 else:

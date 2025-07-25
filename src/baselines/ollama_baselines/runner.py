@@ -9,9 +9,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from typing import List, Optional
 
+from baselines.main_runner_base import BaseRunner
 from src.baselines.model_engines.ollama_engine import OllamaModelEngine
 from src.baselines.rag_runner import run_rag
-from src.baselines.runner_base import BaseRunner
 from src.config.baselines_model_config import ModelConfig
 from src.utils.baselines_utils import error_article
 from src.utils.data_models import Article

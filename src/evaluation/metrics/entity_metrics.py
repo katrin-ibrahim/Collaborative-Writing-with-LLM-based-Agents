@@ -53,8 +53,15 @@ class EntityMetrics:
 
     def extract_entities(self, text: str) -> Set[str]:
         """
-        Extract entities using FLAIR NER (STORM-compliant) or regex fallback.
+        Extract entities using FLAIR NER (STORM-compliant) or use pre-computed entities.
         """
+        # Check for pre-computed entities (for threading support)
+        if hasattr(self, "_precomputed_entities"):
+            # This is a hack for threading - return appropriate pre-computed entities
+            # based on which text matches generated vs reference content
+            if hasattr(self, "_current_text_type"):
+                return self._precomputed_entities.get(self._current_text_type, set())
+
         logger.debug(f"Extracting entities from text: {text[:200]}...")
         entities = set()
 

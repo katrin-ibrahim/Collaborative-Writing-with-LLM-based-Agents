@@ -6,9 +6,9 @@ Uses standard BaseRunner interface for consistency with Ollama version.
 import logging
 from typing import Optional
 
+from baselines.main_runner_base import BaseRunner
 from src.baselines.model_engines.local_engine import LocalModelEngine
 from src.baselines.rag_runner import run_rag
-from src.baselines.runner_base import BaseRunner
 from src.config.baselines_model_config import ModelConfig
 from src.utils.data_models import Article
 from src.utils.output_manager import OutputManager
