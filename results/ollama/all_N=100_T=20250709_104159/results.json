@@ -1,0 +1,2417 @@
+{
+  "configuration": {
+    "methods": [
+      "direct",
+      "storm"
+    ],
+    "timestamp": "20250709_104159"
+  },
+  "results": {
+    "O'Sulloc_Tea": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Threads_(social_network)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Cyclone_Mocha": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Silicon_Valley_Bank": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Kenkoku_University": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Minions:_The_Rise_of_Gru": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Eukaryote": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Tartus": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Michelle_Yeoh": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Mass_and_Cass": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Takeoff_(rapper)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_Crimean_Bridge_explosion": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Darya_Dugina": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Barbie:_The_Album": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Funeral_for_Yesterday": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_Welsh_Open_(snooker)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Sardar_(2022_film)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "John_Harrison_Stonehouse": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Fantastic_Beasts:_The_Secrets_of_Dumbledore": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "October_2022_United_Kingdom_government_crisis": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Taylor_Hawkins": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "LK-99": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2023_SEA_Games": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2023_Wagner_Group_plane_crash": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Killing_of_Amir_Locke": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "The_Northman": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2023_Odisha_train_collision": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Dumas_Malone": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_Luzon_earthquake": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Herder_Memorial_Trophy": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Rock-climbing_equipment": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Mount_Greylock": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Liga_1_(Indonesia)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "65th_Annual_Grammy_Awards": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "E.A.T._(TV_program)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_Hungarian_parliamentary_election": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "African_Greeks": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_United_States_Senate_election_in_Pennsylvania": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Hurricane_Idalia": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Cyclone_Batsirai": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Christian_Atsu": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Miss_Grand_International_2022": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Zillennials": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "SpaceX_Starship_Integrated_Flight_Test": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Speak_Now_(Taylor's_Version)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Luttra_Woman": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Music_written_in_all_major_and_or_minor_keys": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Those_Once_Loyal": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Pishdadian_dynasty": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Edwards_Vacuum": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "George_Young_(swimmer)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_New_York_City_Subway_attack": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Chris_Sharma": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Typhoon_Hinnamnor": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "James_Davis_(printer)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_AFL_Grand_Final": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Candidates_Tournament_2022": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Residential_Palace_Darmstadt": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Nagpuria_people": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Hurricane_Hilary": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Eurovision_Song_Contest_2024": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_West_Java_earthquake": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "The_Papers_of_Benjamin_Franklin": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Storm_Eunice": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "The_Book_of_Boba_Fett": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Illegal_operation_(euphemism)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Dancing_with_the_Stars_(American_season_31)": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Good_News_International_Ministries": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_UEFA_Champions_League_final": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "OceanGate": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Hessisches_Landesmuseum_Darmstadt": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "China_Eastern_Airlines_Flight_5735": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Pinoy_Big_Brother:_Kumunity_Season_10": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Shepherd_Building_Group": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Banjska_attack": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "July_2022_United_Kingdom_government_crisis": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Top-four_primary": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Vande_Bharat_Express": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Irene_Mawer": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_Pakistan_floods": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Jackass_Forever": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Queue_for_the_lying-in-state_of_Elizabeth_II": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_World_Figure_Skating_Championships": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_Winter_Olympics_opening_ceremony": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Miss_Universe_2022": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2023_Tour_de_France": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Georgia_Guidestones": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2023_Monterey_Park_shooting": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Joe_Biden_classified_documents_incident": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Archie_Battersbee_case": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2023_Emilia-Romagna_floods": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Treat_Williams": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Armorial_of_Albania": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Gehraiyaan": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Febrile_seizure": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Lahaina,_Hawaii": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Argentina_national_football_team": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "2022_Istanbul_bombing": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Death_and_funeral_of_Pope_Benedict_XVI": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    },
+    "Green_Party_of_California": {
+      "direct": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      },
+      "storm": {
+        "success": true,
+        "evaluation": {
+          "rouge_1": 0.0,
+          "rouge_2": 0.0,
+          "rouge_l": 0.0,
+          "heading_soft_recall": 0.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 0.0
+        }
+      }
+    }
+  },
+  "timestamp": "2025-07-09T10:41:59",
+  "summary": {
+    "total_articles": 198,
+    "successful_articles": 198,
+    "failed_articles": 0
+  }
+}

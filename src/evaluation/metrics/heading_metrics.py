@@ -36,7 +36,6 @@ class HeadingMetrics:
         for line in content.split("\n"):
             line = line.strip()
             if line.startswith("#"):
-                # Remove markdown symbols and extract heading text
                 heading = re.sub(r"^#+\s*", "", line).strip()
                 if heading and len(heading) > 1:
                     headings.append(heading)
@@ -72,16 +71,18 @@ class HeadingMetrics:
         gen_card = self._calculate_soft_cardinality(gen_embeddings)
 
         # Calculate soft cardinality for union (G ∪ P)
-        all_embeddings = np.vstack([ref_embeddings, gen_embeddings])
+        all_embeddings = self.np.vstack([ref_embeddings, gen_embeddings])
         union_card = self._calculate_soft_cardinality(all_embeddings)
 
-        # Apply soft recall formula: card(G ∩ P) = card(G) + card(P) - card(G ∪ P)
-        intersection_card = ref_card + gen_card - union_card
+        # Raw intersection via inclusion-exclusion
+        raw_intersection = ref_card + gen_card - union_card
+        # Clamp to valid range: [0, min(ref_card, gen_card)]
+        intersection_card = max(0.0, min(raw_intersection, ref_card, gen_card))
 
         # HSR = card(G ∩ P) / card(G)
         hsr = intersection_card / ref_card if ref_card > 0 else 0.0
 
-        return max(0.0, min(1.0, hsr))  # Clamp to [0,1]
+        return hsr
 
     def _calculate_soft_cardinality(self, embeddings: np.ndarray) -> float:
         """
@@ -95,13 +96,11 @@ class HeadingMetrics:
             return 0.0
 
         # Calculate cosine similarity matrix
-        similarity_matrix = np.dot(embeddings, embeddings.T)
+        similarity_matrix = self.np.dot(embeddings, embeddings.T)
 
         soft_cardinality = 0.0
         for i in range(len(embeddings)):
-            # Sum of similarities for embedding i with all embeddings
-            sim_sum = np.sum(similarity_matrix[i])
-            # count(Ai) = 1 / sim_sum
+            sim_sum = self.np.sum(similarity_matrix[i])
             count_i = 1.0 / sim_sum if sim_sum > 0 else 0.0
             soft_cardinality += count_i
 

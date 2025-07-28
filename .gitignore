@@ -6,7 +6,11 @@ __pycache__
 .DS_Store
 .idea
 .vscode
-/results
+# Ignore everything in results
+results/**
+!results/
+!results/**/
+!results/**/results.json
 .env
 # ignore files that start with test_
 test_*.out

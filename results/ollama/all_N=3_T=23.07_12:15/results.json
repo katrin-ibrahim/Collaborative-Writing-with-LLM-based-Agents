@@ -1,0 +1,153 @@
+{
+  "summary": {
+    "methods": {
+      "direct": {
+        "model": "unknown",
+        "article_count": 3
+      },
+      "rag": {
+        "model": "unknown",
+        "article_count": 3
+      },
+      "storm": {
+        "model": "unknown",
+        "article_count": 3
+      }
+    },
+    "timestamp": "2025-07-25T08:45:35.788403",
+    "total_time": 90.0,
+    "evaluation_time": 713.1373851299286,
+    "topics_evaluated": 9,
+    "topics_skipped": 0,
+    "total_topics": 3
+  },
+  "results": {
+    "Michelle_Yeoh": {
+      "direct": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 1151,
+        "article_path": "articles/direct_Michelle_Yeoh.md",
+        "evaluation_error": "Cannot copy out of meta tensor; no data! Please use torch.nn.Module.to_empty() instead of torch.nn.Module.to() when moving module from meta to a different device.",
+        "evaluation": {
+          "rouge_1": 18.407417507499318,
+          "rouge_l": 7.690209980910827,
+          "heading_soft_recall": 77.03209543051696,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 6.4
+        }
+      },
+      "rag": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 790,
+        "article_path": "articles/rag_Michelle_Yeoh.md",
+        "evaluation": {
+          "rouge_1": 14.01690755385874,
+          "rouge_l": 5.944914098718298,
+          "heading_soft_recall": 90.54806038312756,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 7.199999999999999
+        }
+      },
+      "storm": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 2583,
+        "article_path": "articles/storm_Michelle_Yeoh.md",
+        "evaluation": {
+          "rouge_1": 31.688028361058084,
+          "rouge_l": 10.989910008181074,
+          "heading_soft_recall": 96.68569372034527,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 11.600000000000001
+        }
+      }
+    },
+    "Music_written_in_all_major_and/or_minor_keys": {
+      "direct": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 1052,
+        "article_path": "articles/direct_Music_written_in_all_major_and_or_minor_keys.md",
+        "evaluation_error": "Could not find article content",
+        "evaluation": {
+          "rouge_1": 12.939297124600637,
+          "rouge_l": 4.818956336528221,
+          "heading_soft_recall": 86.72821937720691,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 6.172839506172839
+        }
+      },
+      "rag": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 831,
+        "article_path": "articles/rag_Music_written_in_all_major_and_or_minor_keys.md",
+        "evaluation": {
+          "rouge_1": 11.741214057507987,
+          "rouge_l": 4.233226837060703,
+          "heading_soft_recall": 96.22421794631173,
+          "heading_entity_recall": 100.0,
+          "article_entity_recall": 6.172839506172839
+        },
+        "evaluation_error": "Could not find article content"
+      },
+      "storm": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 659,
+        "article_path": "articles/storm_Music_written_in_all_major_and_or_minor_keys.md",
+        "evaluation": {
+          "rouge_1": 8.759318423855165,
+          "rouge_l": 3.62087326943557,
+          "heading_soft_recall": 70.12567182313913,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 3.7037037037037033
+        },
+        "evaluation_error": "Could not find article content"
+      }
+    },
+    "Hessisches_Landesmuseum_Darmstadt": {
+      "direct": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 1091,
+        "article_path": "articles/direct_Hessisches_Landesmuseum_Darmstadt.md",
+        "evaluation": {
+          "rouge_1": 30.90128755364807,
+          "rouge_l": 12.017167381974248,
+          "heading_soft_recall": 100.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 6.0606060606060606
+        }
+      },
+      "rag": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 825,
+        "article_path": "articles/rag_Hessisches_Landesmuseum_Darmstadt.md",
+        "evaluation": {
+          "rouge_1": 26.09442060085837,
+          "rouge_l": 10.72961373390558,
+          "heading_soft_recall": 100.0,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 3.0303030303030303
+        }
+      },
+      "storm": {
+        "success": true,
+        "generation_time": 10.0,
+        "word_count": 3193,
+        "article_path": "articles/storm_Hessisches_Landesmuseum_Darmstadt.md",
+        "evaluation": {
+          "rouge_1": 35.708154506437765,
+          "rouge_l": 18.88412017167382,
+          "heading_soft_recall": 95.58564432994501,
+          "heading_entity_recall": 0.0,
+          "article_entity_recall": 9.090909090909092
+        }
+      }
+    }
+  }
+}
