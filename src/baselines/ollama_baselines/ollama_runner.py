@@ -37,9 +37,6 @@ class BaselineRunner(BaseRunner):
         # Initialize base class
         super().__init__(model_config=model_config, output_manager=output_manager)
 
-        # Ensure we're using ollama mode
-        self.model_config.mode = "ollama"
-
         # Store Ollama host
         self.ollama_host = ollama_host
 
@@ -193,23 +190,20 @@ class BaselineRunner(BaseRunner):
             from .wikipedia_rm import WikipediaSearchRM
 
             retrieval_system = WikipediaSearchRM(
+                # TODO: Make k configurable in the model config
                 k=3
             )  # Default to retrieving top 3 results
 
             # Generate search queries function
-            def generate_queries_with_ollama(engine, topic, num_queries=5):
-                from .runner_utils import generate_search_queries
-
-                return generate_search_queries(
-                    self.client, self.model_config, topic, num_queries=num_queries
-                )
 
             # Run the unified RAG implementation with ollama-specific query generation
             article = run_rag(
                 engine,
                 topic,
                 context_retriever=retrieval_system,
-                generate_queries_func=generate_queries_with_ollama,
+                generate_queries_func=generate_queries_with_ollama(
+                    client=self.client, engine=engine
+                ),
             )
 
             # Save article if output manager available
@@ -244,7 +238,7 @@ class BaselineRunner(BaseRunner):
                 if self.state_manager:
                     self.state_manager.mark_topic_in_progress(topic, "direct")
 
-                article = self.run_direct_prompting(topic)
+                article = self.run_direct(topic)
 
                 if self.state_manager:
                     self.state_manager.mark_topic_completed(topic, "direct")

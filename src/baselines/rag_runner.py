@@ -47,19 +47,11 @@ def run_rag(
             # Use provided query generation function
             queries = generate_queries_func(engine, topic, num_queries)
         else:
-            # Use simple fallback method
-            query_prompt = f"Generate {num_queries} specific search queries to find comprehensive information about '{topic}'. List them one per line:"
-            queries_response = engine.generate(
-                query_prompt, max_length=256, temperature=0.7
+            raise ValueError(
+                "No query generation function provided. Please specify one."
             )
-            queries = [q.strip() for q in queries_response.split("\n") if q.strip()][
-                :num_queries
-            ]
-
-        logger.info(f"Generated {len(queries)} search queries for {topic}")
 
         # Step 2: Retrieve information
-        context = ""
         if context_retriever:
             # Use actual retrieval system
             passages = context_retriever.search(queries, max_results=max_passages)
@@ -68,16 +60,15 @@ def run_rag(
                 [f"[Source {i+1}]: {p}" for i, p in enumerate(passages)]
             )
         else:
-            # Use a fallback generation approach if no retriever available
-            context_prompt = f"""Provide comprehensive factual information about '{topic}'
-            that would be found through research. Include specific details, dates, statistics,
-            and key facts that would appear in multiple reliable sources."""
-            context = engine.generate(context_prompt, max_length=512, temperature=0.5)
+            raise ValueError(
+                "No context retriever provided. Please specify a retrieval system."
+            )
 
         logger.info(f"Created context with {len(context)} characters for {topic}")
 
         # Step 3: Generate article with retrieved context
         rag_prompt = build_rag_prompt(topic, context)
+        # TODO: Hardcode max_length and temperature for RAG generation
         content = engine.generate(rag_prompt, max_length=1024, temperature=0.3)
 
         generation_time = time.time() - start_time

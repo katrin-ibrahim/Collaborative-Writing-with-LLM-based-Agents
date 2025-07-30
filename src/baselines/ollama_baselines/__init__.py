@@ -6,7 +6,7 @@ with improved STORM integration and better error handling.
 """
 
 from .llm_wrapper import OllamaLiteLLMWrapper
-from .runner import BaselineRunner
+from .ollama_runner import BaselineRunner
 from .wikipedia_rm import WikipediaSearchRM
 
 __all__ = ["BaselineRunner", "OllamaLiteLLMWrapper", "WikipediaSearchRM"]

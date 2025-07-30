@@ -7,7 +7,7 @@ import numpy as np
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.baselines.ollama_baselines.runner import BaselineRunner
+from src.baselines.ollama_baselines.ollama_runner import BaselineRunner
 from src.evaluation.evaluator import ArticleEvaluator
 from src.utils.freshwiki_loader import FreshWikiLoader
 from src.utils.output_manager import OutputManager

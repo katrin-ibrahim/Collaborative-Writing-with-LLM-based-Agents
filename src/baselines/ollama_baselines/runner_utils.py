@@ -296,3 +296,8 @@ Write the article now:"""
         content = f"# {topic}\n\n{content}"
 
     return content
+
+
+def generate_queries_with_client(client, model_config, topic, num_queries=5):
+
+    return generate_search_queries(client, model_config, topic, num_queries=num_queries)
