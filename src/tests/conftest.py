@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.baselines.ollama_baselines.llm_wrapper import OllamaLiteLLMWrapper
+from src.baselines.ollama_baselines.litellm_wrapper import OllamaLiteLLMWrapper
 from src.config.baselines_model_config import ModelConfig
 
 

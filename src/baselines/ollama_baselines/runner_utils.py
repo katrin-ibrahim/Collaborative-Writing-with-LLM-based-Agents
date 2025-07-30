@@ -15,7 +15,7 @@ from config.baselines_model_config import ModelConfig
 from utils.data_models import Article
 from utils.ollama_client import OllamaClient
 
-from .llm_wrapper import OllamaLiteLLMWrapper
+from .litellm_wrapper import OllamaLiteLLMWrapper
 
 logger = logging.getLogger(__name__)
 

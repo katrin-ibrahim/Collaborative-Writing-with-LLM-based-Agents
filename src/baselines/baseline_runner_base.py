@@ -1,99 +1,412 @@
-#!/usr/bin/env python3
 """
-Base runner implementation for baseline experiments.
-This provides common functionality used by both Ollama and local baseline runners.
+BaseRunner with all shared logic - ultra-clean architecture.
+Concrete runners only handle engine/client initialization.
 """
-import time
-from datetime import datetime
-from pathlib import Path
 
-import json
+import time
+from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import logging
-from typing import Any
+from typing import List, Optional
 
 from src.config.baselines_model_config import ModelConfig
 from src.utils.baselines_utils import (
-    make_serializable,
-    merge_results_with_existing,
-    setup_output_directory,
+    build_direct_prompt,
+    build_rag_prompt,
+    error_article,
 )
-from src.utils.experiment_state_manager import ExperimentStateManager
-from src.utils.freshwiki_loader import FreshWikiLoader
+from src.utils.data_models import Article
 from src.utils.output_manager import OutputManager
 
 logger = logging.getLogger(__name__)
 
 
-def load_model_config(config_file: str) -> ModelConfig:
-    """Load model configuration from file or use defaults."""
-    if Path(config_file).exists():
+class BaseRunner(ABC):
+    """
+    Base runner containing ALL shared logic for baseline implementations.
+    Concrete runners only handle engine/client initialization and STORM.
+    """
+
+    def __init__(
+        self,
+        model_config: Optional[ModelConfig] = None,
+        output_manager: Optional[OutputManager] = None,
+    ):
+        self.model_config = model_config or ModelConfig()
+        self.output_manager = output_manager
+        self.state_manager = None
+
+    @abstractmethod
+    def get_model_engine(self, task: str):
+        """Get the appropriate model engine for the specified task."""
+
+    @abstractmethod
+    def get_supported_methods(self) -> List[str]:
+        """Return list of methods supported by this runner."""
+
+    # ---------------------------------------- Direct Prompting ----------------------------------------
+    def run_direct(self, topic: str) -> Article:
+        """Run direct prompting baseline - shared implementation."""
+        logger.info(f"Running direct prompting for: {topic}")
+
         try:
-            import yaml
+            start_time = time.time()
 
-            with open(config_file, "r") as f:
-                config_dict = yaml.safe_load(f)
-            return ModelConfig.from_dict(config_dict)
+            # Get writing engine
+            engine = self.get_model_engine("writing")
+
+            # Build prompt and generate
+            prompt = build_direct_prompt(topic)
+            content = engine.generate(prompt)
+
+            generation_time = time.time() - start_time
+            content_words = len(content.split()) if content else 0
+
+            # Create article
+            article = self._create_article(
+                topic=topic,
+                content=content,
+                method="direct",
+                engine=engine,
+                generation_time=generation_time,
+                word_count=content_words,
+            )
+
+            # Save article
+            if self.output_manager:
+                self.output_manager.save_article(article, "direct")
+
+            logger.info(
+                f"Direct prompting completed for {topic} ({content_words} words, {generation_time:.2f}s)"
+            )
+            return article
+
         except Exception as e:
-            logger.warning(f"Failed to load model config: {e}")
+            logger.error(f"Direct prompting failed for '{topic}': {e}")
+            return error_article(topic, str(e), "direct")
 
-    logger.info("Using default model configuration")
-    return ModelConfig()
+    # ---------------------------------------- RAG Implementation ----------------------------------------
+    def run_rag(self, topic: str) -> Article:
+        """Run RAG baseline - shared implementation with retrieval abstraction."""
+        logger.info(f"Running RAG for: {topic}")
+
+        try:
+            start_time = time.time()
+
+            # Get writing engine
+            engine = self.get_model_engine("writing")
+
+            # Get retrieval system and query generator (runner-specific)
+            retrieval_system = self._get_retrieval_system()
+            query_generator = self._get_query_generator()
+
+            # Generate search queries
+            queries = query_generator(engine, topic, num_queries=5)
+            logger.info(f"Generated {len(queries)} search queries for {topic}")
+
+            # Retrieve context
+            passages = retrieval_system.search(queries, max_results=8)
+            context = self._create_context_from_passages(passages)
+            logger.info(f"Created context with {len(context)} characters for {topic}")
+
+            # Generate article with context
+            rag_prompt = build_rag_prompt(topic, context)
+            content = engine.generate(rag_prompt, max_length=1024, temperature=0.3)
+
+            generation_time = time.time() - start_time
+            content_words = len(content.split()) if content else 0
+
+            # Create article
+            article = self._create_article(
+                topic=topic,
+                content=content,
+                method="rag",
+                engine=engine,
+                generation_time=generation_time,
+                word_count=content_words,
+                extra_metadata={
+                    "num_queries": len(queries),
+                    "context_length": len(context),
+                },
+            )
+
+            # Save article
+            if self.output_manager:
+                self.output_manager.save_article(article, "rag")
+
+            logger.info(
+                f"RAG completed for {topic} ({content_words} words, {generation_time:.2f}s)"
+            )
+            return article
+
+        except Exception as e:
+            logger.error(f"RAG failed for '{topic}': {e}")
+            return error_article(topic, str(e), "rag")
+
+    # ---------------------------------------- Batch Processing ----------------------------------------
+    def run_direct_batch(
+        self, topics: List[str], max_workers: int = 2
+    ) -> List[Article]:
+        """Run direct prompting in parallel - shared implementation."""
+        return self._run_batch_generic("direct", self.run_direct, topics, max_workers)
+
+    def run_storm_batch(self, topics: List[str], max_workers: int = 1) -> List[Article]:
+        """Run STORM in parallel - shared implementation."""
+        if not hasattr(self, "run_storm"):
+            logger.warning("STORM not supported by this runner")
+            return []
+        return self._run_batch_generic("storm", self.run_storm, topics, max_workers)
+
+    def run_rag_batch(self, topics: List[str], max_workers: int = 2) -> List[Article]:
+        """Run RAG in parallel - shared implementation."""
+        return self._run_batch_generic("rag", self.run_rag, topics, max_workers)
+
+    def run_batch(self, topics: List[str], methods: List[str]) -> List[Article]:
+        """Run multiple topics and methods - shared orchestration."""
+        results = []
+        supported_methods = self.get_supported_methods()
+
+        for method in methods:
+            if method not in supported_methods:
+                logger.warning(
+                    f"Method '{method}' not supported by this runner. Supported: {supported_methods}"
+                )
+                continue
+
+            # Filter completed topics
+            remaining_topics = self.filter_completed_topics(topics, method)
+            if not remaining_topics:
+                logger.info(f"All {method} topics already completed")
+                continue
+
+            # Run method
+            if method == "direct":
+                method_results = self.run_direct_batch(remaining_topics)
+            elif method == "storm":
+                method_results = self.run_storm_batch(remaining_topics)
+            elif method == "rag":
+                method_results = self.run_rag_batch(remaining_topics)
+            else:
+                logger.warning(f"Unknown method: {method}")
+                continue
+
+            results.extend(method_results)
+
+        return results
+
+    # ---------------------------------------- Generic Batch Pattern ----------------------------------------
+    def _run_batch_generic(
+        self, method: str, single_method_func, topics: List[str], max_workers: int
+    ) -> List[Article]:
+        """Generic batch processing pattern - eliminates all duplicate batch code."""
+        # Filter completed topics
+        remaining_topics = self.filter_completed_topics(topics, method)
+        if not remaining_topics:
+            logger.info(f"All {method} topics already completed")
+            return []
+
+        logger.info(f"Running {method} batch for {len(remaining_topics)} topics")
+        results = []
+
+        def run_topic(topic):
+            try:
+                if self.state_manager:
+                    self.state_manager.mark_topic_in_progress(topic, method)
+
+                article = single_method_func(topic)
+
+                if self.state_manager:
+                    self.state_manager.mark_topic_completed(topic, method)
+
+                return article
+
+            except Exception as e:
+                if self.state_manager:
+                    self.state_manager.cleanup_in_progress_topic(topic, method)
+                logger.error(f"{method} batch failed for {topic}: {e}")
+                return error_article(topic, str(e), f"{method}_batch")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(run_topic, topic): topic for topic in remaining_topics
+            }
+            for future in as_completed(futures):
+                try:
+                    results.append(future.result())
+                except Exception as e:
+                    topic = futures[future]
+                    logger.error(f"{method} batch failed for {topic}: {e}")
+                    results.append(error_article(topic, str(e), f"{method}_batch"))
+
+        return results
+
+    # ---------------------------------------- Retrieval Abstraction ----------------------------------------
+    def _get_retrieval_system(self):
+        """Get retrieval system - override in concrete runners if needed."""
+        # Default Wikipedia search
+        try:
+            if hasattr(self, "client"):  # Ollama runner
+                from src.baselines.ollama_baselines.wikipedia_rm import (
+                    WikipediaSearchRM,
+                )
+
+                return WikipediaSearchRM(k=8)
+            else:  # Local runner
+                # Simple fallback - could be enhanced
+                class SimpleRetrieval:
+                    def search(self, queries, max_results=8):
+                        # Fallback: return empty context
+                        return []
+
+                return SimpleRetrieval()
+        except ImportError:
+            logger.warning("No retrieval system available")
+
+            class NoRetrieval:
+                def search(self, queries, max_results=8):
+                    return []
+
+            return NoRetrieval()
+
+    def _get_query_generator(self):
+        """Get query generation function - override in concrete runners."""
+
+        def default_query_generator(engine, topic, num_queries=5):
+            # Simple fallback query generation
+            return [
+                f"{topic} overview background",
+                f"{topic} history origins",
+                f"{topic} key people important figures",
+                f"{topic} recent developments current status",
+                f"{topic} significance impact effects",
+            ][:num_queries]
+
+        return default_query_generator
+
+    def _create_context_from_passages(
+        self, passages: List[str], max_passages: int = 8
+    ) -> str:
+        """Create context from passages - shared implementation."""
+        if not passages:
+            return ""
+
+        # Take top passages and format
+        top_passages = passages[:max_passages]
+
+        context_parts = []
+        for i, passage in enumerate(top_passages, 1):
+            if passage and len(passage.strip()) > 0:
+                context_parts.append(f"[Source {i}]: {passage.strip()}")
+
+        return "\n\n".join(context_parts)
+
+    # ---------------------------------------- Utilities ----------------------------------------
+    def _create_article(
+        self,
+        topic: str,
+        content: str,
+        method: str,
+        engine,
+        generation_time: float,
+        word_count: int,
+        extra_metadata: dict = None,
+    ) -> Article:
+        """Create Article object - shared implementation."""
+        metadata = {
+            "method": method,
+            "model": getattr(
+                engine, "model", getattr(engine, "model_name", str(engine))
+            ),
+            "word_count": word_count,
+            "generation_time": generation_time,
+            "temperature": getattr(engine, "temperature", 0.7),
+            "max_tokens": getattr(engine, "max_tokens", 1024),
+        }
+
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
+        return Article(
+            title=topic,
+            content=content,
+            sections={},
+            metadata=metadata,
+        )
+
+    # ---------------------------------------- State Management ----------------------------------------
+    def set_state_manager(self, state_manager):
+        """Set the experiment state manager."""
+        self.state_manager = state_manager
+
+    def filter_completed_topics(self, topics: List[str], method: str) -> List[str]:
+        """Filter out completed topics for the specified method."""
+        if not self.state_manager:
+            return topics
+
+        return [
+            topic
+            for topic in topics
+            if not self.state_manager.is_complete(topic, method)
+        ]
 
 
-def run_baseline_experiment(args: Any, runner_class: Any, runner_name: str):
+# ---------------------------------------- Main Experiment Function ----------------------------------------
+def run_baseline_experiment(args, runner_class, runner_name):
     """
-    Run a baseline experiment using the provided arguments and runner class.
-
-    Args:
-        args: Command-line arguments from argparse
-        runner_class: Class to instantiate for running the baseline methods
-        runner_name: Name of the runner (for logging purposes)
-
-    Returns:
-        0 for success, 1 for failure
+    Single canonical experiment runner - eliminates duplication.
     """
+    from src.utils.baselines_utils import load_model_config, setup_output_directory
+    from src.utils.experiment_state_manager import ExperimentStateManager
+    from src.utils.freshwiki_loader import FreshWikiLoader
     from src.utils.logging_setup import setup_logging
 
     setup_logging(args.log_level)
-
     logger.info(f"🔬 {runner_name} Baseline Experiment Runner")
     logger.info(f"📝 Topics: {args.num_topics}")
 
     try:
+        # Load configuration
         model_config = load_model_config(args.model_config)
 
-        # Handle resume logic
+        # Setup output directory
         output_dir = setup_output_directory(args)
-        output_manager = OutputManager(str(output_dir), debug_mode=args.debug)
+        output_manager = OutputManager(
+            str(output_dir), debug_mode=getattr(args, "debug", False)
+        )
 
         # Initialize state manager
         state_manager = ExperimentStateManager(output_dir, args.methods)
+        is_resume = (
+            state_manager.load_checkpoint()
+            if hasattr(state_manager, "load_checkpoint")
+            else False
+        )
 
-        # Load checkpoint if resuming
-        is_resume = state_manager.load_checkpoint()
         if is_resume:
             logger.info("🔄 Resuming experiment from checkpoint")
         else:
             logger.info("🆕 Starting new experiment")
 
-        # Create appropriate runner instance based on the runner class passed in
-        if runner_name.lower() == "ollama":
-            runner = runner_class(
-                ollama_host=args.ollama_host,
-                model_config=model_config,
-                output_manager=output_manager,
-            )
-        else:  # Local runner
-            runner = runner_class(
-                model_config=model_config,
-                output_manager=output_manager,
-            )
+        # Create runner instance
+        runner_kwargs = {}
+        if runner_name.lower() == "ollama" and hasattr(args, "ollama_host"):
+            runner_kwargs["ollama_host"] = args.ollama_host
+        elif runner_name.lower() == "local":
+            if hasattr(args, "device"):
+                runner_kwargs["device"] = args.device
+            if hasattr(args, "model_path"):
+                runner_kwargs["model_path"] = args.model_path
+
+        runner = runner_class(
+            model_config=model_config, output_manager=output_manager, **runner_kwargs
+        )
 
         runner.set_state_manager(state_manager)
 
+        # Load topics
         freshwiki = FreshWikiLoader()
         entries = freshwiki.get_evaluation_sample(args.num_topics)
-
         if not entries:
             logger.error("No FreshWiki entries found!")
             return 1
@@ -101,137 +414,30 @@ def run_baseline_experiment(args: Any, runner_class: Any, runner_name: str):
         topics = [entry.topic for entry in entries]
         logger.info(f"✅ Loaded {len(topics)} topics")
 
-        # Analyze existing state and cleanup in-progress topics
-        state_manager.analyze_existing_state(topics)
-        state_manager.cleanup_and_restart_in_progress(topics)
-
-        # Load existing results to merge with new ones
-        existing_results = state_manager.load_existing_results()
-
-        # Log progress summary
-        progress_summary = state_manager.get_progress_summary(len(topics))
-        logger.info("📊 Progress Summary:")
-        for method, stats in progress_summary.items():
-            if method in args.methods:
-                logger.info(
-                    f"  {method}: {stats['completed']}/{stats['total']} completed ({stats['progress_pct']}%)"
-                )
-
+        # Run experiments
         logger.info("🚀 Starting processing...")
         start_time = time.time()
-        direct_results = []
-        storm_results = []
-        rag_results = []
 
-        # Process methods with proper topic filtering
-        if "direct" in args.methods:
-            if len(topics) > 1:
-                direct_results = runner.run_direct_batch(topics)
-            else:
-                remaining_direct = runner.filter_completed_topics(topics, "direct")
-                if remaining_direct:
-                    direct_results = [runner.run_direct(remaining_direct[0])]
+        # Validate methods against runner capabilities
+        supported_methods = runner.get_supported_methods()
+        valid_methods = [m for m in args.methods if m in supported_methods]
 
-        if "storm" in args.methods and hasattr(runner, "run_storm_batch"):
-            if len(topics) > 1:
-                storm_results = runner.run_storm_batch(topics)
-            else:
-                remaining_storm = runner.filter_completed_topics(topics, "storm")
-                if remaining_storm:
-                    storm_results = [runner.run_storm(remaining_storm[0])]
-
-        if "rag" in args.methods and hasattr(runner, "run_rag_batch"):
-            if len(topics) > 1:
-                rag_results = runner.run_rag_batch(topics)
-            else:
-                remaining_rag = runner.filter_completed_topics(topics, "rag")
-                if remaining_rag:
-                    rag_results = [runner.run_rag(remaining_rag[0])]
-
-        if not any(method in args.methods for method in ["direct", "storm", "rag"]):
-            logger.error(
-                "No valid methods specified. Please choose from: direct, storm, rag."
+        if len(valid_methods) != len(args.methods):
+            invalid_methods = [m for m in args.methods if m not in supported_methods]
+            logger.warning(
+                f"Methods {invalid_methods} not supported by {runner_name}. Running: {valid_methods}"
             )
-            return 1
 
-        # Merge results: combine existing completed results with new results
-        all_results = merge_results_with_existing(
-            existing_results,
-            topics,
-            direct_results,
-            storm_results,
-            rag_results,
-            args.methods,
-        )
+        # Run batch processing
+        results = runner.run_batch(topics, valid_methods)
 
+        # Log completion
         total_time = time.time() - start_time
-        logger.info(f"⏱️ Total time: {total_time:.1f}s")
+        logger.info(f"🎉 Experiment completed in {total_time:.2f}s")
+        logger.info(f"📊 Generated {len(results)} articles")
 
-        serializable_results = make_serializable(all_results)
-
-        # Save results
-        results_file = output_dir / "results.json"
-        with open(results_file, "w") as f:
-            json.dump(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "configuration": {
-                        "runner_type": runner_name,
-                        "methods": args.methods,
-                        "num_topics": args.num_topics,
-                        "models": {
-                            "default": model_config.default_model,
-                            "outline": model_config.outline_model,
-                            "writing": model_config.writing_model,
-                            "critique": model_config.critique_model,
-                        },
-                        **(
-                            {"ollama_host": args.ollama_host}
-                            if hasattr(args, "ollama_host")
-                            else {}
-                        ),
-                    },
-                    "results": serializable_results,
-                    "summary": {
-                        "total_time": total_time,
-                        "topics_processed": len(topics),
-                        "methods_run": args.methods,
-                    },
-                },
-                f,
-                indent=2,
-            )
-
-        logger.info(f"💾 Results saved to: {results_file}")
-
-        logger.info("\n📊 SUMMARY")
-        logger.info("=" * 50)
-        for method in args.methods:
-            successes = sum(
-                1
-                for r in all_results.values()
-                if r.get(method, {}).get("success", False)
-            )
-            total_words = sum(
-                r.get(method, {}).get("word_count", 0)
-                for r in all_results.values()
-                if r.get(method, {}).get("success", False)
-            )
-            avg_words = total_words / max(successes, 1)
-
-            logger.info(
-                f"{method}: {successes}/{len(topics)} successful, {avg_words:.0f} avg words"
-            )
-
-        logger.info("\n✅ Experiment completed successfully!")
         return 0
 
-    except KeyboardInterrupt:
-        logger.info("⛔ Interrupted by user")
-        return 1
     except Exception as e:
-        logger.error(f"❌ Fatal error: {e}")
-        import traceback
-
-        logger.debug(traceback.format_exc())
+        logger.exception(f"Experiment failed: {e}")
         return 1

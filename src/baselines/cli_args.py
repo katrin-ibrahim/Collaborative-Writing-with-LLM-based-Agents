@@ -1,8 +1,8 @@
-# FILE: cli_args.py
 """
-Unified CLI argument parser for baseline experiments.
-Works with both ollama and local model backends.
+Single unified CLI argument parser for all baseline experiments.
+Supports both Ollama and local backends through --backend flag.
 """
+
 import argparse
 
 from typing import Any, Dict
@@ -10,91 +10,195 @@ from typing import Any, Dict
 
 def parse_arguments() -> Dict[str, Any]:
     """
-    Parse command-line arguments for baseline experiments with flexible backend support.
+    Parse command-line arguments for baseline experiments.
+    Single parser handles both local and Ollama backends.
 
     Returns:
-        Dict of parsed arguments
+        Parsed arguments namespace
     """
     parser = argparse.ArgumentParser(
         description="Run baseline experiments with local or Ollama models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run all methods on 10 topics with Ollama
-  %(prog)s --backend ollama --num_topics 10
+  # Run all methods with Ollama (default backend)
+  %(prog)s --methods direct storm rag --num_topics 10
 
-  # Run only STORM on 5 topics with local models
-  %(prog)s --backend local --methods storm --num_topics 5
+  # Run only direct + rag with local models
+  %(prog)s --backend local --methods direct rag --num_topics 5
 
   # Use custom Ollama host
   %(prog)s --backend ollama --ollama_host http://localhost:11434/ --num_topics 5
 
-  # Use custom local model path
-  %(prog)s --backend local --model_path /path/to/models --num_topics 5
+  # Use custom local model path and GPU
+  %(prog)s --backend local --model_path /path/to/models --device cuda --num_topics 5
+
+  # Resume experiment from checkpoint
+  %(prog)s --resume_dir /path/to/experiment/dir
         """,
     )
 
-    # Core arguments
+    # =================== Core Arguments ===================
     parser.add_argument(
         "--backend",
         "-b",
         choices=["ollama", "local"],
-        default="local",
-        help="Model backend to use: ollama or local",
+        default="ollama",
+        help="Model backend to use (default: ollama)",
     )
+
     parser.add_argument(
-        "-n", "--num_topics", type=int, default=5, help="Number of topics to evaluate"
+        "--num_topics",
+        "-n",
+        type=int,
+        default=5,
+        help="Number of topics to evaluate (default: 5)",
     )
+
     parser.add_argument(
-        "-m",
         "--methods",
+        "-m",
         nargs="+",
         default=["direct"],
         choices=["direct", "storm", "rag"],
-        help="Methods to run",
+        help="Methods to run (default: direct). Note: STORM only works with --backend ollama",
     )
-    parser.add_argument(
-        "-s",
+
+    # =================== Ollama-Specific Arguments ===================
+    ollama_group = parser.add_argument_group("Ollama Backend Options")
+    ollama_group.add_argument(
+        "--ollama_host",
+        default="http://10.167.31.201:11434/",
+        help="Ollama server host URL (default: http://10.167.31.201:11434/)",
+    )
+
+    # =================== Local-Specific Arguments ===================
+    local_group = parser.add_argument_group("Local Backend Options")
+    local_group.add_argument(
+        "--device",
+        default="auto",
+        help="Device for local models: auto, cuda, cpu, mps (default: auto)",
+    )
+
+    local_group.add_argument(
+        "--model_path", help="Path to local model directory (overrides config)"
+    )
+
+    local_group.add_argument(
         "--model_size",
         choices=["7b", "14b", "32b", "72b"],
         default="32b",
-        help="Which model size to use (only used with --backend local)",
+        help="Model size for local backend (default: 32b)",
     )
-    # Common arguments
-    parser.add_argument(
-        "-c",
+
+    # =================== Common Configuration ===================
+    config_group = parser.add_argument_group("Configuration Options")
+    config_group.add_argument(
         "--model_config",
+        "-c",
         default="config/models.yaml",
-        help="Model configuration file",
+        help="Model configuration file (default: config/models.yaml)",
     )
-    parser.add_argument(
-        "-l",
+
+    # =================== Output & Debugging ===================
+    output_group = parser.add_argument_group("Output & Debugging Options")
+    output_group.add_argument(
         "--log_level",
+        "-l",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging level",
+        help="Logging level (default: INFO)",
     )
-    parser.add_argument(
-        "-d",
+
+    output_group.add_argument(
         "--debug",
+        "-d",
         action="store_true",
         help="Enable debug mode (saves intermediate files)",
     )
-    parser.add_argument(
-        "-r",
-        "--resume_dir",
-        type=str,
-        help="Resume from specific run directory path",
+
+    output_group.add_argument(
+        "--resume_dir", "-r", type=str, help="Resume from specific experiment directory"
     )
 
+    # Parse arguments
     args = parser.parse_args()
 
-    # Convert args to resume if resume_dir is specified
+    # =================== Post-Processing & Validation ===================
+
+    # Convert resume_dir to resume flag
     if args.resume_dir:
         args.resume = True
 
-    # Process model size to update default model in config (for local backend)
+    # Set model name based on size for local backend
     if args.backend == "local":
         args.model_name = f"qwen2.5:{args.model_size}"
 
+    # Validate method combinations
+    if "storm" in args.methods and args.backend == "local":
+        parser.error(
+            "STORM method is not supported with --backend local. Use --backend ollama for STORM."
+        )
+
+    # Validate ollama-specific args
+    if args.backend != "ollama" and args.ollama_host != "http://10.167.31.201:11434/":
+        parser.error("--ollama_host can only be used with --backend ollama")
+
+    # Validate local-specific args
+    if args.backend != "local":
+        if args.device != "auto":
+            parser.error("--device can only be used with --backend local")
+        if args.model_path:
+            parser.error("--model_path can only be used with --backend local")
+        if args.model_size != "32b":
+            parser.error("--model_size can only be used with --backend local")
+
     return args
+
+
+def validate_args(args) -> bool:
+    """
+    Additional validation after parsing.
+
+    Args:
+        args: Parsed arguments
+
+    Returns:
+        True if valid, False otherwise
+    """
+    # Check if resume directory exists
+    if hasattr(args, "resume_dir") and args.resume_dir:
+        from pathlib import Path
+
+        resume_path = Path(args.resume_dir)
+        if not resume_path.exists():
+            print(f"Error: Resume directory does not exist: {resume_path}")
+            return False
+        if not (resume_path / "results.json").exists():
+            print(f"Error: No results.json found in resume directory: {resume_path}")
+            return False
+
+    # Validate method-backend combinations
+    if args.backend == "local" and "storm" in args.methods:
+        print("Error: STORM is not supported with local backend")
+        return False
+
+    return True
+
+
+if __name__ == "__main__":
+    # Test the argument parser
+    args = parse_arguments()
+    if validate_args(args):
+        print("✅ Arguments parsed successfully:")
+        print(f"  Backend: {args.backend}")
+        print(f"  Methods: {args.methods}")
+        print(f"  Topics: {args.num_topics}")
+        if args.backend == "ollama":
+            print(f"  Ollama Host: {args.ollama_host}")
+        else:
+            print(f"  Device: {args.device}")
+            print(f"  Model Size: {args.model_size}")
+    else:
+        print("❌ Argument validation failed")
+        exit(1)
