@@ -15,6 +15,8 @@ class WikipediaSearchRM:
     """
 
     def __init__(self, k: int = 5):
+
+        # Inconsistent k value handling
         self.k = min(k, 8)  # Increase limit for better coverage
         self.retriever = WikipediaRetriever()
         logger.info(f"Optimized WikipediaSearchRM initialized with k={self.k}")
@@ -94,11 +96,9 @@ class WikipediaSearchRM:
                 logger.warning(f"Wikipedia search failed for query '{query}': {e}")
                 continue  # Skip failed queries instead of creating fallbacks
 
-        # If no results at all, create minimal fallback
+        # If no results at all raise an exception
         if not results and queries:
-            cleaned_main_query = self._clean_storm_query(queries[0])
-            if cleaned_main_query:
-                results = [self._create_fallback_result(cleaned_main_query)]
+            raise ValueError("No valid results found for any queries.")
 
         # Limit total results and sort by relevance if available
         final_results = self._optimize_results(results, self.k * len(queries))
@@ -110,8 +110,6 @@ class WikipediaSearchRM:
 
     def _optimize_results(self, results: List[Dict], max_results: int) -> List[Dict]:
         """Optimize and limit results for best performance."""
-        if not results:
-            return results
 
         # Remove duplicates based on URL
         seen_urls = set()
@@ -233,14 +231,3 @@ class WikipediaSearchRM:
             return f"Wikipedia article '{title}', section: {section}"
         else:
             return f"Wikipedia article: {title}"
-
-    def _create_fallback_result(self, query: str) -> Dict[str, Any]:
-        """Create a minimal fallback result when Wikipedia search fails."""
-        return {
-            "url": f'https://en.wikipedia.org/wiki/{query.replace(" ", "_")}',
-            "snippets": [
-                f"Information about {query}. This topic may require additional research for comprehensive coverage."
-            ],
-            "title": f"Wikipedia: {query}",
-            "description": f"Wikipedia article about {query}",
-        }

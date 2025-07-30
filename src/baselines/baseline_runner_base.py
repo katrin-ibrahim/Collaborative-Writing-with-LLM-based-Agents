@@ -130,7 +130,7 @@ def run_baseline_experiment(args: Any, runner_class: Any, runner_name: str):
             else:
                 remaining_direct = runner.filter_completed_topics(topics, "direct")
                 if remaining_direct:
-                    direct_results = [runner.run_direct_prompting(remaining_direct[0])]
+                    direct_results = [runner.run_direct(remaining_direct[0])]
 
         if "storm" in args.methods and hasattr(runner, "run_storm_batch"):
             if len(topics) > 1:

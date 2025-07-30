@@ -36,3 +36,37 @@ matplotlib
 seaborn
 optimum
 flair
+
+# Testing Dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+pytest-xdist>=3.0.0  # For parallel test execution
+pytest-timeout>=2.1.0  # For test timeouts
+
+# Mocking and fixtures
+responses>=0.23.0  # For HTTP mocking
+freezegun>=1.2.0  # For time mocking
+factory-boy>=3.2.0  # For test data factories
+
+# Property-based testing
+hypothesis>=6.68.0
+
+# Performance testing
+pytest-benchmark>=4.0.0
+
+# Test reporting
+pytest-html>=3.1.0  # HTML test reports
+pytest-json-report>=1.5.0  # JSON test reports
+
+# Code quality
+flake8>=5.0.0
+black>=22.0.0
+isort>=5.10.0
+mypy>=1.0.0
+
+# Dependencies for testing baseline functionality
+pyyaml>=6.0
+requests>=2.28.0
+numpy>=1.21.0
+scipy>=1.8.0  # For statistical tests

@@ -59,7 +59,7 @@ RESULTS_DIR="results/local/${EXPERIMENT_NAME}"
 python -m src.evaluation \
     --results_file "${RESULTS_DIR}/results.json" \
     --output_dir "${RESULTS_DIR}/evaluation" \
-    --methods direct_prompting
+    --methods direct
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Evaluation failed!"
@@ -144,7 +144,7 @@ echo "Step 2: Running evaluation..."
 python -m src.evaluation \
     --results_path "results/local/${EXPERIMENT_NAME}/results.json" \
     --output_dir "results/local/${EXPERIMENT_NAME}/evaluation" \
-    --methods direct_prompting
+    --methods direct
 
 if [ $? -ne 0 ]; then
     echo "ERROR: Evaluation failed"

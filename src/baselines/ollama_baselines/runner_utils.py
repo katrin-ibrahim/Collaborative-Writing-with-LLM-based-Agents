@@ -279,21 +279,7 @@ QUALITY REQUIREMENTS:
 
 Write the article now:"""
     else:
-        prompt = f"""Write a comprehensive Wikipedia-style article about "{topic}".
-
-You are an expert encyclopedia writer. Create a detailed, factual article without external sources.
-
-INSTRUCTIONS:
-1. Start with "# {topic}" as the main title
-2. Write a comprehensive introduction explaining the topic's significance
-3. Create 4-6 sections with specific, descriptive headings (not generic ones)
-4. Each section should contain 2-3 substantial paragraphs
-5. Include plausible specific details, dates, and examples
-6. Use encyclopedic tone and professional writing style
-7. Aim for 1200-1600 words total
-8. Focus on entity-rich content with proper nouns and technical terms
-
-Write the article now:"""
+        raise ValueError("Context is required for article generation.")
 
     wrapper = get_model_wrapper(client, model_config, "writing")
     response = wrapper(prompt)

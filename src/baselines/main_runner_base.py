@@ -47,7 +47,7 @@ class BaseRunner(ABC):
         """
 
     # ---------------------------------------- Direct Prompting Baseline ----------------------------------------
-    def run_direct_prompting(self, topic: str) -> Article:
+    def run_direct(self, topic: str) -> Article:
         """Run direct prompting baseline."""
         logger.info(f"Running Direct Prompting for: {topic}")
 
@@ -152,7 +152,7 @@ class BaseRunner(ABC):
 
                 # Run appropriate method
                 if method == "direct":
-                    article = self.run_direct_prompting(topic)
+                    article = self.run_direct(topic)
                 elif method == "storm":
                     article = (
                         self.run_storm(topic) if hasattr(self, "run_storm") else None
@@ -246,22 +246,14 @@ def run_baseline_experiment(args, runner_class, runner_name):
         if state_manager:
             runner.set_state_manager(state_manager)
 
-        # Get topics from FreshWiki dataset
         try:
-            pass
-
             from src.utils.freshwiki_loader import FreshWikiLoader
 
             freshwiki = FreshWikiLoader()
-            all_topics = [entry.topic for entry in freshwiki.entries]
-
-            if not all_topics:
+            entries = freshwiki.load_topics(num_topics)
+            if not entries:
                 logger.error("No topics found in FreshWiki dataset")
                 return 1
-
-            # Randomly select num_topics if specified
-            num_topics = getattr(args, "num_topics", 5)
-            entries = freshwiki.get_evaluation_sample(num_topics)
 
             # Extract just the topic strings from the FreshWikiEntry objects
             topics = [entry.topic for entry in entries]
@@ -275,6 +267,7 @@ def run_baseline_experiment(args, runner_class, runner_name):
         logger.info(f"Running with {len(topics)} topics")
 
         # Run the batch
+        # TODO: THIS IS NOT REALLY A BATCH RUNNER, IT'S A SINGLE EXPERIMENT
         articles = runner.run_batch(topics, args.methods)
         logger.info(f"Experiment complete. Generated {len(articles)} articles")
 

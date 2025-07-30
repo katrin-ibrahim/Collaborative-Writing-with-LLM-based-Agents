@@ -69,46 +69,6 @@ FORMAT:
 Write the complete article now."""
 
 
-# def post_process_article(content: str, topic: str) -> str:
-#     """Post-process article content for better formatting (shared utility)."""
-#     if not content:
-#         return content
-#
-#     # Remove excessive whitespace
-#     content = re.sub(r"\n\s*\n\s*\n", "\n\n", content)
-#     content = re.sub(r"[ \t]+", " ", content)
-#
-#     # Ensure proper heading format
-#     lines = content.split("\n")
-#     processed_lines = []
-#
-#     for line in lines:
-#         line = line.strip()
-#         if not line:
-#             processed_lines.append("")
-#             continue
-#
-#         # Fix heading formatting
-#         if line.startswith("#"):
-#             # Ensure space after hash
-#             line = re.sub(r"^#+", lambda m: m.group() + " ", line)
-#             line = re.sub(r"^# +", "# ", line)
-#             line = re.sub(r"^## +", "## ", line)
-#
-#         processed_lines.append(line)
-#
-#     content = "\n".join(processed_lines)
-#
-#     # Ensure article starts with main heading
-#     if not content.startswith(f"# {topic}"):
-#         if content.startswith("# "):
-#             content = f"# {topic}\n\n" + content[content.find("\n\n") + 2 :]
-#         else:
-#             content = f"# {topic}\n\n{content}"
-#
-#     return content.strip()
-
-
 def error_article(topic: str, error_msg: str, method: str) -> Article:
     """Create error article when generation fails (shared utility)."""
     return Article(

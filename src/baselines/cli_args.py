@@ -37,6 +37,7 @@ Examples:
     # Core arguments
     parser.add_argument(
         "--backend",
+        "-b",
         choices=["ollama", "local"],
         default="local",
         help="Model backend to use: ollama or local",
@@ -53,32 +54,12 @@ Examples:
         help="Methods to run",
     )
     parser.add_argument(
-        "--dataset_path",
-        default="dataset_report.json",
-        help="Path to dataset with topics",
-    )
-
-    # Backend-specific arguments
-    parser.add_argument(
-        "-H",
-        "--ollama_host",
-        default="http://10.167.31.201:11434/",
-        help="Ollama server URL (only used with --backend ollama)",
-    )
-    parser.add_argument(
-        "-p",
-        "--model_path",
-        default="models/",
-        help="Path to local models directory (only used with --backend local)",
-    )
-    parser.add_argument(
         "-s",
         "--model_size",
         choices=["7b", "14b", "32b", "72b"],
         default="32b",
         help="Which model size to use (only used with --backend local)",
     )
-
     # Common arguments
     parser.add_argument(
         "-c",
