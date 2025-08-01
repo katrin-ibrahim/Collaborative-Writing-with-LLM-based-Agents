@@ -3,9 +3,9 @@
 Single entry point for all baseline experiments.
 Supports both Ollama and local model backends.
 """
-from baseline_runner_base import run_baseline_experiment
-from cli_args import parse_arguments
-from runner_factory import create_runner
+from src.baselines.baseline_runner_base import run_baseline_experiment
+from src.baselines.cli_args import parse_arguments
+from src.baselines.runner_factory import create_runner
 
 
 def main():

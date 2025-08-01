@@ -76,10 +76,12 @@ class OutputManager:
 
         # Create directory structure
         self.articles_dir = self.base_dir / "articles"
+        logger.info(f"Base output directory: {self.base_dir.resolve()}")
         self.articles_dir.mkdir(parents=True, exist_ok=True)
 
         if self.debug_mode:
             self.debug_dir = self.base_dir / "debug"
+            logger.info(f"Debug output directory: {self.debug_dir.resolve()}")
             self.debug_dir.mkdir(parents=True, exist_ok=True)
             logger.info("Debug mode enabled - intermediate files will be saved")
 

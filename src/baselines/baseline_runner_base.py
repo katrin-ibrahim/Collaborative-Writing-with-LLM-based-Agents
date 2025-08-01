@@ -174,19 +174,13 @@ class BaseRunner(ABC):
                 )
                 continue
 
-            # Filter completed topics
-            remaining_topics = self.filter_completed_topics(topics, method)
-            if not remaining_topics:
-                logger.info(f"All {method} topics already completed")
-                continue
-
             # Run method
             if method == "direct":
-                method_results = self.run_direct_batch(remaining_topics)
+                method_results = self.run_direct_batch(topics)
             elif method == "storm":
-                method_results = self.run_storm_batch(remaining_topics)
+                method_results = self.run_storm_batch(topics)
             elif method == "rag":
-                method_results = self.run_rag_batch(remaining_topics)
+                method_results = self.run_rag_batch(topics)
             else:
                 logger.warning(f"Unknown method: {method}")
                 continue
@@ -206,7 +200,6 @@ class BaseRunner(ABC):
             logger.info(f"All {method} topics already completed")
             return []
 
-        logger.info(f"Running {method} batch for {len(remaining_topics)} topics")
         results = []
 
         def run_topic(topic):
@@ -406,7 +399,7 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
         # Load topics
         freshwiki = FreshWikiLoader()
-        entries = freshwiki.get_evaluation_sample(args.num_topics)
+        entries = freshwiki.load_topics(args.num_topics)
         if not entries:
             logger.error("No FreshWiki entries found!")
             return 1
@@ -433,7 +426,8 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
         # Log completion
         total_time = time.time() - start_time
-        logger.info(f"🎉 Experiment completed in {total_time:.2f}s")
+        total_time = total_time / 60  # Convert to minutes
+        logger.info(f"🎉 Experiment completed in {total_time:2f}s")
         logger.info(f"📊 Generated {len(results)} articles")
 
         return 0

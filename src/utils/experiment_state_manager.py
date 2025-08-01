@@ -23,6 +23,7 @@ class ExperimentStateManager:
         self.checkpoint_file = self.output_dir / "checkpoint.json"
         self.results_file = self.output_dir / "results.json"
 
+        logger.info(f"Output directory: {self.output_dir.resolve()}")
         # State tracking
         self.completed_topics = {method: set() for method in methods}
         self.in_progress_topics = {method: set() for method in methods}

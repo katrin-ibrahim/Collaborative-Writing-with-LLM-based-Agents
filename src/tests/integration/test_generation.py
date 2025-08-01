@@ -18,7 +18,7 @@ class TestGenerationIntegration:
         """Step through generation using main entry point - set breakpoints to debug."""
         # Mock command line arguments
         test_args = [
-            "--backend",
+            "-b",
             "ollama",
             "-m",
             "rag",
@@ -26,17 +26,14 @@ class TestGenerationIntegration:
             "1",
         ]
 
-        # BREAKPOINT 2: Set here before main execution
         print(f"Running main with args: {test_args}")
 
         # Import and run main with mocked sys.argv
         with patch.object(sys, "argv", ["main.py"] + test_args):
             from src.baselines.__main__ import main
 
-            # BREAKPOINT 3: Set here during main execution
             result = main()
 
-        # BREAKPOINT 4: Set here to examine results
         print(f"Main execution completed with result: {result}")
         # Assert that the result is as expected
         assert result == 0, "Main execution did not complete successfully"

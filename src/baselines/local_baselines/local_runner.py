@@ -6,7 +6,7 @@ All shared logic moved to BaseRunner.
 import logging
 from typing import Optional
 
-from baselines.main_runner_base import BaseRunner
+from src.baselines.baseline_runner_base import BaseRunner
 from src.baselines.model_engines.local_engine import LocalModelEngine
 from src.config.baselines_model_config import ModelConfig
 from src.utils.output_manager import OutputManager
