@@ -2,58 +2,11 @@ import sys
 from pathlib import Path
 
 import logging
-
-# setup_cache_directories()
-# Set up cache before any imports
 from knowledge_storm import (
     STORMWikiLMConfigs,
     STORMWikiRunner,
     STORMWikiRunnerArguments,
 )
-
-# def setup_cache_directories():
-#     import sys
-#     import builtins
-
-#     # Setup temp dirs first
-#     temp_dir = tempfile.gettempdir()
-#     pid = os.getpid()
-#     joblib_cache = os.path.join(temp_dir, f"joblib_cache_{pid}")
-#     os.makedirs(joblib_cache, exist_ok=True)
-
-#     original_import = builtins.__import__
-
-#     def patched_import(name, *args, **kwargs):
-#         module = original_import(name, *args, **kwargs)
-
-#         # Patch the main litellm module when it's imported
-#         if name == 'litellm':
-#             # Set cache to a no-op object that doesn't do anything
-#             class NoOpCache:
-#                 def __init__(self, *args, **kwargs):
-#                     pass
-#                 def __getattr__(self, name):
-#                     return lambda *args, **kwargs: None
-#                 def __setattr__(self, name, value):
-#                     pass
-
-#             # Set cache to disabled state immediately
-#             module.cache = NoOpCache()
-
-#             # Also override the cache attribute to prevent future assignments
-#             class CacheProperty:
-#                 def __set__(self, obj, value):
-#                     pass  # Ignore future cache assignments
-#                 def __get__(self, obj, objtype=None):
-#                     return module.cache  # Return our no-op cache
-
-#             type(module).cache = CacheProperty()
-#             logging.info("Set litellm.cache to disabled no-op object")
-
-#         return module
-
-#     builtins.__import__ = patched_import
-
 
 # Add src directory to path
 src_dir = Path(__file__).parent.parent.parent
@@ -61,10 +14,10 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 from src.config.baselines_model_config import ModelConfig
+from src.retrieval.wiki_rm import WikiRM
 from src.utils.ollama_client import OllamaClient
 
 from .runner_utils import get_model_wrapper
-from .wikipedia_rm import WikipediaSearchRM
 
 
 def setup_storm_runner(
@@ -103,7 +56,7 @@ def setup_storm_runner(
         default_config.update(storm_config)
 
     # Setup search retrieval with configured parameters
-    search_rm = WikipediaSearchRM(k=default_config["search_top_k"])
+    search_rm = WikiRM()
     logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
 
     engine_args = STORMWikiRunnerArguments(

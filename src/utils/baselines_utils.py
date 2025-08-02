@@ -8,7 +8,6 @@ from pathlib import Path
 import logging
 from typing import Dict, List
 
-from src.config.baselines_model_config import ModelConfig
 from src.utils.data_models import Article
 
 logger = logging.getLogger(__name__)
@@ -309,23 +308,3 @@ def make_serializable(obj):
         return {k: make_serializable(v) for k, v in obj.items()}
     else:
         return obj
-
-
-def load_model_config(config_file: str) -> ModelConfig:
-    """Load model configuration from file or use defaults."""
-    from pathlib import Path
-
-    from src.config.baselines_model_config import ModelConfig
-
-    if Path(config_file).exists():
-        try:
-            import yaml
-
-            with open(config_file, "r") as f:
-                config_dict = yaml.safe_load(f)
-            return ModelConfig.from_dict(config_dict)
-        except Exception as e:
-            logger.warning(f"Failed to load model config: {e}")
-
-    logger.info("Using default model configuration")
-    return ModelConfig()

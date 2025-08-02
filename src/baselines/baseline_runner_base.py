@@ -236,63 +236,65 @@ class BaseRunner(ABC):
 
     # ---------------------------------------- Retrieval Abstraction ----------------------------------------
     def _get_retrieval_system(self):
-        """Get retrieval system - override in concrete runners if needed."""
-        # Default Wikipedia search
+        """
+        Get retrieval system.
+        Fails clearly instead of providing fallbacks.
+        """
         try:
-            if hasattr(self, "client"):  # Ollama runner
-                from src.baselines.ollama_baselines.wikipedia_rm import (
-                    WikipediaSearchRM,
-                )
+            from src.retrieval.rm import RetrievalFactory
 
-                return WikipediaSearchRM(k=8)
-            else:  # Local runner
-                # Simple fallback - could be enhanced
-                class SimpleRetrieval:
-                    def search(self, queries, max_results=8):
-                        # Fallback: return empty context
-                        return []
+            # Create Wikipedia-based RM
+            retrieval_system = RetrievalFactory.create_wikipedia_rm(
+                max_articles=3, max_sections=3
+            )
 
-                return SimpleRetrieval()
-        except ImportError:
-            logger.warning("No retrieval system available")
+            logger.info(f"Created retrieval system: {retrieval_system.get_stats()}")
+            return retrieval_system
 
-            class NoRetrieval:
-                def search(self, queries, max_results=8):
-                    return []
+        except ImportError as e:
+            raise RuntimeError(f"Failed to import retrieval system: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to create retrieval system: {e}") from e
 
-            return NoRetrieval()
-
+    @abstractmethod
     def _get_query_generator(self):
-        """Get query generation function - override in concrete runners."""
-
-        def default_query_generator(engine, topic, num_queries=5):
-            # Simple fallback query generation
-            return [
-                f"{topic} overview background",
-                f"{topic} history origins",
-                f"{topic} key people important figures",
-                f"{topic} recent developments current status",
-                f"{topic} significance impact effects",
-            ][:num_queries]
-
-        return default_query_generator
+        """
+        Get query generation function - backend specific.
+        """
 
     def _create_context_from_passages(
         self, passages: List[str], max_passages: int = 8
     ) -> str:
-        """Create context from passages - shared implementation."""
+        """
+        Create context from passages - simplified unified implementation.
+        """
         if not passages:
-            return ""
+            raise ValueError("No passages provided for context creation")
 
-        # Take top passages and format
+        # Take top passages and format cleanly
         top_passages = passages[:max_passages]
 
         context_parts = []
         for i, passage in enumerate(top_passages, 1):
             if passage and len(passage.strip()) > 0:
-                context_parts.append(f"[Source {i}]: {passage.strip()}")
+                # Clean up the passage
+                cleaned_passage = passage.strip()
 
-        return "\n\n".join(context_parts)
+                # Limit length to prevent overwhelming context
+                if len(cleaned_passage) > 800:
+                    cleaned_passage = cleaned_passage[:800] + "..."
+
+                context_parts.append(f"[Source {i}]: {cleaned_passage}")
+
+        if not context_parts:
+            raise ValueError("No valid passages found after cleaning")
+
+        context = "\n\n".join(context_parts)
+        logger.debug(
+            f"Created context with {len(context_parts)} passages, {len(context)} characters"
+        )
+
+        return context
 
     # ---------------------------------------- Utilities ----------------------------------------
     def _create_article(
@@ -349,7 +351,7 @@ def run_baseline_experiment(args, runner_class, runner_name):
     """
     Single canonical experiment runner - eliminates duplication.
     """
-    from src.utils.baselines_utils import load_model_config, setup_output_directory
+    from src.utils.baselines_utils import setup_output_directory
     from src.utils.experiment_state_manager import ExperimentStateManager
     from src.utils.freshwiki_loader import FreshWikiLoader
     from src.utils.logging_setup import setup_logging
@@ -360,7 +362,7 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
     try:
         # Load configuration
-        model_config = load_model_config(args.model_config)
+        model_config = ModelConfig(mode=args.backend)
 
         # Setup output directory
         output_dir = setup_output_directory(args)
@@ -414,12 +416,6 @@ def run_baseline_experiment(args, runner_class, runner_name):
         # Validate methods against runner capabilities
         supported_methods = runner.get_supported_methods()
         valid_methods = [m for m in args.methods if m in supported_methods]
-
-        if len(valid_methods) != len(args.methods):
-            invalid_methods = [m for m in args.methods if m not in supported_methods]
-            logger.warning(
-                f"Methods {invalid_methods} not supported by {runner_name}. Running: {valid_methods}"
-            )
 
         # Run batch processing
         results = runner.run_batch(topics, valid_methods)

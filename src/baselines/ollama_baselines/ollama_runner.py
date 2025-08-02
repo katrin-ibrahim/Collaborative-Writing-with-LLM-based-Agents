@@ -134,4 +134,41 @@ class BaselineRunner(BaseRunner):
             logger.error(f"STORM failed for '{topic}': {e}")
             return error_article(topic, str(e), "storm")
 
+    def _get_query_generator(self):
+        def ollama_query_generator(engine, topic, num_queries=5):
+            prompt = f"""You are searching Wikipedia for information about "{topic}". Generate {num_queries} specific Wikipedia article titles or search terms.
+
+    Output ONLY the search terms, one per line, with NO numbering, bullets, or explanations.
+
+    Wikipedia search terms for "{topic}":"""
+
+            try:
+                from .runner_utils import get_model_wrapper
+
+                wrapper = get_model_wrapper(self.client, self.model_config, "fast")
+                response = wrapper(prompt)
+
+                # Extract content
+                if hasattr(response, "choices") and response.choices:
+                    content = response.choices[0].message.content
+                elif hasattr(response, "content"):
+                    content = response.content
+                else:
+                    content = str(response)
+
+                # Just split lines - NO CLEANING HERE
+                raw_queries = [
+                    line.strip() for line in content.split("\n") if line.strip()
+                ]
+
+                # Return raw queries - let BaseRetriever handle all cleaning
+                return raw_queries[:num_queries] if raw_queries else [topic]
+
+            except Exception as e:
+                logger.error(f"Ollama query generation failed: {e}")
+                # Simple fallback
+                return [topic]
+
+        return ollama_query_generator
+
     # All other methods (run_direct, run_rag, run_*_batch) implemented in BaseRunner
