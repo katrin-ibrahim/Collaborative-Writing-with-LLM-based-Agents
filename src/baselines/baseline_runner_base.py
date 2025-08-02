@@ -11,6 +11,7 @@ import logging
 from typing import List, Optional
 
 from src.config.baselines_model_config import ModelConfig
+from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
 from src.utils.baselines_utils import (
     build_direct_prompt,
     build_rag_prompt,
@@ -99,14 +100,17 @@ class BaseRunner(ABC):
 
             # Get retrieval system and query generator (runner-specific)
             retrieval_system = self._get_retrieval_system()
-            query_generator = self._get_query_generator()
+            self._get_query_generator()
 
             # Generate search queries
-            queries = query_generator(engine, topic, num_queries=5)
-            logger.info(f"Generated {len(queries)} search queries for {topic}")
+
+            # queries = query_generator(engine, topic, num_queries=DEFAULT_RETRIEVAL_CONFIG.rag_num_queries)
+            # logger.info(f"Generated {len(queries)} search queries for {topic}")
 
             # Retrieve context
-            passages = retrieval_system.search(queries, max_results=8)
+            passages = retrieval_system.search(
+                topic, max_results=DEFAULT_RETRIEVAL_CONFIG.rag_max_results
+            )
             context = self._create_context_from_passages(passages)
             logger.info(f"Created context with {len(context)} characters for {topic}")
 
@@ -146,20 +150,27 @@ class BaseRunner(ABC):
 
     # ---------------------------------------- Batch Processing ----------------------------------------
     def run_direct_batch(
-        self, topics: List[str], max_workers: int = 2
+        self, topics: List[str], max_workers: int = None
     ) -> List[Article]:
+        if max_workers is None:
+            max_workers = (
+                DEFAULT_RETRIEVAL_CONFIG.batch_max_workers_direct
+                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.batch_parallel_threshold
+                else 1
+            )
         """Run direct prompting in parallel - shared implementation."""
         return self._run_batch_generic("direct", self.run_direct, topics, max_workers)
 
-    def run_storm_batch(self, topics: List[str], max_workers: int = 1) -> List[Article]:
-        """Run STORM in parallel - shared implementation."""
-        if not hasattr(self, "run_storm"):
-            logger.warning("STORM not supported by this runner")
-            return []
-        return self._run_batch_generic("storm", self.run_storm, topics, max_workers)
-
-    def run_rag_batch(self, topics: List[str], max_workers: int = 2) -> List[Article]:
+    def run_rag_batch(
+        self, topics: List[str], max_workers: int = None
+    ) -> List[Article]:
         """Run RAG in parallel - shared implementation."""
+        if max_workers is None:
+            max_workers = (
+                DEFAULT_RETRIEVAL_CONFIG.batch_max_workers_rag
+                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.batch_parallel_threshold
+                else 1
+            )
         return self._run_batch_generic("rag", self.run_rag, topics, max_workers)
 
     def run_batch(self, topics: List[str], methods: List[str]) -> List[Article]:
@@ -177,8 +188,6 @@ class BaseRunner(ABC):
             # Run method
             if method == "direct":
                 method_results = self.run_direct_batch(topics)
-            elif method == "storm":
-                method_results = self.run_storm_batch(topics)
             elif method == "rag":
                 method_results = self.run_rag_batch(topics)
             else:
@@ -220,18 +229,36 @@ class BaseRunner(ABC):
                 logger.error(f"{method} batch failed for {topic}: {e}")
                 return error_article(topic, str(e), f"{method}_batch")
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(run_topic, topic): topic for topic in remaining_topics
-            }
-            for future in as_completed(futures):
+        # Only use threading when we have enough topics to benefit
+        if len(remaining_topics) < DEFAULT_RETRIEVAL_CONFIG.batch_parallel_threshold:
+            # Sequential processing for small batches
+            logger.info(f"Processing {len(remaining_topics)} topics sequentially")
+            for topic in remaining_topics:
                 try:
-                    results.append(future.result())
+                    if self.state_manager:
+                        self.state_manager.mark_topic_in_progress(topic, method)
+                    article = single_method_func(topic)
+                    if self.state_manager:
+                        self.state_manager.mark_topic_completed(topic, method)
+                    results.append(article)
                 except Exception as e:
-                    topic = futures[future]
-                    logger.error(f"{method} batch failed for {topic}: {e}")
-                    results.append(error_article(topic, str(e), f"{method}_batch"))
-
+                    if self.state_manager:
+                        self.state_manager.cleanup_in_progress_topic(topic, method)
+                    logger.error(f"{method} failed for {topic}: {e}")
+                    results.append(error_article(topic, str(e), f"{method}"))
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(run_topic, topic): topic
+                    for topic in remaining_topics
+                }
+                for future in as_completed(futures):
+                    try:
+                        results.append(future.result())
+                    except Exception as e:
+                        topic = futures[future]
+                        logger.error(f"{method} batch failed for {topic}: {e}")
+                        results.append(error_article(topic, str(e), f"{method}_batch"))
         return results
 
     # ---------------------------------------- Retrieval Abstraction ----------------------------------------
@@ -245,7 +272,8 @@ class BaseRunner(ABC):
 
             # Create Wikipedia-based RM
             retrieval_system = RetrievalFactory.create_wikipedia_rm(
-                max_articles=3, max_sections=3
+                max_articles=DEFAULT_RETRIEVAL_CONFIG.wiki_max_articles,
+                max_sections=DEFAULT_RETRIEVAL_CONFIG.wiki_max_sections,
             )
 
             logger.info(f"Created retrieval system: {retrieval_system.get_stats()}")
@@ -263,38 +291,45 @@ class BaseRunner(ABC):
         """
 
     def _create_context_from_passages(
-        self, passages: List[str], max_passages: int = 8
+        self, passages: List[str], max_passages: int = None
     ) -> str:
-        """
-        Create context from passages - simplified unified implementation.
-        """
+        if max_passages is None:
+            max_passages = DEFAULT_RETRIEVAL_CONFIG.context_max_passages
+
         if not passages:
             raise ValueError("No passages provided for context creation")
 
-        # Take top passages and format cleanly
-        top_passages = passages[:max_passages]
+        # Enhanced passage selection: filter by quality first
+        quality_passages = []
+        for passage in passages:
+            if (
+                passage
+                and len(passage.strip())
+                >= DEFAULT_RETRIEVAL_CONFIG.context_min_passage_length
+            ):
+                quality_passages.append(passage.strip())
 
+        # Take top quality passages
+        top_passages = quality_passages[:max_passages]
         context_parts = []
+
         for i, passage in enumerate(top_passages, 1):
-            if passage and len(passage.strip()) > 0:
-                # Clean up the passage
-                cleaned_passage = passage.strip()
+            # Enhanced length handling
+            if len(passage) > DEFAULT_RETRIEVAL_CONFIG.context_passage_max_length:
+                # Smart truncation: try to end at sentence boundary
+                truncated = passage[
+                    : DEFAULT_RETRIEVAL_CONFIG.context_passage_max_length
+                ]
+                last_period = truncated.rfind(".")
+                if (
+                    last_period
+                    > DEFAULT_RETRIEVAL_CONFIG.context_passage_max_length * 0.8
+                ):
+                    passage = truncated[: last_period + 1]
+                else:
+                    passage = truncated + "..."
 
-                # Limit length to prevent overwhelming context
-                if len(cleaned_passage) > 800:
-                    cleaned_passage = cleaned_passage[:800] + "..."
-
-                context_parts.append(f"[Source {i}]: {cleaned_passage}")
-
-        if not context_parts:
-            raise ValueError("No valid passages found after cleaning")
-
-        context = "\n\n".join(context_parts)
-        logger.debug(
-            f"Created context with {len(context_parts)} passages, {len(context)} characters"
-        )
-
-        return context
+            context_parts.append(f"[Source {i}]: {passage}")
 
     # ---------------------------------------- Utilities ----------------------------------------
     def _create_article(

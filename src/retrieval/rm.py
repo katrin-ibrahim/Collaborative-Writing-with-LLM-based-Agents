@@ -68,18 +68,10 @@ class RM:
         else:
             query_list = list(queries)
 
-        cleaned_queries = []
-        for query in query_list:
-            cleaned = self.retriever.clean_query(query)
-            if cleaned:  # Only add non-empty cleaned queries
-                cleaned_queries.append(cleaned)
-
         # Check cache first
         cache_key = None
         if self.cache_results:
-            cache_key = self._generate_cache_key(
-                cleaned_queries, max_results, format_type
-            )
+            cache_key = self._generate_cache_key(query_list, max_results, format_type)
             if cache_key in self._result_cache:
                 logger.debug("Returning cached results")
                 return self._result_cache[cache_key]
@@ -87,7 +79,7 @@ class RM:
         try:
             # Perform the actual retrieval
             results = self.retriever.search(
-                queries=cleaned_queries,
+                queries=query_list,
                 max_results=max_results,
                 format_type=format_type,
                 **kwargs,
@@ -105,7 +97,7 @@ class RM:
                 self._result_cache[cache_key] = final_results
 
             logger.info(
-                f"Retrieved {len(final_results)} results for {len(cleaned_queries)} queries"
+                f"Retrieved {len(final_results)} results for {len(query_list)} queries"
             )
             return final_results
 

@@ -4,7 +4,7 @@ All shared logic moved to BaseRunner.
 """
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from src.baselines.baseline_runner_base import BaseRunner
 from src.baselines.model_engines.ollama_engine import OllamaModelEngine
@@ -134,11 +134,17 @@ class BaselineRunner(BaseRunner):
             logger.error(f"STORM failed for '{topic}': {e}")
             return error_article(topic, str(e), "storm")
 
+    def run_storm_batch(self, topics: List[str], max_workers: int = 1) -> List[Article]:
+        """Run STORM in parallel - Ollama-specific implementation."""
+        return self._run_batch_generic("storm", self.run_storm, topics, max_workers)
+
     def _get_query_generator(self):
         def ollama_query_generator(engine, topic, num_queries=5):
             prompt = f"""You are searching Wikipedia for information about "{topic}". Generate {num_queries} specific Wikipedia article titles or search terms.
 
-    Output ONLY the search terms, one per line, with NO numbering, bullets, or explanations.
+    Output ONLY the search terms, one per line, with NO numbering, bullets, or explanations. ex: topic: US Presidents, you might output: Joe Biden, Barack Obama, Donald Trump, etc.
+
+    Only output search terms in the same language as the topic. Make sure to include relevant terms that would help find articles about "{topic} and to not include anything that might be irrelevant".
 
     Wikipedia search terms for "{topic}":"""
 

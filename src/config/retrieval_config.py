@@ -1,0 +1,84 @@
+"""
+Centralized configuration for all retrieval and context generation parameters.
+Replaces scattered hardcoded k values throughout the codebase.
+"""
+
+from dataclasses import dataclass
+from typing import Any, Dict
+
+
+@dataclass
+class RetrievalConfig:
+    """Centralized retrieval parameters for consistent evaluation."""
+
+    # RAG Configuration
+    rag_num_queries: int = 7
+    rag_max_results: int = 12
+    rag_max_passages: int = 15
+    rag_passage_max_length: int = 1200
+
+    # Wikipedia Retrieval Configuration
+    wiki_max_articles: int = 5
+    wiki_max_sections: int = 4
+    wiki_parallel_workers: int = 3
+
+    # Context Generation Configuration
+    context_max_passages: int = 15
+    context_passage_max_length: int = 1200
+    context_min_passage_length: int = 100
+
+    # Batch Processing Configuration
+    batch_parallel_threshold: int = 3
+    batch_max_workers_direct: int = 3
+    batch_max_workers_rag: int = 2
+    batch_max_workers_storm: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for logging and serialization."""
+        return {
+            "rag": {
+                "num_queries": self.rag_num_queries,
+                "max_results": self.rag_max_results,
+                "max_passages": self.rag_max_passages,
+                "passage_max_length": self.rag_passage_max_length,
+            },
+            "wikipedia": {
+                "max_articles": self.wiki_max_articles,
+                "max_sections": self.wiki_max_sections,
+                "parallel_workers": self.wiki_parallel_workers,
+            },
+            "context": {
+                "max_passages": self.context_max_passages,
+                "passage_max_length": self.context_passage_max_length,
+                "min_passage_length": self.context_min_passage_length,
+            },
+            "batch": {
+                "parallel_threshold": self.batch_parallel_threshold,
+                "max_workers": {
+                    "direct": self.batch_max_workers_direct,
+                    "rag": self.batch_max_workers_rag,
+                    "storm": self.batch_max_workers_storm,
+                },
+            },
+        }
+
+    @classmethod
+    def get_default(cls) -> "RetrievalConfig":
+        """Get default configuration instance."""
+        return cls()
+
+    def validate(self) -> bool:
+        """Validate configuration parameters."""
+        if self.rag_num_queries <= 0 or self.rag_max_results <= 0:
+            return False
+        if self.wiki_max_articles <= 0 or self.wiki_max_sections <= 0:
+            return False
+        if self.context_max_passages <= 0 or self.context_passage_max_length <= 0:
+            return False
+        if self.batch_parallel_threshold <= 0:
+            return False
+        return True
+
+
+# Global default instance
+DEFAULT_RETRIEVAL_CONFIG = RetrievalConfig.get_default()
