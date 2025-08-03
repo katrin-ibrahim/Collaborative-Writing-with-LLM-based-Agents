@@ -305,7 +305,7 @@ def main():
     # Load FreshWiki dataset for evaluation
     logger.info("📚 Loading FreshWiki dataset...")
     freshwiki = FreshWikiLoader()
-    entries = freshwiki.get_evaluation_sample(1000)  # Load all entries
+    entries = freshwiki.load_topics(100)  # Load all entries
 
     # Create evaluator
     evaluator = ArticleEvaluator()
@@ -326,14 +326,11 @@ def main():
             # Try exact match first
             if e.topic == topic:
                 entry = e
-                break
+
             # Try handling cases where slashes were replaced with underscores
             normalized_topic = topic.lower().replace("_", " ")
             normalized_e_topic = e.topic.lower().replace("_", " ").replace("/", " ")
             if normalized_topic == normalized_e_topic:
-                entry = e
-                break
-            if "and/or" in e.topic and topic.replace("and_or", "and/or") == e.topic:
                 entry = e
                 break
 
@@ -369,13 +366,14 @@ def main():
 
     for topic, method, entry, method_result, results_dir_str in eval_tasks:
         try:
-            # FIX 1: Get article content from stored article_path instead of reconstructing
             article_content = None
             if "article_path" in method_result:
                 article_path = Path(results_dir_str) / method_result["article_path"]
                 try:
                     with open(article_path, "r") as f:
                         article_content = f.read()
+                        "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/results/ollama/storm_N=1_T=19.07_23:11/articles/storm_Music_written_in_all_major_and_or_minor_keys.md"
+                        "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/results/ollama/storm_N=1_T=19.07_23:11/articles/storm_Music_written_in_all_major_and_or_minor_keys.md"
                     logger.debug(f"✅ Read article from: {article_path}")
                 except Exception as e:
                     logger.error(f"❌ Could not read file {article_path}: {e}")

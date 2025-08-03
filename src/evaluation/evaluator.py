@@ -1,10 +1,20 @@
-# src/evaluation/simple_evaluator.py
+# src/evaluation/evaluator.py
+"""
+Streamlined article evaluator that uses consolidated metric functions.
+
+This evaluator delegates all metric calculations to the metrics module,
+keeping the evaluator focused on orchestration and data handling.
+"""
+
 import logging
 from typing import Dict
 
-from src.evaluation.metrics.entity_metrics import EntityMetrics
-from src.evaluation.metrics.heading_metrics import HeadingMetrics
-from src.evaluation.metrics.rouge_metrics import ROUGEMetrics
+from src.evaluation.metrics import (
+    METRIC_DESCRIPTIONS,
+    STORM_METRICS,
+    evaluate_article_metrics,
+    validate_metrics,
+)
 from src.utils.data_models import Article
 from src.utils.freshwiki_loader import FreshWikiEntry
 
@@ -13,148 +23,126 @@ logger = logging.getLogger(__name__)
 
 class ArticleEvaluator:
     """
-    Evaluator using only STORM paper metrics.
+    Evaluator using STORM paper metrics with consolidated metric functions.
 
-    Uses hybrid approach: smart heuristics + NLP where beneficial.
-    Returns exactly the 6 metrics used in STORM paper for clean comparison.
+    This class orchestrates the evaluation process but delegates all
+    metric calculations to the centralized metrics module.
     """
 
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
-
-        # Initialize metric calculators (now with hybrid approach)
-        self.rouge_metrics = ROUGEMetrics()
-        self.entity_metrics = EntityMetrics()
-        self.heading_metrics = HeadingMetrics()
-
-        self.logger.info("SimpleEvaluator initialized with hybrid metrics")
+        self.logger.info("ArticleEvaluator initialized with consolidated metrics")
 
     def evaluate_article(
         self, article: Article, reference: FreshWikiEntry
     ) -> Dict[str, float]:
         """
-        Evaluate article using STORM paper metrics only.
+        Evaluate article using STORM paper metrics.
 
-        Returns the 5 core STORM metrics in percentage scale (0-100):
-        - rouge_1, rouge_l (content overlap)
-        - heading_soft_recall (topic coverage)
-        - heading_entity_recall (entities in headings)
-        - article_entity_recall (overall factual coverage)
+        Args:
+            article: Generated article object with content
+            reference: FreshWiki reference entry with content and outline
+
+        Returns:
+            Dictionary with all STORM metrics in percentage scale (0-100):
+            - rouge_1, rouge_l (content overlap)
+            - heading_soft_recall (topic coverage)
+            - heading_entity_recall (entities in headings)
+            - article_entity_recall (overall factual coverage)
         """
         try:
-            metrics = {}
+            # Delegate all metric calculation to the metrics module
+            metrics = evaluate_article_metrics(
+                article_content=article.content,
+                reference_content=reference.reference_content,
+                reference_headings=reference.reference_outline,
+            )
 
-            # 1. ROUGE Metrics (Content Overlap) - using smart preprocessing
-            rouge_scores = self.rouge_metrics.calculate_all_rouge(
-                article.content, reference.reference_content
-            )
-            # Convert ROUGE scores to percentage scale (0-100)
-            for metric, score in rouge_scores.items():
-                metrics[metric] = score * 100.0
-
-            # 2. Heading Soft Recall (HSR) - using semantic similarity
-            generated_headings = self.heading_metrics.extract_headings_from_content(
-                article.content
-            )
-            hsr_score = self.heading_metrics.calculate_heading_soft_recall(
-                generated_headings, reference.reference_outline
-            )
-            metrics["heading_soft_recall"] = hsr_score * 100.0
-
-            # 3. Heading Entity Recall (HER) - entities specifically in headings
-            her_score = self._calculate_heading_entity_recall(
-                generated_headings, reference.reference_outline
-            )
-            metrics["heading_entity_recall"] = her_score * 100.0
-
-            # 4. Article Entity Recall (AER) - overall factual coverage using smart heuristics
-            aer_score = self.entity_metrics.calculate_overall_entity_recall(
-                article.content, reference.reference_content
-            )
-            metrics["article_entity_recall"] = aer_score * 100.0
+            # Validate metrics are within expected ranges
+            if not validate_metrics(metrics):
+                self.logger.warning("Some metrics are outside expected ranges")
 
             self.logger.debug(f"Evaluation completed: {metrics}")
             return metrics
 
         except Exception as e:
             self.logger.error(f"Evaluation failed: {e}")
-            # Return zeros for all STORM metrics on failure (in percentage scale)
-            return {
-                "rouge_1": 0.0,
-                "rouge_l": 0.0,
-                "heading_soft_recall": 0.0,
-                "heading_entity_recall": 0.0,
-                "article_entity_recall": 0.0,
-            }
-
-    def _calculate_heading_entity_recall(
-        self, generated_headings: list, reference_headings: list
-    ) -> float:
-        """
-        Calculate Heading Entity Recall (HER) using entity extraction on headings only.
-
-        This measures how many entities from reference headings appear in generated headings.
-        """
-        self.logger.debug("=== Heading Entity Recall Calculation ===")
-        self.logger.debug(f"Generated headings: {generated_headings}")
-        self.logger.debug(f"Reference headings: {reference_headings}")
-
-        if not reference_headings or not generated_headings:
-            self.logger.debug("Missing headings, returning 0.0")
-            return 0.0
-
-        # Convert heading lists to text for entity extraction
-        ref_heading_text = " ".join(reference_headings)
-        gen_heading_text = " ".join(generated_headings)
-
-        self.logger.debug(f"Reference heading text: {ref_heading_text}")
-        self.logger.debug(f"Generated heading text: {gen_heading_text}")
-
-        # Extract entities from headings only
-
-        # Extract entities from each heading individually to avoid cross-heading extraction
-        ref_entities = set()
-        for heading in reference_headings:
-            heading_entities = self.entity_metrics.extract_entities(heading)
-            ref_entities.update(heading_entities)
-            self.logger.debug(
-                f"Reference heading '{heading}' entities: {heading_entities}"
-            )
-
-        gen_entities = set()
-        for heading in generated_headings:
-            heading_entities = self.entity_metrics.extract_entities(heading)
-            gen_entities.update(heading_entities)
-            self.logger.debug(
-                f"Generated heading '{heading}' entities: {heading_entities}"
-            )
-
-        self.logger.debug(f"All reference heading entities: {ref_entities}")
-        self.logger.debug(f"All generated heading entities: {gen_entities}")
-
-        if not ref_entities:
-            self.logger.debug(
-                "No reference heading entities, returning 0.0 (undefined HER)"
-            )
-            return 0.0
-
-        # Calculate overlap
-        overlap = len(ref_entities.intersection(gen_entities))
-        common_entities = ref_entities.intersection(gen_entities)
-        self.logger.debug(f"Common heading entities ({overlap}): {common_entities}")
-        recall = overlap / len(ref_entities)
-        self.logger.debug(
-            f"Heading Entity Recall: {overlap}/{len(ref_entities)} = {recall}"
-        )
-        return recall
+            # Return zeros for all STORM metrics on failure
+            return {metric: 0.0 for metric in STORM_METRICS}
 
     @staticmethod
     def get_metric_descriptions() -> Dict[str, str]:
         """Get descriptions of STORM metrics for documentation."""
-        return {
-            "rouge_1": "STORM: Unigram overlap between generated and reference content (0-100%)",
-            "rouge_l": "STORM: Longest common subsequence overlap (0-100%)",
-            "heading_soft_recall": "STORM HSR: Semantic topic coverage in headings (0-100%)",
-            "heading_entity_recall": "STORM HER: Entity coverage in headings only (0-100%)",
-            "article_entity_recall": "STORM AER: Overall factual content coverage (0-100%)",
+        return METRIC_DESCRIPTIONS.copy()
+
+    @staticmethod
+    def get_supported_metrics() -> list:
+        """Get list of supported metric names."""
+        return STORM_METRICS.copy()
+
+    def evaluate_batch(
+        self, articles_and_references: list
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Evaluate multiple articles in batch.
+
+        Args:
+            articles_and_references: List of (article, reference) tuples
+
+        Returns:
+            Dictionary mapping article identifiers to metric results
+        """
+        results = {}
+
+        for i, (article, reference) in enumerate(articles_and_references):
+            try:
+                article_id = getattr(article, "id", f"article_{i}")
+                results[article_id] = self.evaluate_article(article, reference)
+                self.logger.debug(f"Evaluated article {article_id}")
+            except Exception as e:
+                self.logger.error(f"Failed to evaluate article {i}: {e}")
+                results[f"article_{i}"] = {metric: 0.0 for metric in STORM_METRICS}
+
+        self.logger.info(f"Batch evaluation completed for {len(results)} articles")
+        return results
+
+    def get_evaluation_summary(self, metrics: Dict[str, float]) -> Dict[str, str]:
+        """
+        Get a human-readable summary of evaluation results.
+
+        Args:
+            metrics: Dictionary of metric values
+
+        Returns:
+            Dictionary with formatted summary information
+        """
+        from src.evaluation.metrics import (
+            calculate_composite_score,
+            format_metrics_for_display,
+        )
+
+        formatted_metrics = format_metrics_for_display(metrics)
+        composite_score = calculate_composite_score(metrics)
+
+        summary = {
+            "composite_score": f"{composite_score:.2f}%",
+            "content_overlap": f"ROUGE-1: {formatted_metrics.get('rouge_1', '0.00%')}, ROUGE-L: {formatted_metrics.get('rouge_l', '0.00%')}",
+            "heading_coverage": f"HSR: {formatted_metrics.get('heading_soft_recall', '0.00%')}, HER: {formatted_metrics.get('heading_entity_recall', '0.00%')}",
+            "entity_coverage": f"AER: {formatted_metrics.get('article_entity_recall', '0.00%')}",
+            "overall_quality": self._assess_overall_quality(composite_score),
         }
+
+        return summary
+
+    def _assess_overall_quality(self, composite_score: float) -> str:
+        """Provide qualitative assessment of overall quality."""
+        if composite_score >= 80:
+            return "Excellent"
+        elif composite_score >= 70:
+            return "Good"
+        elif composite_score >= 60:
+            return "Satisfactory"
+        elif composite_score >= 50:
+            return "Needs Improvement"
+        else:
+            return "Poor"
