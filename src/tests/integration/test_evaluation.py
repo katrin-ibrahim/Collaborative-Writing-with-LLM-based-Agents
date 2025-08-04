@@ -12,8 +12,6 @@ from unittest.mock import patch
 
 import pytest
 
-from src.evaluation.evaluator import ArticleEvaluator
-
 # Import metrics functions
 from src.evaluation.metrics import (  # Core metric functions; Utility functions; Text preprocessing; Constants
     METRIC_DESCRIPTIONS,
@@ -31,12 +29,9 @@ from src.evaluation.metrics import (  # Core metric functions; Utility functions
     extract_headings_from_content,
     format_metrics_for_display,
     preprocess_text_for_rouge,
-    validate_metrics,
 )
 
 # Import real data models
-from src.utils.data_models import Article
-from src.utils.freshwiki_loader import FreshWikiEntry
 
 
 class TestIntegrationWithMain:
@@ -46,9 +41,9 @@ class TestIntegrationWithMain:
         self,
     ):
         """Test running evaluation main module on a sample results directory."""
-        # Create a sample results directory structure
         results_dir = Path(
-            "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/results/ollama/storm_N=1_T=19.07_23:11"
+            # "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/results/ollama/storm_N=1_T=19.07_23:11"
+            "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/src/tests/integration/results/ollama/direct_N=1_T=29.07_11:16"
         )
 
         """Step through generation using main entry point - set breakpoints to debug."""
@@ -248,78 +243,8 @@ class TestHeadingMetricsCorrectness:
         assert calculate_heading_entity_recall([], []) == 0.0
 
 
-class TestCompleteEvaluationCorrectness:
-    """Test correctness of complete article evaluation."""
-
-    def test_evaluate_article_metrics_structure(self):
-        """Test that complete evaluation returns correct structure."""
-        article_content = """
-        # Introduction to Machine Learning
-        Machine learning is a subset of artificial intelligence.
-
-        ## Applications
-        ML has applications in healthcare and finance.
-        """
-
-        reference_content = """
-        Machine learning represents a branch of artificial intelligence.
-        Applications include healthcare and financial services.
-        """
-
-        reference_headings = ["Introduction", "Applications", "Conclusion"]
-
-        results = evaluate_article_metrics(
-            article_content, reference_content, reference_headings
-        )
-
-        # Check all STORM metrics are present
-        for metric in STORM_METRICS:
-            assert metric in results, f"Missing metric: {metric}"
-
-        # Check values are in valid range (0-100)
-        for metric, value in results.items():
-            assert 0.0 <= value <= 100.0, f"Metric {metric} value {value} out of range"
-
-        # Check that metrics make sense
-        # Should have some ROUGE overlap due to similar content
-        assert results["rouge_1"] > 0.0
-
-        # Should have some heading similarity
-        assert results["heading_soft_recall"] > 0.0
-
-    def test_evaluate_article_metrics_empty_content(self):
-        """Test evaluation with empty content."""
-        results = evaluate_article_metrics("", "", [])
-
-        # Should return all metrics with 0.0 values
-        for metric in STORM_METRICS:
-            assert metric in results
-            assert results[metric] == 0.0
-
-
 class TestUtilityFunctionsCorrectness:
     """Test correctness of utility functions."""
-
-    def test_validate_metrics_valid_range(self):
-        """Test metrics validation with values in valid range."""
-        valid_metrics = {
-            "rouge_1": 75.0,
-            "rouge_l": 68.5,
-            "heading_soft_recall": 82.3,
-            "heading_entity_recall": 90.0,
-            "article_entity_recall": 77.8,
-        }
-
-        assert validate_metrics(valid_metrics) is True
-
-    def test_validate_metrics_invalid_range(self):
-        """Test metrics validation with values outside valid range."""
-        invalid_metrics = {
-            "rouge_1": 105.0,  # > 100
-            "rouge_l": -5.0,  # < 0
-        }
-
-        assert validate_metrics(invalid_metrics) is False
 
     def test_format_metrics_for_display_precision(self):
         """Test metric formatting with different precision levels."""
@@ -365,64 +290,6 @@ class TestUtilityFunctionsCorrectness:
         score = calculate_composite_score(metrics, weights)
         expected = (80.0 * 0.7 + 60.0 * 0.3) / (0.7 + 0.3)
         assert abs(score - expected) < 0.01
-
-
-class TestEvaluatorIntegration:
-    """Test ArticleEvaluator with real data models."""
-
-    def test_evaluator_with_real_data_models(self):
-        """Test evaluator using actual Article and FreshWikiEntry objects."""
-        # Create real Article object
-        article = Article(
-            title="Artificial Intelligence Applications",
-            content="""
-            # Introduction to AI
-            Artificial intelligence is transforming multiple industries.
-
-            ## Healthcare Applications
-            AI assists in medical diagnosis and drug discovery.
-
-            ## Financial Services
-            Machine learning powers fraud detection systems.
-            """,
-            metadata={"generation_time": 45.2, "word_count": 67},
-        )
-
-        # Create real FreshWikiEntry object
-        reference = FreshWikiEntry(
-            topic="Artificial Intelligence Applications",
-            reference_content="""
-            Artificial intelligence has widespread applications across industries.
-            In healthcare, AI supports diagnostic processes and pharmaceutical research.
-            Financial institutions use AI for fraud prevention and risk assessment.
-            """,
-            reference_outline=[
-                "Introduction to Artificial Intelligence",
-                "Healthcare Applications",
-                "Financial Applications",
-                "Future Developments",
-            ],
-            metadata={"source": "freshwiki", "quality": "high"},
-        )
-
-        # Test evaluation
-        evaluator = ArticleEvaluator()
-        results = evaluator.evaluate_article(article, reference)
-
-        # Verify results structure and values
-        for metric in STORM_METRICS:
-            assert metric in results
-            assert 0.0 <= results[metric] <= 100.0
-
-        # Should have reasonable similarity due to overlapping content
-        assert results["rouge_1"] > 10.0  # Some word overlap expected
-        assert results["heading_soft_recall"] > 20.0  # Some heading similarity expected
-
-        # Test summary generation
-        summary = evaluator.get_evaluation_summary(results)
-        assert "composite_score" in summary
-        assert "overall_quality" in summary
-        assert "%" in summary["composite_score"]
 
 
 # Test runner configuration

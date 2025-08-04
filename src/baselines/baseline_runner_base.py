@@ -190,8 +190,21 @@ class BaseRunner(ABC):
                 method_results = self.run_direct_batch(topics)
             elif method == "rag":
                 method_results = self.run_rag_batch(topics)
+            elif method == "storm" and hasattr(self, "run_storm_batch"):
+                method_results = self.run_storm_batch(topics)
+            elif hasattr(self, f"run_{method}"):
+                # Fallback: try to call run_{method} for single topics
+                method_results = []
+                single_method_func = getattr(self, f"run_{method}")
+                for topic in topics:
+                    try:
+                        result = single_method_func(topic)
+                        method_results.append(result)
+                    except Exception as e:
+                        logger.error(f"Failed to run {method} for {topic}: {e}")
+                        method_results.append(error_article(topic, str(e), method))
             else:
-                logger.warning(f"Unknown method: {method}")
+                logger.warning(f"Method '{method}' not implemented in this runner")
                 continue
 
             results.extend(method_results)

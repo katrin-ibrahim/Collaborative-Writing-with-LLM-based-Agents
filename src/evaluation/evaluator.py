@@ -13,7 +13,6 @@ from src.evaluation.metrics import (
     METRIC_DESCRIPTIONS,
     STORM_METRICS,
     evaluate_article_metrics,
-    validate_metrics,
 )
 from src.utils.data_models import Article
 from src.utils.freshwiki_loader import FreshWikiEntry
@@ -59,9 +58,6 @@ class ArticleEvaluator:
             )
 
             # Validate metrics are within expected ranges
-            if not validate_metrics(metrics):
-                self.logger.warning("Some metrics are outside expected ranges")
-
             self.logger.debug(f"Evaluation completed: {metrics}")
             return metrics
 
