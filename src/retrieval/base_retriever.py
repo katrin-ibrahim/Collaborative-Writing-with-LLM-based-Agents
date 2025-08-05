@@ -20,6 +20,7 @@ class BaseRetriever(ABC):
         queries: Union[str, List[str]],
         max_results: int = 8,
         format_type: str = "rag",
+        topic: str = None,
         **kwargs
     ) -> List[str]:
         """

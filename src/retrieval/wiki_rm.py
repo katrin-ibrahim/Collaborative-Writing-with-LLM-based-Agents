@@ -80,6 +80,7 @@ class WikiRM(BaseRetriever):
         queries: Union[str, List[str]],
         max_results: int = 8,
         format_type: str = "rag",
+        topic: str = None,
         **kwargs,
     ) -> List:
         """
@@ -96,7 +97,7 @@ class WikiRM(BaseRetriever):
         all_results = []
 
         for query in query_list:
-            query_results = self._search_single_query(query, format_type)
+            query_results = self._search_single_query(topic, query, format_type)
             all_results.extend(query_results)
 
             # Early termination if we have enough results
@@ -131,7 +132,9 @@ class WikiRM(BaseRetriever):
             logger.error(f"Wikipedia not available: {e}")
             return False
 
-    def _search_single_query(self, query: str, format_type: str) -> List[Dict]:
+    def _search_single_query(
+        self, topic: str, query: str, format_type: str
+    ) -> List[Dict]:
         """Search for a single query and return structured results."""
         # Check cache first
         cache_key = self._get_cache_key(query)
@@ -151,7 +154,7 @@ class WikiRM(BaseRetriever):
             # Process pages in parallel for speed
             with ThreadPoolExecutor(max_workers=3) as executor:
                 future_to_title = {
-                    executor.submit(self._extract_page_content, title, query): title
+                    executor.submit(self._extract_page_content, title, topic): title
                     for title in search_results[: self.max_articles]
                 }
 
@@ -178,45 +181,42 @@ class WikiRM(BaseRetriever):
         try:
             page = wikipedia.page(page_title, auto_suggest=False)
 
-            # Add summary as first result
-            if page.summary:
-                results.append(
-                    {
-                        "title": page.title,
-                        "section": "Summary",
-                        "content": page.summary.strip(),
-                        "url": page.url,
-                        "relevance": self._calculate_relevance(
-                            page.title, original_query
-                        ),
-                        "source": "wikipedia",
-                    }
-                )
-
-            # Add top sections
+            # Get all available content items
             if hasattr(page, "sections") and page.sections:
-                top_sections = self._get_relevant_sections(page, original_query)
+                content_items = page.sections
+                content_type = "sections"
+            elif hasattr(page, "content") and page.content:
+                # Create chunks from full content
+                content_items = self._create_content_chunks(page.content)
+                content_type = "chunks"
+            else:
+                return results
 
-                for section_title in top_sections[: self.max_sections]:
-                    try:
-                        section_content = page.section(section_title)
-                        if section_content and len(section_content.strip()) > 100:
-                            results.append(
-                                {
-                                    "title": page.title,
-                                    "section": section_title,
-                                    "content": section_content.strip()[
-                                        :2000
-                                    ],  # Limit length
-                                    "url": page.url,
-                                    "relevance": self._calculate_relevance(
-                                        section_title, original_query
-                                    ),
-                                    "source": "wikipedia",
-                                }
-                            )
-                    except Exception:
-                        continue  # Skip problematic sections
+            # Apply unified semantic filtering
+            relevant_items = self._get_relevant_content(content_items, original_query)
+
+            # Process the filtered items
+            for i, item in enumerate(relevant_items):
+                try:
+                    if content_type == "sections":
+                        content = page.section(item)
+                        section_name = item
+                    else:  # chunks
+                        content = item  # item is already the content chunk
+                        section_name = f"Content Part {i + 1}"
+
+                    if content and len(content.strip()) > 100:
+                        results.append(
+                            {
+                                "title": page.title,
+                                "section": section_name,
+                                "content": content.strip()[:2000],
+                                "url": page.url,
+                                "source": "wikipedia",
+                            }
+                        )
+                except Exception:
+                    continue  # Skip problematic sections/chunks
 
         except wikipedia.exceptions.DisambiguationError as e:
             # Try first disambiguation option
@@ -233,105 +233,112 @@ class WikiRM(BaseRetriever):
 
         return results
 
-    def _get_relevant_sections(self, page, query: str) -> List[str]:
-        """Get the most relevant sections based on semantic similarity to query."""
-        if not hasattr(page, "sections") or not page.sections:
+    def _get_relevant_content(self, content_items: List[str], query: str) -> List[str]:
+        """Get the most relevant content items based on semantic similarity to query."""
+        if not content_items:
             return []
 
-        sections = page.sections[:20]  # Consider more sections for filtering
+        # Calculate similarities directly with content items
+        similarities = self._calculate_section_similarities(query, content_items)
 
-        if not self.semantic_enabled or len(sections) <= self.max_sections:
-            # Fallback to original behavior
-            return sections[: self.max_sections]
+        # Filter by threshold and take top items
+        relevant_items = [
+            item
+            for item, score in similarities
+            if score >= DEFAULT_RETRIEVAL_CONFIG.similarity_threshold
+        ]
 
-        try:
-            # Create section candidates with context
-            section_candidates = []
-            for section in sections:
-                # Combine page title and section for better context
-                section_text = f"{page.title} - {section}"
-                section_candidates.append((section, section_text))
+        # Take top items (with minimum guarantee)
+        if len(relevant_items) < 2:
+            relevant_items = [s[0] for s in similarities[: self.max_sections]]
 
-            # Calculate similarities
-            section_scores = self._calculate_section_similarities(
-                query, section_candidates
-            )
+        return relevant_items[: self.max_sections]
 
-            # Filter by threshold and take top sections
-            relevant_sections = [
-                section
-                for section, score in section_scores
-                if score >= DEFAULT_RETRIEVAL_CONFIG.similarity_threshold
+    def _create_content_chunks(self, content: str) -> List[str]:
+        """Create meaningful chunks from full page content."""
+        # Split by paragraphs first
+        paragraphs = [p.strip() for p in content.split("\n\n") if len(p.strip()) > 50]
+
+        if not paragraphs:
+            # Fallback: split by sentences if no paragraphs
+            sentences = [
+                s.strip() + "." for s in content.split(".") if len(s.strip()) > 20
             ]
+            if sentences:
+                paragraphs = sentences
+            else:
+                return [content[:2000]]
 
-            # Ensure we have at least some sections
-            if len(relevant_sections) < 2:
-                relevant_sections = [s[0] for s in section_scores[: self.max_sections]]
+        # Combine paragraphs into ~1000-1500 character chunks
+        chunks = []
+        current_chunk = ""
 
-            return relevant_sections[: self.max_sections]
+        for para in paragraphs:
+            if len(current_chunk + para) > 1500 and current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = para
+            else:
+                current_chunk += "\n\n" + para if current_chunk else para
 
-        except Exception as e:
-            logger.warning(f"Semantic filtering failed: {e}. Using fallback.")
-            return sections[: self.max_sections]
+        # Add remaining content
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        # Ensure we don't have too many tiny chunks
+        if len(chunks) > 10:
+            # Merge small chunks
+            merged_chunks = []
+            temp_chunk = ""
+            for chunk in chunks:
+                if len(temp_chunk + chunk) <= 2000:
+                    temp_chunk += "\n\n" + chunk if temp_chunk else chunk
+                else:
+                    if temp_chunk:
+                        merged_chunks.append(temp_chunk)
+                    temp_chunk = chunk
+            if temp_chunk:
+                merged_chunks.append(temp_chunk)
+            chunks = merged_chunks
+
+        return chunks
 
     def _calculate_section_similarities(
-        self, query: str, section_candidates: List[tuple]
+        self, query: str, content_items: List[str]
     ) -> List[tuple]:
-        """Calculate semantic similarities between query and section candidates."""
-        if not section_candidates:
+        """Calculate semantic similarities between query and content items."""
+        from numpy.linalg import norm
+
+        if not content_items:
             return []
 
-        # Check cache first
+        # Check cache for query embedding
         cache_key = hash(query)
         if cache_key in self.semantic_cache:
-            cached_embedding = self.semantic_cache[cache_key]
+            query_embedding = self.semantic_cache[cache_key]
         else:
-            # Embed the query
-            cached_embedding = self.embedding_model.encode([query])[0]
+            query_embedding = self.embedding_model.encode([query])[0]
 
             # Cache management
             if len(self.semantic_cache) >= DEFAULT_RETRIEVAL_CONFIG.semantic_cache_size:
-                # Remove oldest entries (simple LRU approximation)
                 oldest_key = next(iter(self.semantic_cache))
                 del self.semantic_cache[oldest_key]
 
-            self.semantic_cache[cache_key] = cached_embedding
+            self.semantic_cache[cache_key] = query_embedding
 
-        # Embed section texts
-        section_texts = [candidate[1] for candidate in section_candidates]
-        section_embeddings = self.embedding_model.encode(section_texts)
+        # Encode all content items directly
+        item_embeddings = self.embedding_model.encode(content_items)
 
         # Calculate similarities
-        from numpy.linalg import norm
-
         similarities = []
-
-        for i, (section_name, _) in enumerate(section_candidates):
+        for item, embedding in zip(content_items, item_embeddings):
             # Cosine similarity
-            similarity = np.dot(cached_embedding, section_embeddings[i]) / (
-                norm(cached_embedding) * norm(section_embeddings[i])
+            similarity = np.dot(query_embedding, embedding) / (
+                norm(query_embedding) * norm(embedding)
             )
-            similarities.append((section_name, float(similarity)))
+            similarities.append((item, float(similarity)))
 
         # Sort by similarity score (highest first)
         return sorted(similarities, key=lambda x: x[1], reverse=True)
-
-    def _calculate_relevance(self, text: str, query: str) -> float:
-        """Calculate relevance score between text and query."""
-        if not text or not query:
-            return 0.0
-
-        text_words = set(text.lower().split())
-        query_words = set(query.lower().split())
-
-        if not query_words:
-            return 0.0
-
-        # Jaccard similarity
-        intersection = len(text_words.intersection(query_words))
-        union = len(text_words.union(query_words))
-
-        return intersection / union if union > 0 else 0.0
 
     def _get_cache_key(self, query: str) -> str:
         """Generate cache key for query."""

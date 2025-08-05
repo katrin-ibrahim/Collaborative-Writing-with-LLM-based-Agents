@@ -46,6 +46,7 @@ class RM:
         max_results: int = 8,
         format_type: str = "rag",
         deduplicate: bool = True,
+        topic: str = None,
         **kwargs,
     ) -> List[str]:
         """
@@ -82,6 +83,7 @@ class RM:
                 queries=query_list,
                 max_results=max_results,
                 format_type=format_type,
+                topic=topic,
                 **kwargs,
             )
 

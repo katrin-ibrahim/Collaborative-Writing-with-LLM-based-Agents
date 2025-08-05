@@ -111,7 +111,9 @@ class BaseRunner(ABC):
 
             # Retrieve context
             passages = retrieval_system.search(
-                topic, max_results=DEFAULT_RETRIEVAL_CONFIG.rag_max_results
+                queries,
+                max_results=DEFAULT_RETRIEVAL_CONFIG.rag_max_results,
+                topic=topic,
             )
             context = self._create_context_from_passages(passages)
             logger.info(f"Created context with {len(context)} characters for {topic}")

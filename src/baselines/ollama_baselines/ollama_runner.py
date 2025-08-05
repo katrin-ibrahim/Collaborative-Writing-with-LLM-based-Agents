@@ -173,7 +173,7 @@ class BaselineRunner(BaseRunner):
             Wikipedia article titles for "{topic}":
             """
 
-            try:  # ✅ Now inside the function!
+            try:
                 from .runner_utils import get_model_wrapper
 
                 wrapper = get_model_wrapper(self.client, self.model_config, "fast")

@@ -140,7 +140,7 @@ Instructions:
 3. Include specific facts, dates, and details from the context
 4. Maintain a neutral, encyclopedic tone
 5. Cite information appropriately
-6. Target 1200-1600 words
+6. Target 1500-2000 words
 
 Write a comprehensive article about {topic}:"""
 

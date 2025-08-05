@@ -36,7 +36,7 @@ class RetrievalConfig:
     # Semantic Filtering Configuration
     semantic_filtering_enabled: bool = True
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    similarity_threshold: float = 0.3
+    similarity_threshold: float = 0.4
     semantic_cache_size: int = 1000
 
     def to_dict(self) -> Dict[str, Any]:
