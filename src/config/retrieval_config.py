@@ -33,6 +33,12 @@ class RetrievalConfig:
     batch_max_workers_rag: int = 2
     batch_max_workers_storm: int = 1
 
+    # Semantic Filtering Configuration
+    semantic_filtering_enabled: bool = True
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    similarity_threshold: float = 0.3
+    semantic_cache_size: int = 1000
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging and serialization."""
         return {
@@ -46,6 +52,12 @@ class RetrievalConfig:
                 "max_articles": self.wiki_max_articles,
                 "max_sections": self.wiki_max_sections,
                 "parallel_workers": self.wiki_parallel_workers,
+            },
+            "semantic": {
+                "filtering_enabled": self.semantic_filtering_enabled,
+                "embedding_model": self.embedding_model,
+                "similarity_threshold": self.similarity_threshold,
+                "cache_size": self.semantic_cache_size,
             },
             "context": {
                 "max_passages": self.context_max_passages,

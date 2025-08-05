@@ -100,12 +100,14 @@ class BaseRunner(ABC):
 
             # Get retrieval system and query generator (runner-specific)
             retrieval_system = self._get_retrieval_system()
-            self._get_query_generator()
+            query_generator = self._get_query_generator()
 
             # Generate search queries
 
-            # queries = query_generator(engine, topic, num_queries=DEFAULT_RETRIEVAL_CONFIG.rag_num_queries)
-            # logger.info(f"Generated {len(queries)} search queries for {topic}")
+            queries = query_generator(
+                engine, topic, num_queries=DEFAULT_RETRIEVAL_CONFIG.rag_num_queries
+            )
+            logger.info(f"Generated {len(queries)} search queries for {topic}")
 
             # Retrieve context
             passages = retrieval_system.search(
@@ -343,6 +345,7 @@ class BaseRunner(ABC):
                     passage = truncated + "..."
 
             context_parts.append(f"[Source {i}]: {passage}")
+        return " ".join(context_parts)
 
     # ---------------------------------------- Utilities ----------------------------------------
     def _create_article(

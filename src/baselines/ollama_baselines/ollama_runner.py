@@ -139,16 +139,41 @@ class BaselineRunner(BaseRunner):
         return self._run_batch_generic("storm", self.run_storm, topics, max_workers)
 
     def _get_query_generator(self):
-        def ollama_query_generator(engine, topic, num_queries=5):
-            prompt = f"""You are searching Wikipedia for information about "{topic}". Generate {num_queries} specific Wikipedia article titles or search terms.
+        def ollama_query_generator(
+            engine, topic: str, num_queries: int = 5
+        ) -> List[str]:
+            prompt = f"""Generate {num_queries} possible Wikipedia article titles related to the topic "{topic}".
 
-    Output ONLY the search terms, one per line, with NO numbering, bullets, or explanations. ex: topic: US Presidents, you might output: Joe Biden, Barack Obama, Donald Trump, etc.
+            Guidelines:
+            - Titles must resemble actual Wikipedia article titles.
+            - Use clear, encyclopedic language — avoid vague or overly broad phrases.
+            - Include topic-specific terms to ensure relevance.
+            - Avoid phrasing like questions, search queries, or casual writing.
 
-    Only output search terms in the same language as the topic. Make sure to include relevant terms that would help find articles about "{topic} and to not include anything that might be irrelevant".
+            Good examples:
+            - Topic: "Music in major and minor keys"
+              "Major and minor keys"
+              "Tonal harmony in Western music"
+              "Harmonic function of major and minor scales"
+            Bad examples:
+              "music keys" (too vague)
+              "how to write in minor key" (too informal)
 
-    Wikipedia search terms for "{topic}":"""
+            - Topic: "Digital photography techniques"
+            Good examples:
+               "Post-processing in digital photography"
+               "Digital photography workflow"
+               "Camera settings in digital photography"
+            Bad examples:
+               "filters" (ambiguous)
+               "best photography tricks" (not encyclopedic)
 
-            try:
+            Only output possible Wikipedia article titles — one per line, no numbering or extra text.
+
+            Wikipedia article titles for "{topic}":
+            """
+
+            try:  # ✅ Now inside the function!
                 from .runner_utils import get_model_wrapper
 
                 wrapper = get_model_wrapper(self.client, self.model_config, "fast")
@@ -162,7 +187,6 @@ class BaselineRunner(BaseRunner):
                 else:
                     content = str(response)
 
-                # Just split lines - NO CLEANING HERE
                 raw_queries = [
                     line.strip() for line in content.split("\n") if line.strip()
                 ]

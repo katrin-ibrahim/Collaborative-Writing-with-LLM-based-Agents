@@ -17,7 +17,9 @@ class TestGenerationIntegration:
             "-b",
             "ollama",
             "-m",
-            "rag storm direct",
+            "rag",
+            "storm",
+            "direct",
             "-n",
             "1",
         ]

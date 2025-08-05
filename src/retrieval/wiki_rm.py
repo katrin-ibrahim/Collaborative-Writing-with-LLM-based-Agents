@@ -14,6 +14,16 @@ from typing import Dict, List, Union
 
 from src.retrieval.base_retriever import BaseRetriever
 
+try:
+    import numpy as np
+    from sentence_transformers import SentenceTransformer
+
+    SEMANTIC_AVAILABLE = True
+except ImportError:
+    SEMANTIC_AVAILABLE = False
+
+from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,13 +45,34 @@ class WikiRM(BaseRetriever):
         self.max_sections = max_sections
         self.cache_dir = cache_dir
 
+        # Add semantic filtering setup
+        self.semantic_enabled = (
+            DEFAULT_RETRIEVAL_CONFIG.semantic_filtering_enabled and SEMANTIC_AVAILABLE
+        )
+        self.embedding_model = None
+        self.semantic_cache = {}
+
+        if self.semantic_enabled:
+            try:
+                self.embedding_model = SentenceTransformer(
+                    DEFAULT_RETRIEVAL_CONFIG.embedding_model
+                )
+                logger.info(
+                    f"Semantic filtering enabled with {DEFAULT_RETRIEVAL_CONFIG.embedding_model}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load embedding model: {e}. Disabling semantic filtering."
+                )
+                self.semantic_enabled = False
+
         # Setup Wikipedia client
         os.makedirs(cache_dir, exist_ok=True)
         wikipedia.set_rate_limiting(True)
         wikipedia.set_lang("en")
 
         logger.info(
-            f"WikiRM initialized (articles={max_articles}, sections={max_sections})"
+            f"WikiRM initialized (articles={max_articles}, sections={max_sections}, semantic={self.semantic_enabled})"
         )
 
     def search(
@@ -203,33 +234,87 @@ class WikiRM(BaseRetriever):
         return results
 
     def _get_relevant_sections(self, page, query: str) -> List[str]:
-        """Get the most relevant sections based on the query."""
-        if not hasattr(page, "sections"):
+        """Get the most relevant sections based on semantic similarity to query."""
+        if not hasattr(page, "sections") or not page.sections:
             return []
 
-        sections = page.sections
-        query_words = set(query.lower().split())
+        sections = page.sections[:20]  # Consider more sections for filtering
 
-        # Score sections by relevance
-        scored_sections = []
-        for section in sections:
-            # Skip very short sections or common generic ones
-            if len(section) < 3 or section.lower() in {
-                "see also",
-                "references",
-                "external links",
-                "notes",
-            }:
-                continue
+        if not self.semantic_enabled or len(sections) <= self.max_sections:
+            # Fallback to original behavior
+            return sections[: self.max_sections]
 
-            # Calculate relevance score
-            section_words = set(section.lower().split())
-            relevance = len(query_words.intersection(section_words))
-            scored_sections.append((relevance, section))
+        try:
+            # Create section candidates with context
+            section_candidates = []
+            for section in sections:
+                # Combine page title and section for better context
+                section_text = f"{page.title} - {section}"
+                section_candidates.append((section, section_text))
 
-        # Sort by relevance and return top sections
-        scored_sections.sort(reverse=True, key=lambda x: x[0])
-        return [section for _, section in scored_sections]
+            # Calculate similarities
+            section_scores = self._calculate_section_similarities(
+                query, section_candidates
+            )
+
+            # Filter by threshold and take top sections
+            relevant_sections = [
+                section
+                for section, score in section_scores
+                if score >= DEFAULT_RETRIEVAL_CONFIG.similarity_threshold
+            ]
+
+            # Ensure we have at least some sections
+            if len(relevant_sections) < 2:
+                relevant_sections = [s[0] for s in section_scores[: self.max_sections]]
+
+            return relevant_sections[: self.max_sections]
+
+        except Exception as e:
+            logger.warning(f"Semantic filtering failed: {e}. Using fallback.")
+            return sections[: self.max_sections]
+
+    def _calculate_section_similarities(
+        self, query: str, section_candidates: List[tuple]
+    ) -> List[tuple]:
+        """Calculate semantic similarities between query and section candidates."""
+        if not section_candidates:
+            return []
+
+        # Check cache first
+        cache_key = hash(query)
+        if cache_key in self.semantic_cache:
+            cached_embedding = self.semantic_cache[cache_key]
+        else:
+            # Embed the query
+            cached_embedding = self.embedding_model.encode([query])[0]
+
+            # Cache management
+            if len(self.semantic_cache) >= DEFAULT_RETRIEVAL_CONFIG.semantic_cache_size:
+                # Remove oldest entries (simple LRU approximation)
+                oldest_key = next(iter(self.semantic_cache))
+                del self.semantic_cache[oldest_key]
+
+            self.semantic_cache[cache_key] = cached_embedding
+
+        # Embed section texts
+        section_texts = [candidate[1] for candidate in section_candidates]
+        section_embeddings = self.embedding_model.encode(section_texts)
+
+        # Calculate similarities
+        from numpy.linalg import norm
+
+        similarities = []
+
+        for i, (section_name, _) in enumerate(section_candidates):
+            # Cosine similarity
+            similarity = np.dot(cached_embedding, section_embeddings[i]) / (
+                norm(cached_embedding) * norm(section_embeddings[i])
+            )
+            similarities.append((section_name, float(similarity)))
+
+        # Sort by similarity score (highest first)
+        return sorted(similarities, key=lambda x: x[1], reverse=True)
 
     def _calculate_relevance(self, text: str, query: str) -> float:
         """Calculate relevance score between text and query."""

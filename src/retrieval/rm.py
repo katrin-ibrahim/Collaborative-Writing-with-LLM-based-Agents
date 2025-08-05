@@ -186,8 +186,3 @@ class RetrievalFactory:
         )
 
         return RM(retriever=wikipedia_retriever)
-
-    @staticmethod
-    def create_custom_rm(retriever: BaseRetriever) -> RM:
-        """Create a RM with a custom retriever implementation."""
-        return RM(retriever=retriever)
