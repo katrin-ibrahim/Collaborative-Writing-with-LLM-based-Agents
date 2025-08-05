@@ -75,6 +75,12 @@ class WikiRM(BaseRetriever):
             f"WikiRM initialized (articles={max_articles}, sections={max_sections}, semantic={self.semantic_enabled})"
         )
 
+    def __call__(self, *args, **kwargs):
+        """
+        Allow direct call to search method for convenience.
+        """
+        return self.search(*args, **kwargs)
+
     def search(
         self,
         queries: Union[str, List[str]],

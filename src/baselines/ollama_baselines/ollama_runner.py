@@ -88,7 +88,7 @@ class BaselineRunner(BaseRunner):
                 client=self.client,
                 config=self.model_config,
                 storm_output_dir=(
-                    self.output_manager.get_storm_output_dir(topic)
+                    self.output_manager.setup_storm_output_dir(topic)
                     if self.output_manager
                     else None
                 ),
@@ -104,11 +104,9 @@ class BaselineRunner(BaseRunner):
             )
 
             # Extract STORM output and create Article
-            from .runner_utils import extract_storm_output_ollama
+            from src.utils.baselines_utils import extract_storm_output
 
-            content, storm_metadata = extract_storm_output_ollama(
-                topic, storm_output_dir
-            )
+            content, storm_metadata = extract_storm_output(topic, storm_output_dir)
 
             # Create Article object
             article = Article(
