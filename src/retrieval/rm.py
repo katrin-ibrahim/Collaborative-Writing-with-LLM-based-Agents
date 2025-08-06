@@ -4,8 +4,9 @@ Eliminates the wrapper hell and provides consistent interface for RAG and STORM.
 """
 
 import logging
-from typing import Dict, List, Union
+from typing import List, Union
 
+from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
 from src.retrieval.base_retriever import BaseRetriever
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,8 @@ class RM:
     def search(
         self,
         queries: Union[str, List[str]],
-        max_results: int = 8,
-        format_type: str = "rag",
+        max_results: int = None,
+        format_type: str = None,
         deduplicate: bool = True,
         topic: str = None,
         **kwargs,
@@ -64,6 +65,12 @@ class RM:
             List of structured dicts for STORM format
         """
         # Normalize input, if a single string is provided, convert to list
+        max_results = (
+            max_results
+            if max_results is not None
+            else DEFAULT_RETRIEVAL_CONFIG.max_articles
+        )
+        format_type = format_type if format_type else "storm"
         if isinstance(queries, str):
             query_list = [queries]
         else:
@@ -106,19 +113,6 @@ class RM:
         except Exception as e:
             logger.error(f"Retrieval failed: {e}")
             raise RuntimeError(f"Retrieval operation failed: {e}") from e
-
-    def get_stats(self) -> Dict:
-        """Get retrieval statistics."""
-        stats = {
-            "retriever_type": self.retriever.get_source_name(),
-            "cache_enabled": self.cache_results,
-            "retriever_available": self.retriever.is_available(),
-        }
-
-        if self.cache_results:
-            stats["cache_size"] = len(self._result_cache)
-
-        return stats
 
     def clear_cache(self):
         """Clear the result cache."""
@@ -179,7 +173,7 @@ class RetrievalFactory:
     """
 
     @staticmethod
-    def create_wikipedia_rm(max_articles: int = 3, max_sections: int = 3) -> RM:
+    def create_wikipedia_rm(max_articles: int = None, max_sections: int = None) -> RM:
         """Create a RM with Wikipedia retrieval."""
         from src.retrieval.wiki_rm import WikiRM
 

@@ -36,10 +36,6 @@ class BaseRetriever(ABC):
             List of passages (format_type="rag") or structured results (format_type="storm")
         """
 
-    @abstractmethod
-    def is_available(self) -> bool:
-        """Check if the retrieval service is available."""
-
     def get_source_name(self) -> str:
         """Return the name of this retrieval source."""
         return self.__class__.__name__

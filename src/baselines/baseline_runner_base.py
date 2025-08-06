@@ -105,14 +105,14 @@ class BaseRunner(ABC):
             # Generate search queries
 
             queries = query_generator(
-                engine, topic, num_queries=DEFAULT_RETRIEVAL_CONFIG.rag_num_queries
+                engine, topic, num_queries=DEFAULT_RETRIEVAL_CONFIG.num_queries
             )
             logger.info(f"Generated {len(queries)} search queries for {topic}")
 
             # Retrieve context
             passages = retrieval_system.search(
                 queries,
-                max_results=DEFAULT_RETRIEVAL_CONFIG.rag_max_results,
+                max_results=DEFAULT_RETRIEVAL_CONFIG.max_results,
                 topic=topic,
             )
             context = self._create_context_from_passages(passages)
@@ -289,11 +289,10 @@ class BaseRunner(ABC):
 
             # Create Wikipedia-based RM
             retrieval_system = RetrievalFactory.create_wikipedia_rm(
-                max_articles=DEFAULT_RETRIEVAL_CONFIG.wiki_max_articles,
-                max_sections=DEFAULT_RETRIEVAL_CONFIG.wiki_max_sections,
+                max_articles=DEFAULT_RETRIEVAL_CONFIG.max_articles,
+                max_sections=DEFAULT_RETRIEVAL_CONFIG.max_sections,
             )
 
-            logger.info(f"Created retrieval system: {retrieval_system.get_stats()}")
             return retrieval_system
 
         except ImportError as e:

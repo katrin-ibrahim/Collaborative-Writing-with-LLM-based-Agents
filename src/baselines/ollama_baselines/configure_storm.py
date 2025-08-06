@@ -47,7 +47,7 @@ def setup_storm_runner(
     default_config = {
         "max_conv_turn": 4,
         "max_perspective": 4,
-        "search_top_k": 5,
+        "search_top_k": 1,
         "max_thread_num": 4,
     }
 

@@ -11,16 +11,14 @@ from typing import Any, Dict
 class RetrievalConfig:
     """Centralized retrieval parameters for consistent evaluation."""
 
-    # RAG Configuration
-    rag_num_queries: int = 7
-    rag_max_results: int = 12
-    rag_max_passages: int = 15
-    rag_passage_max_length: int = 1200
+    num_queries: int = 1
+    max_results: int = 1
+    max_passages: int = 1
+    passage_max_length: int = 600
 
     # Wikipedia Retrieval Configuration
-    wiki_max_articles: int = 5
-    wiki_max_sections: int = 4
-    wiki_parallel_workers: int = 3
+    max_articles: int = 1
+    wiki_parallel_workers: int = 1
 
     # Context Generation Configuration
     context_max_passages: int = 15

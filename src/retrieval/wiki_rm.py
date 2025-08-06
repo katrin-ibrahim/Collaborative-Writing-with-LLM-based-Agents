@@ -8,21 +8,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import json
 import logging
+import numpy as np
 import os
 import wikipedia
-from typing import Dict, List, Union
-
-from src.retrieval.base_retriever import BaseRetriever
-
-try:
-    import numpy as np
-    from sentence_transformers import SentenceTransformer
-
-    SEMANTIC_AVAILABLE = True
-except ImportError:
-    SEMANTIC_AVAILABLE = False
+from sentence_transformers import SentenceTransformer
+from typing import Dict, List, Optional, Union
 
 from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
+from src.retrieval.base_retriever import BaseRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -37,18 +30,20 @@ class WikiRM(BaseRetriever):
 
     def __init__(
         self,
-        max_articles: int = 3,
-        max_sections: int = 3,
+        max_articles: Optional[int] = None,
+        max_sections: Optional[int] = None,
         cache_dir: str = "data/wiki_cache",
     ):
-        self.max_articles = max_articles
-        self.max_sections = max_sections
+        self.max_articles = (
+            max_articles if not None else DEFAULT_RETRIEVAL_CONFIG.max_articles
+        )
+        self.max_sections = (
+            max_sections if not None else DEFAULT_RETRIEVAL_CONFIG.max_sections
+        )
         self.cache_dir = cache_dir
 
         # Add semantic filtering setup
-        self.semantic_enabled = (
-            DEFAULT_RETRIEVAL_CONFIG.semantic_filtering_enabled and SEMANTIC_AVAILABLE
-        )
+        self.semantic_enabled = DEFAULT_RETRIEVAL_CONFIG.semantic_filtering_enabled
         self.embedding_model = None
         self.semantic_cache = {}
 
@@ -94,8 +89,8 @@ class WikiRM(BaseRetriever):
     def search(
         self,
         queries: Union[str, List[str]],
-        max_results: int = 8,
-        format_type: str = "rag",
+        max_results: int = None,
+        format_type: str = None,
         topic: str = None,
         **kwargs,
     ) -> List:
@@ -103,6 +98,12 @@ class WikiRM(BaseRetriever):
         Single search method that handles both RAG and STORM formats.
         Eliminates the need for separate search() and retrieve() methods.
         """
+        max_results = (
+            max_results
+            if max_results is not None
+            else DEFAULT_RETRIEVAL_CONFIG.max_articles
+        )
+        format_type = format_type if format_type else "storm"
         # Normalize input
         if isinstance(queries, str):
             query_list = [queries]
@@ -137,16 +138,6 @@ class WikiRM(BaseRetriever):
 
         else:
             raise ValueError(f"Unknown format_type: {format_type}")
-
-    def is_available(self) -> bool:
-        """Check if Wikipedia is accessible - fail clearly if not."""
-        try:
-            # Simple test search
-            test_results = wikipedia.search("test", results=1)
-            return len(test_results) > 0
-        except Exception as e:
-            logger.error(f"Wikipedia not available: {e}")
-            return False
 
     def _search_single_query(
         self, topic: str, query: str, format_type: str
@@ -344,6 +335,10 @@ class WikiRM(BaseRetriever):
         from numpy.linalg import norm
 
         if not content_items:
+            return []
+
+        if query is None or not query.strip():
+            logger.warning("Empty query provided for semantic similarity calculation.")
             return []
 
         try:
