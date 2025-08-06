@@ -1,6 +1,6 @@
 """
 Centralized configuration for all retrieval and context generation parameters.
-Replaces scattered hardcoded k values throughout the codebase.
+Eliminates redundancy and provides consistent naming.
 """
 
 from dataclasses import dataclass
@@ -9,27 +9,30 @@ from typing import Any, Dict
 
 @dataclass
 class RetrievalConfig:
-    """Centralized retrieval parameters for consistent evaluation."""
+    """Truly unified retrieval parameters - eliminates all redundancy."""
 
-    num_queries: int = 1
-    max_results: int = 1
-    max_passages: int = 1
+    # Single Source of Truth for Retrieval Flow
+    num_queries: int = 1  # How many search queries to generate
+    results_per_query: int = (
+        1  # How many results per query (replaces max_results_per_query, search_top_k, wiki_max_articles)
+    )
+    max_content_pieces: int = (
+        1  # How many sections/chunks per result (replaces wiki_max_sections)
+    )
+    final_passages: int = (
+        1  # Final context size (replaces max_final_passages, retrieve_top_k)
+    )
+
+    # Content Processing
     passage_max_length: int = 600
-
-    # Wikipedia Retrieval Configuration
-    max_articles: int = 1
-    wiki_parallel_workers: int = 1
-
-    # Context Generation Configuration
-    context_max_passages: int = 15
-    context_passage_max_length: int = 1200
-    context_min_passage_length: int = 100
+    passage_min_length: int = 100
 
     # Batch Processing Configuration
-    batch_parallel_threshold: int = 3
-    batch_max_workers_direct: int = 3
-    batch_max_workers_rag: int = 2
-    batch_max_workers_storm: int = 1
+    parallel_threshold: int = 3  # Threshold for parallel processing
+    max_workers_direct: int = 3
+    max_workers_rag: int = 2
+    max_workers_storm: int = 1
+    max_workers_wiki: int = 1
 
     # Semantic Filtering Configuration
     semantic_filtering_enabled: bool = True
@@ -40,16 +43,18 @@ class RetrievalConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging and serialization."""
         return {
-            "rag": {
-                "num_queries": self.rag_num_queries,
-                "max_results": self.rag_max_results,
-                "max_passages": self.rag_max_passages,
-                "passage_max_length": self.rag_passage_max_length,
+            "retrieval_flow": {
+                "num_queries": self.num_queries,
+                "results_per_query": self.results_per_query,
+                "max_content_pieces": self.max_content_pieces,
+                "final_passages": self.final_passages,
             },
-            "wikipedia": {
-                "max_articles": self.wiki_max_articles,
-                "max_sections": self.wiki_max_sections,
-                "parallel_workers": self.wiki_parallel_workers,
+            "content": {
+                "max_length": self.passage_max_length,
+                "min_length": self.passage_min_length,
+            },
+            "wiki": {
+                "parallel_workers": self.max_workers_wiki,
             },
             "semantic": {
                 "filtering_enabled": self.semantic_filtering_enabled,
@@ -57,17 +62,12 @@ class RetrievalConfig:
                 "similarity_threshold": self.similarity_threshold,
                 "cache_size": self.semantic_cache_size,
             },
-            "context": {
-                "max_passages": self.context_max_passages,
-                "passage_max_length": self.context_passage_max_length,
-                "min_passage_length": self.context_min_passage_length,
-            },
             "batch": {
                 "parallel_threshold": self.batch_parallel_threshold,
                 "max_workers": {
-                    "direct": self.batch_max_workers_direct,
-                    "rag": self.batch_max_workers_rag,
-                    "storm": self.batch_max_workers_storm,
+                    "direct": self.max_workers_direct,
+                    "rag": self.max_workers_rag,
+                    "storm": self.max_workers_storm,
                 },
             },
         }
@@ -79,15 +79,28 @@ class RetrievalConfig:
 
     def validate(self) -> bool:
         """Validate configuration parameters."""
-        if self.rag_num_queries <= 0 or self.rag_max_results <= 0:
+        if self.num_queries <= 0 or self.results_per_query <= 0:
             return False
-        if self.wiki_max_articles <= 0 or self.wiki_max_sections <= 0:
+        if self.max_content_pieces <= 0 or self.final_passages <= 0:
             return False
-        if self.context_max_passages <= 0 or self.context_passage_max_length <= 0:
-            return False
-        if self.batch_parallel_threshold <= 0:
+        if self.passage_max_length <= 0 or self.batch_parallel_threshold <= 0:
             return False
         return True
+
+    def get_storm_config(self) -> Dict[str, Any]:
+        """Get STORM-compatible configuration mapping."""
+        return {
+            "max_search_queries_per_turn": self.num_queries,
+            "search_top_k": self.results_per_query,
+            "retrieve_top_k": self.final_passages,
+        }
+
+    def get_wiki_config(self) -> Dict[str, Any]:
+        """Get WikiRM-compatible configuration mapping."""
+        return {
+            "max_articles": self.results_per_query,
+            "max_sections": self.max_content_pieces,
+        }
 
 
 # Global default instance

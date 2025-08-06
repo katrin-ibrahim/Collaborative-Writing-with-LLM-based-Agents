@@ -112,7 +112,7 @@ class BaseRunner(ABC):
             # Retrieve context
             passages = retrieval_system.search(
                 queries,
-                max_results=DEFAULT_RETRIEVAL_CONFIG.max_results,
+                max_results=DEFAULT_RETRIEVAL_CONFIG.results_per_query,
                 topic=topic,
             )
             context = self._create_context_from_passages(passages)
@@ -158,8 +158,8 @@ class BaseRunner(ABC):
     ) -> List[Article]:
         if max_workers is None:
             max_workers = (
-                DEFAULT_RETRIEVAL_CONFIG.batch_max_workers_direct
-                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.batch_parallel_threshold
+                DEFAULT_RETRIEVAL_CONFIG.max_workers_direct
+                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.parallel_threshold
                 else 1
             )
         """Run direct prompting in parallel - shared implementation."""
@@ -171,8 +171,8 @@ class BaseRunner(ABC):
         """Run RAG in parallel - shared implementation."""
         if max_workers is None:
             max_workers = (
-                DEFAULT_RETRIEVAL_CONFIG.batch_max_workers_rag
-                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.batch_parallel_threshold
+                DEFAULT_RETRIEVAL_CONFIG.max_workers_rag
+                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.parallel_threshold
                 else 1
             )
         return self._run_batch_generic("rag", self.run_rag, topics, max_workers)
@@ -247,7 +247,7 @@ class BaseRunner(ABC):
                 return error_article(topic, str(e), f"{method}_batch")
 
         # Only use threading when we have enough topics to benefit
-        if len(remaining_topics) < DEFAULT_RETRIEVAL_CONFIG.batch_parallel_threshold:
+        if len(remaining_topics) < DEFAULT_RETRIEVAL_CONFIG.parallel_threshold:
             # Sequential processing for small batches
             logger.info(f"Processing {len(remaining_topics)} topics sequentially")
             for topic in remaining_topics:
@@ -289,8 +289,8 @@ class BaseRunner(ABC):
 
             # Create Wikipedia-based RM
             retrieval_system = RetrievalFactory.create_wikipedia_rm(
-                max_articles=DEFAULT_RETRIEVAL_CONFIG.max_articles,
-                max_sections=DEFAULT_RETRIEVAL_CONFIG.max_sections,
+                max_articles=DEFAULT_RETRIEVAL_CONFIG.num_queries,
+                max_sections=DEFAULT_RETRIEVAL_CONFIG.results_per_query,
             )
 
             return retrieval_system
@@ -310,7 +310,7 @@ class BaseRunner(ABC):
         self, passages: List[str], max_passages: int = None
     ) -> str:
         if max_passages is None:
-            max_passages = DEFAULT_RETRIEVAL_CONFIG.context_max_passages
+            max_passages = DEFAULT_RETRIEVAL_CONFIG.max_content_pieces
 
         if not passages:
             raise ValueError("No passages provided for context creation")
@@ -320,8 +320,7 @@ class BaseRunner(ABC):
         for passage in passages:
             if (
                 passage
-                and len(passage.strip())
-                >= DEFAULT_RETRIEVAL_CONFIG.context_min_passage_length
+                and len(passage.strip()) >= DEFAULT_RETRIEVAL_CONFIG.passage_min_length
             ):
                 quality_passages.append(passage.strip())
 
@@ -331,16 +330,11 @@ class BaseRunner(ABC):
 
         for i, passage in enumerate(top_passages, 1):
             # Enhanced length handling
-            if len(passage) > DEFAULT_RETRIEVAL_CONFIG.context_passage_max_length:
+            if len(passage) > DEFAULT_RETRIEVAL_CONFIG.passage_max_length:
                 # Smart truncation: try to end at sentence boundary
-                truncated = passage[
-                    : DEFAULT_RETRIEVAL_CONFIG.context_passage_max_length
-                ]
+                truncated = passage[: DEFAULT_RETRIEVAL_CONFIG.passage_max_length]
                 last_period = truncated.rfind(".")
-                if (
-                    last_period
-                    > DEFAULT_RETRIEVAL_CONFIG.context_passage_max_length * 0.8
-                ):
+                if last_period > DEFAULT_RETRIEVAL_CONFIG.passage_max_length * 0.8:
                     passage = truncated[: last_period + 1]
                 else:
                     passage = truncated + "..."

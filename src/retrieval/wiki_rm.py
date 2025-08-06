@@ -35,10 +35,10 @@ class WikiRM(BaseRetriever):
         cache_dir: str = "data/wiki_cache",
     ):
         self.max_articles = (
-            max_articles if not None else DEFAULT_RETRIEVAL_CONFIG.max_articles
+            max_articles if not None else DEFAULT_RETRIEVAL_CONFIG.num_queries
         )
         self.max_sections = (
-            max_sections if not None else DEFAULT_RETRIEVAL_CONFIG.max_sections
+            max_sections if not None else DEFAULT_RETRIEVAL_CONFIG.results_per_query
         )
         self.cache_dir = cache_dir
 
@@ -101,7 +101,7 @@ class WikiRM(BaseRetriever):
         max_results = (
             max_results
             if max_results is not None
-            else DEFAULT_RETRIEVAL_CONFIG.max_articles
+            else DEFAULT_RETRIEVAL_CONFIG.num_queries
         )
         format_type = format_type if format_type else "storm"
         # Normalize input
@@ -126,10 +126,27 @@ class WikiRM(BaseRetriever):
             # For RAG: return list of content strings
             passages = []
             for result in all_results[:max_results]:
-                if isinstance(result, dict) and "content" in result:
-                    passages.append(result["content"])
-                elif isinstance(result, str):
-                    passages.append(result)
+                if isinstance(result, dict) and "snippets" in result:
+                    snippets = result["snippets"]
+                    if snippets and isinstance(snippets, list):
+                        # Join non-empty snippets
+                        content = "\n\n".join(
+                            snippet
+                            for snippet in snippets
+                            if snippet and snippet.strip()
+                        )
+                        if content:  # Only add if we got actual content
+                            passages.append(content)
+                        else:
+                            logger.warning(
+                                f"Empty content after processing snippets: {result['title'] if 'title' in result else 'Unknown'}"
+                            )
+                    else:
+                        logger.warning(
+                            f"Invalid snippets format: {type(snippets)} - {result.get('title', 'Unknown')}"
+                        )
+                else:
+                    logger.error(f"Missing snippets field in result: {result}")
             return passages
 
         elif format_type == "storm":
@@ -208,18 +225,20 @@ class WikiRM(BaseRetriever):
             relevant_items = self._get_relevant_content(content_items, original_query)
 
             if not relevant_items:
-                # return summary if no relevant items found
-                summary = page.summary.strip()
-                if summary and len(summary) > 100:
-                    results.append(
-                        {
-                            "title": page.title,
-                            "section": "Content",
-                            "content": summary[:2000],
-                            "url": page.url,
-                            "source": "wikipedia",
-                        }
-                    )
+                # ✅ NEW: Return chunks instead of summary, with proper snippets format
+                content_chunks = self._create_content_chunks(page.content)
+                if content_chunks:
+                    for i, chunk in enumerate(content_chunks[: self.max_sections]):
+                        results.append(
+                            {
+                                "title": page.title,
+                                "description": f"Content chunk {i + 1} from {page.title}",
+                                "snippets": [
+                                    chunk[:2000]
+                                ],  # ✅ FIXED: snippets as list
+                                "url": page.url,
+                            }
+                        )
             else:
                 # Process the filtered items
                 for i, item in enumerate(relevant_items):
@@ -235,10 +254,11 @@ class WikiRM(BaseRetriever):
                             results.append(
                                 {
                                     "title": page.title,
-                                    "section": section_name,
-                                    "content": content.strip()[:2000],
+                                    "description": f"{section_name} from {page.title}",
+                                    "snippets": [
+                                        content.strip()[:2000]
+                                    ],  # ✅ FIXED: snippets as list
                                     "url": page.url,
-                                    "source": "wikipedia",
                                 }
                             )
                     except Exception:

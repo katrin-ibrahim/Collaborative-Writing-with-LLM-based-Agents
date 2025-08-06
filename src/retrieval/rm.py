@@ -68,7 +68,7 @@ class RM:
         max_results = (
             max_results
             if max_results is not None
-            else DEFAULT_RETRIEVAL_CONFIG.max_articles
+            else DEFAULT_RETRIEVAL_CONFIG.results_per_query
         )
         format_type = format_type if format_type else "storm"
         if isinstance(queries, str):

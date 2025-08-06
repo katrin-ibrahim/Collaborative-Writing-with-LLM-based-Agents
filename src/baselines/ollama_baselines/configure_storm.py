@@ -8,6 +8,8 @@ from knowledge_storm import (
     STORMWikiRunnerArguments,
 )
 
+from ...config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
+
 # Add src directory to path
 src_dir = Path(__file__).parent.parent.parent
 if str(src_dir) not in sys.path:
@@ -47,7 +49,8 @@ def setup_storm_runner(
     default_config = {
         "max_conv_turn": 4,
         "max_perspective": 4,
-        "search_top_k": 1,
+        "max_search_queries_per_turn": DEFAULT_RETRIEVAL_CONFIG.num_queries,
+        "search_top_k": DEFAULT_RETRIEVAL_CONFIG.results_per_query,
         "max_thread_num": 4,
     }
 
