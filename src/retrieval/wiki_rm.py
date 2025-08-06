@@ -75,11 +75,21 @@ class WikiRM(BaseRetriever):
             f"WikiRM initialized (articles={max_articles}, sections={max_sections}, semantic={self.semantic_enabled})"
         )
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, query=None, **kwargs):
         """
-        Allow direct call to search method for convenience.
+        Make WikiRM instances directly callable for STORM compatibility.
+        Handles both direct query parameter and query_or_queries in kwargs.
         """
-        return self.search(*args, **kwargs)
+        # Check if query is in kwargs as query_or_queries
+        if query is None and "query_or_queries" in kwargs:
+            query = kwargs.pop("query_or_queries")
+
+        # If still no query, return empty list
+        if query is None:
+            logger.error("No query provided to WikiRM.")
+
+        # Forward to search method
+        return self.search(query, **kwargs)
 
     def search(
         self,
@@ -151,8 +161,13 @@ class WikiRM(BaseRetriever):
         results = []
 
         try:
+            if query.startswith("query"):
+                # split query by : and take the part after it
+                query = query.split(":", 1)[-1].strip()
             # Search Wikipedia
-            search_results = wikipedia.search(query, results=self.max_articles)
+            search_results = wikipedia.search(
+                query, results=self.max_articles, suggestion=False
+            )
 
             if not search_results:
                 raise ValueError(f"No Wikipedia results found for query: '{query}'")
@@ -201,28 +216,42 @@ class WikiRM(BaseRetriever):
             # Apply unified semantic filtering
             relevant_items = self._get_relevant_content(content_items, original_query)
 
-            # Process the filtered items
-            for i, item in enumerate(relevant_items):
-                try:
-                    if content_type == "sections":
-                        content = page.section(item)
-                        section_name = item
-                    else:  # chunks
-                        content = item  # item is already the content chunk
-                        section_name = f"Content Part {i + 1}"
+            if not relevant_items:
+                # return summary if no relevant items found
+                summary = page.summary.strip()
+                if summary and len(summary) > 100:
+                    results.append(
+                        {
+                            "title": page.title,
+                            "section": "Content",
+                            "content": summary[:2000],
+                            "url": page.url,
+                            "source": "wikipedia",
+                        }
+                    )
+            else:
+                # Process the filtered items
+                for i, item in enumerate(relevant_items):
+                    try:
+                        if content_type == "sections":
+                            content = page.section(item)
+                            section_name = item
+                        else:  # chunks
+                            content = item  # item is already the content chunk
+                            section_name = f"Content Part {i + 1}"
 
-                    if content and len(content.strip()) > 100:
-                        results.append(
-                            {
-                                "title": page.title,
-                                "section": section_name,
-                                "content": content.strip()[:2000],
-                                "url": page.url,
-                                "source": "wikipedia",
-                            }
-                        )
-                except Exception:
-                    continue  # Skip problematic sections/chunks
+                        if content and len(content.strip()) > 100:
+                            results.append(
+                                {
+                                    "title": page.title,
+                                    "section": section_name,
+                                    "content": content.strip()[:2000],
+                                    "url": page.url,
+                                    "source": "wikipedia",
+                                }
+                            )
+                    except Exception:
+                        continue  # Skip problematic sections/chunks
 
         except wikipedia.exceptions.DisambiguationError as e:
             # Try first disambiguation option
@@ -317,19 +346,24 @@ class WikiRM(BaseRetriever):
         if not content_items:
             return []
 
-        # Check cache for query embedding
-        cache_key = hash(query)
-        if cache_key in self.semantic_cache:
-            query_embedding = self.semantic_cache[cache_key]
-        else:
-            query_embedding = self.embedding_model.encode([query])[0]
+        try:
+            # Check cache for query embedding
+            cache_key = hash(query)
+            if cache_key in self.semantic_cache:
+                query_embedding = self.semantic_cache[cache_key]
+            else:
+                query_embedding = self.embedding_model.encode([query])[0]
+                if (
+                    len(self.semantic_cache)
+                    >= DEFAULT_RETRIEVAL_CONFIG.semantic_cache_size
+                ):
+                    oldest_key = next(iter(self.semantic_cache))
+                    del self.semantic_cache[oldest_key]
 
-            # Cache management
-            if len(self.semantic_cache) >= DEFAULT_RETRIEVAL_CONFIG.semantic_cache_size:
-                oldest_key = next(iter(self.semantic_cache))
-                del self.semantic_cache[oldest_key]
-
-            self.semantic_cache[cache_key] = query_embedding
+                self.semantic_cache[cache_key] = query_embedding
+        except Exception as e:
+            logger.error(f"Failed to encode query '{query}': {e}")
+            return []
 
         # Encode all content items directly
         item_embeddings = self.embedding_model.encode(content_items)
