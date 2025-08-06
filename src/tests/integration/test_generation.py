@@ -15,11 +15,11 @@ class TestGenerationIntegration:
         # Mock command line arguments
         test_args = [
             "-b",
-            "ollama",
+            "local",
             "-m",
             # "rag",
-            "storm",
-            # "direct",
+            # "storm",
+            "direct",
             "-n",
             "1",
         ]

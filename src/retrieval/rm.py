@@ -33,12 +33,6 @@ class RM:
         self.cache_results = cache_results
         self._result_cache = {} if cache_results else None
 
-        # Verify retriever is available - fail clearly if not
-        if not self.retriever.is_available():
-            raise RuntimeError(
-                f"Retriever {self.retriever.get_source_name()} is not available. Check your connection and dependencies."
-            )
-
         logger.info(f"RM initialized with {self.retriever.get_source_name()}")
 
     def search(
@@ -70,7 +64,7 @@ class RM:
             if max_results is not None
             else DEFAULT_RETRIEVAL_CONFIG.results_per_query
         )
-        format_type = format_type if format_type else "storm"
+        format_type = format_type if format_type else "rag"
         if isinstance(queries, str):
             query_list = [queries]
         else:

@@ -48,8 +48,8 @@ def setup_storm_runner(
     # Default Storm configuration
     default_config = {
         "max_conv_turn": 4,
-        "max_perspective": 4,
-        "max_search_queries_per_turn": DEFAULT_RETRIEVAL_CONFIG.num_queries,
+        "max_perspective": 12,
+        "max_search_queries_per_turn": DEFAULT_RETRIEVAL_CONFIG.queries_per_turn,
         "search_top_k": DEFAULT_RETRIEVAL_CONFIG.results_per_query,
         "max_thread_num": 4,
     }
@@ -59,7 +59,7 @@ def setup_storm_runner(
         default_config.update(storm_config)
 
     # Setup search retrieval with configured parameters
-    search_rm = WikiRM()
+    search_rm = WikiRM(format_type="storm")
     logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
 
     engine_args = STORMWikiRunnerArguments(
@@ -68,7 +68,8 @@ def setup_storm_runner(
         max_perspective=default_config["max_perspective"],
         search_top_k=default_config["search_top_k"],
         max_thread_num=default_config["max_thread_num"],
+        max_search_queries_per_turn=default_config["max_search_queries_per_turn"],
     )
 
     runner = STORMWikiRunner(engine_args, lm_config, search_rm)
-    return runner, storm_output_dir
+    return runner, storm_output_dir, default_config

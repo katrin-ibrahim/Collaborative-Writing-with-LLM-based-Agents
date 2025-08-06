@@ -12,16 +12,17 @@ class RetrievalConfig:
     """Truly unified retrieval parameters - eliminates all redundancy."""
 
     # Single Source of Truth for Retrieval Flow
-    num_queries: int = 1  # How many search queries to generate
+    num_queries: int = 3  # How many search queries to generate
     results_per_query: int = (
-        1  # How many results per query (replaces max_results_per_query, search_top_k, wiki_max_articles)
+        2  # How many results per query (replaces max_results_per_query, search_top_k, wiki_max_articles)
     )
     max_content_pieces: int = (
-        1  # How many sections/chunks per result (replaces wiki_max_sections)
+        10  # How many sections/chunks per result (replaces wiki_max_sections)
     )
     final_passages: int = (
-        1  # Final context size (replaces max_final_passages, retrieve_top_k)
+        5  # Final context size (replaces max_final_passages, retrieve_top_k)
     )
+    queries_per_turn: int = 2
 
     # Content Processing
     passage_max_length: int = 600
@@ -48,6 +49,7 @@ class RetrievalConfig:
                 "results_per_query": self.results_per_query,
                 "max_content_pieces": self.max_content_pieces,
                 "final_passages": self.final_passages,
+                "queries_per_turn": self.queries_per_turn,
             },
             "content": {
                 "max_length": self.passage_max_length,
@@ -63,7 +65,7 @@ class RetrievalConfig:
                 "cache_size": self.semantic_cache_size,
             },
             "batch": {
-                "parallel_threshold": self.batch_parallel_threshold,
+                "parallel_threshold": self.parallel_threshold,
                 "max_workers": {
                     "direct": self.max_workers_direct,
                     "rag": self.max_workers_rag,

@@ -81,10 +81,13 @@ class BaselineRunner(BaseRunner):
         (direct and rag implemented in BaseRunner)
         """
         logger.info(f"Running STORM for: {topic}")
+        import time
+        from datetime import datetime
 
         try:
+            start_time = time.time()
             # Setup STORM runner
-            storm_runner, storm_output_dir = setup_storm_runner(
+            storm_runner, storm_output_dir, storm_config = setup_storm_runner(
                 client=self.client,
                 config=self.model_config,
                 storm_output_dir=(
@@ -104,9 +107,18 @@ class BaselineRunner(BaseRunner):
             )
 
             # Extract STORM output and create Article
+            from pathlib import Path
+
             from src.utils.baselines_utils import extract_storm_output
 
-            content, storm_metadata = extract_storm_output(topic, storm_output_dir)
+            content = extract_storm_output(Path(storm_output_dir), topic)
+
+            generation_time = (time.time() - start_time) / 60
+            logger.info(
+                f"STORM generation time for {topic}: {generation_time:.2f} minutes"
+            )
+
+            content_words = len(content.split()) if content else 0
 
             # Create Article object
             article = Article(
@@ -116,8 +128,10 @@ class BaselineRunner(BaseRunner):
                 metadata={
                     "method": "storm",
                     "model": self.model_config.get_model_for_task("writing"),
-                    "word_count": len(content.split()) if content else 0,
-                    "storm_metadata": storm_metadata,
+                    "word_count": content_words,
+                    "generation_time": generation_time,
+                    "timestamp": datetime.now().isoformat(),
+                    "storm_config": storm_config,
                 },
             )
 

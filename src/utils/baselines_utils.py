@@ -85,46 +85,25 @@ def error_article(topic: str, error_msg: str, method: str) -> Article:
     )
 
 
-def extract_storm_output(storm_output_dir: Path, topic: str) -> tuple:
-    """Extract STORM output content and metadata (shared utility)."""
+def extract_storm_output(storm_output_dir: Path, topic: str) -> str:
+    """Extract STORM polished article content only."""
     try:
-        # Look for the main article file
-        article_file = storm_output_dir / f"{topic.replace(' ', '_')}.md"
-        if not article_file.exists():
-            # Try alternative naming
-            possible_files = list(storm_output_dir.glob("*.md"))
-            if possible_files:
-                article_file = possible_files[0]
-            else:
-                raise FileNotFoundError(f"No article file found in {storm_output_dir}")
-
-        # Read content
-        with open(article_file, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Extract metadata if available
-        metadata = {"storm_output_dir": str(storm_output_dir)}
-
-        # Look for metadata files
-        meta_files = list(storm_output_dir.glob("*metadata*")) + list(
-            storm_output_dir.glob("*config*")
+        # STORM creates the polished article here
+        polished_file = (
+            storm_output_dir
+            / topic.replace(" ", "_").replace("/", "_")
+            / "storm_gen_article_polished.txt"
         )
-        for meta_file in meta_files:
-            try:
-                if meta_file.suffix == ".json":
-                    import json
 
-                    with open(meta_file, "r") as f:
-                        file_meta = json.load(f)
-                        metadata.update(file_meta)
-            except Exception as e:
-                logger.warning(f"Failed to read metadata from {meta_file}: {e}")
-
-        return content, metadata
+        if polished_file.exists():
+            with open(polished_file, "r", encoding="utf-8") as f:
+                return f.read()
+        else:
+            raise FileNotFoundError(f"Polished article not found: {polished_file}")
 
     except Exception as e:
         logger.error(f"Failed to extract STORM output: {e}")
-        return f"# {topic}\n\nError reading STORM output: {e}", {"error": str(e)}
+        return f"# {topic}\n\nError reading STORM output: {e}"
 
 
 def build_rag_prompt(topic: str, context: str) -> str:

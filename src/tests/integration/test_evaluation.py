@@ -236,6 +236,12 @@ class TestHeadingMetricsCorrectness:
         assert calculate_heading_soft_recall(["gen1", "gen2"], []) == 0.0
         assert calculate_heading_soft_recall([], []) == 0.0
 
+    def test_heading_entity_recall_identical(self):
+        """HER with identical headings should be 1.0."""
+        gen = ["Introduction", "Methods", "Results"]
+        ref = ["Introduction", "Methods", "Results"]
+        assert calculate_heading_entity_recall(gen, ref) == 1.0
+
     def test_heading_entity_recall_empty_inputs(self):
         """Test HER with empty inputs."""
         assert calculate_heading_entity_recall([], ["ref1", "ref2"]) == 0.0
