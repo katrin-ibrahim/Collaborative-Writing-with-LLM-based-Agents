@@ -32,14 +32,13 @@ class WikiRM(BaseRetriever):
         self,
         max_articles: Optional[int] = None,
         max_sections: Optional[int] = None,
-        format_type: str = "rag",
         cache_dir: str = "data/wiki_cache",
     ):
         self.max_articles = (
-            max_articles if not None else DEFAULT_RETRIEVAL_CONFIG.num_queries
+            max_articles if not None else DEFAULT_RETRIEVAL_CONFIG.max_articles
         )
         self.max_sections = (
-            max_sections if not None else DEFAULT_RETRIEVAL_CONFIG.results_per_query
+            max_sections if not None else DEFAULT_RETRIEVAL_CONFIG.max_sections
         )
         self.cache_dir = cache_dir
 
@@ -47,8 +46,6 @@ class WikiRM(BaseRetriever):
         self.semantic_enabled = DEFAULT_RETRIEVAL_CONFIG.semantic_filtering_enabled
         self.embedding_model = None
         self.semantic_cache = {}
-
-        self.format_type = format_type
 
         if self.semantic_enabled:
             try:
@@ -73,21 +70,11 @@ class WikiRM(BaseRetriever):
             f"WikiRM initialized (articles={max_articles}, sections={max_sections}, semantic={self.semantic_enabled})"
         )
 
-    def __call__(self, query=None, **kwargs):
+    def __call__(self, *args, **kwargs):
         """
-        Make WikiRM instances directly callable for STORM compatibility.
-        Handles both direct query parameter and query_or_queries in kwargs.
+        Allow direct call to search method for convenience.
         """
-        # Check if query is in kwargs as query_or_queries
-        if query is None and "query_or_queries" in kwargs:
-            query = kwargs.pop("query_or_queries")
-
-        # If still no query, return empty list
-        if query is None:
-            logger.error("No query provided to WikiRM.")
-
-        # Forward to search method
-        return self.search(query, **kwargs)
+        return self.search(*args, **kwargs)
 
     def search(
         self,
@@ -104,8 +91,9 @@ class WikiRM(BaseRetriever):
         max_results = (
             max_results
             if max_results is not None
-            else DEFAULT_RETRIEVAL_CONFIG.num_queries
+            else DEFAULT_RETRIEVAL_CONFIG.max_articles
         )
+        format_type = format_type if format_type else "storm"
         # Normalize input
         if isinstance(queries, str):
             query_list = [queries]
@@ -124,32 +112,17 @@ class WikiRM(BaseRetriever):
                 break
 
         # Return in requested format
-        if self.format_type == "rag":
+        if format_type == "rag":
             # For RAG: return list of content strings
             passages = []
             for result in all_results[:max_results]:
-                if isinstance(result, dict) and "snippets" in result:
-                    snippets = result["snippets"]
-                    if snippets and isinstance(snippets, list):
-                        # Join non-empty snippets
-                        content = "\n\n".join(
-                            snippet for snippet in snippets if snippet
-                        )
-                        if content:  # Only add if we got actual content
-                            passages.append(content)
-                        else:
-                            logger.warning(
-                                f"Empty content after processing snippets: {result['title'] if 'title' in result else 'Unknown'}"
-                            )
-                    else:
-                        logger.warning(
-                            f"Invalid snippets format: {type(snippets)} - {result.get('title', 'Unknown')}"
-                        )
-                else:
-                    logger.error(f"Missing snippets field in result: {result}")
+                if isinstance(result, dict) and "content" in result:
+                    passages.append(result["content"])
+                elif isinstance(result, str):
+                    passages.append(result)
             return passages
 
-        elif self.format_type == "storm":
+        elif format_type == "storm":
             # For STORM: return list of structured dicts
             return all_results[:max_results]
 
@@ -169,12 +142,9 @@ class WikiRM(BaseRetriever):
         results = []
 
         try:
-            if query.startswith("query"):
-                # split query by : and take the part after it
-                query = query.split(":", 1)[-1].strip()
             # Search Wikipedia
             search_results = wikipedia.search(
-                query, results=self.max_articles, suggestion=True
+                query, results=self.max_articles, suggestion=False
             )
 
             if not search_results:
@@ -225,17 +195,18 @@ class WikiRM(BaseRetriever):
             relevant_items = self._get_relevant_content(content_items, original_query)
 
             if not relevant_items:
-                content_chunks = self._create_content_chunks(page.content)
-                if content_chunks:
-                    for i, chunk in enumerate(content_chunks[: self.max_sections]):
-                        results.append(
-                            {
-                                "title": page.title,
-                                "description": f"Content chunk {i + 1} from {page.title}",
-                                "snippets": [chunk[:2000]],
-                                "url": page.url,
-                            }
-                        )
+                # return summary if no relevant items found
+                summary = page.summary.strip()
+                if summary and len(summary) > 100:
+                    results.append(
+                        {
+                            "title": page.title,
+                            "section": "Content",
+                            "content": summary[:2000],
+                            "url": page.url,
+                            "source": "wikipedia",
+                        }
+                    )
             else:
                 # Process the filtered items
                 for i, item in enumerate(relevant_items):
@@ -251,9 +222,10 @@ class WikiRM(BaseRetriever):
                             results.append(
                                 {
                                     "title": page.title,
-                                    "description": f"{section_name} from {page.title}",
-                                    "snippets": [content.strip()[:2000]],
+                                    "section": section_name,
+                                    "content": content.strip()[:2000],
                                     "url": page.url,
+                                    "source": "wikipedia",
                                 }
                             )
                     except Exception:
@@ -316,14 +288,14 @@ class WikiRM(BaseRetriever):
 
         for para in paragraphs:
             if len(current_chunk + para) > 1500 and current_chunk:
-                chunks.append(current_chunk)
+                chunks.append(current_chunk.strip())
                 current_chunk = para
             else:
                 current_chunk += "\n\n" + para if current_chunk else para
 
         # Add remaining content
         if current_chunk:
-            chunks.append(current_chunk)
+            chunks.append(current_chunk.strip())
 
         # Ensure we don't have too many tiny chunks
         if len(chunks) > 10:
