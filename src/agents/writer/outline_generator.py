@@ -1,10 +1,9 @@
 # src/agents/writer/outline_generator.py
 import logging
-import os
 from typing import Any, Dict
 
-from utils.api import APIClient
-from utils.data_models import Outline
+from src.utils.data_models import Outline
+from src.utils.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -16,25 +15,32 @@ class OutlineGenerator:
         self.config = config
         self.logger = logging.getLogger(self.__class__.__name__)
 
-        # Get API client
-        api_token = os.getenv("HF_TOKEN") or os.getenv("API_TOKEN")
-        self.api_client = APIClient(api_token=api_token)
+        # Use OllamaClient for now
+        self.api_client = OllamaClient()
 
     def generate_outline(self, topic: str, context: str = "") -> Outline:
         """Generate a hierarchical outline for the given topic."""
 
         outline_prompt = f"""
-        Generate a detailed outline for an article about: {topic}
+        Generate a detailed outline for a Wikipedia-style article about: {topic}
 
-        {'Based on the following context:' + context if context else ''}
+        {'Based on the following research context:' + context if context else ''}
+
+        Create an outline that focuses specifically on this topic. Use the research context to understand what this topic is actually about and structure the article accordingly.
+
+        Guidelines:
+        - Create a clear, specific title that reflects the actual topic
+        - Focus on the specific subject matter revealed by the research
+        - Create sections that would be appropriate for this particular topic
+        - Avoid generic sections that could apply to any topic
 
         Create a hierarchical outline with:
-        1. A clear title
-        2. 4-6 main headings
+        1. A clear, specific title
+        2. 4-6 main headings that are specific to this topic
         3. 2-3 subheadings under each main heading
 
         Format the response as:
-        Title: [Article Title]
+        Title: [Specific Article Title]
 
         1. [Main Heading 1]
            - [Subheading 1.1]
