@@ -47,8 +47,8 @@ def setup_storm_runner(
 
     # Default Storm configuration
     default_config = {
-        "max_conv_turn": 4,
-        "max_perspective": 12,
+        "max_conv_turn": 1,
+        "max_perspective": 1,
         "max_search_queries_per_turn": DEFAULT_RETRIEVAL_CONFIG.queries_per_turn,
         "search_top_k": DEFAULT_RETRIEVAL_CONFIG.results_per_query,
         "max_thread_num": 4,

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,8 @@ class ExperimentStateManager:
             return self._validate_direct_state(topic)
         elif method == "rag":
             return self._validate_rag_state(topic)
+        elif method == "agentic":
+            return self._validate_agentic_state(topic)
         else:
             logger.warning(f"Unknown method {method}, treating as not_started")
             return "not_started"
@@ -105,19 +107,28 @@ class ExperimentStateManager:
         articles_dir = self.output_dir / "articles"
         storm_outputs_dir = self.output_dir / "storm_outputs"
 
-        # Check for completed article
-        article_file = articles_dir / f"{topic}_storm.json"
+        # Check for completed article (current format: method_topic.md)
+        safe_topic = topic.replace(" ", "_").replace("/", "_")
+        article_file = articles_dir / f"storm_{safe_topic}.md"
+        metadata_file = articles_dir / f"storm_{safe_topic}_metadata.json"
+
         if article_file.exists():
             try:
-                with open(article_file, "r") as f:
-                    article_data = json.load(f)
+                # Check article content
+                with open(article_file, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-                # Validate article has required fields and content
-                if (
-                    article_data.get("content")
-                    and len(article_data["content"].strip()) > 100
-                    and article_data.get("metadata", {}).get("method") == "storm"
-                ):
+                # Validate article has substantial content
+                if content and len(content.strip()) > 100:
+                    # Also check metadata if available
+                    if metadata_file.exists():
+                        try:
+                            with open(metadata_file, "r") as f:
+                                metadata = json.load(f)
+                            if metadata.get("method") == "storm":
+                                return "completed"
+                        except:
+                            pass
                     return "completed"
                 else:
                     logger.warning(
@@ -130,7 +141,7 @@ class ExperimentStateManager:
                 return "in_progress"
 
         # Check for intermediate STORM files
-        topic_storm_dir = storm_outputs_dir / topic
+        topic_storm_dir = storm_outputs_dir / topic.replace(" ", "_").replace("/", "_")
         if topic_storm_dir.exists() and any(topic_storm_dir.iterdir()):
             return "in_progress"
 
@@ -139,19 +150,27 @@ class ExperimentStateManager:
     def _validate_direct_state(self, topic: str) -> str:
         """Validate direct prompting completion state for a topic."""
         articles_dir = self.output_dir / "articles"
-        article_file = articles_dir / f"{topic}_direct.json"
+        safe_topic = topic.replace(" ", "_").replace("/", "_")
+        article_file = articles_dir / f"direct_{safe_topic}.md"
+        metadata_file = articles_dir / f"direct_{safe_topic}_metadata.json"
 
         if article_file.exists():
             try:
-                with open(article_file, "r") as f:
-                    article_data = json.load(f)
+                # Check article content
+                with open(article_file, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-                # Validate article has required fields and content
-                if (
-                    article_data.get("content")
-                    and len(article_data["content"].strip()) > 50
-                    and article_data.get("metadata", {}).get("method") == "direct"
-                ):
+                # Validate article has substantial content
+                if content and len(content.strip()) > 50:
+                    # Also check metadata if available
+                    if metadata_file.exists():
+                        try:
+                            with open(metadata_file, "r") as f:
+                                metadata = json.load(f)
+                            if metadata.get("method") == "direct":
+                                return "completed"
+                        except:
+                            pass
                     return "completed"
                 else:
                     logger.warning(
@@ -168,19 +187,27 @@ class ExperimentStateManager:
     def _validate_rag_state(self, topic: str) -> str:
         """Validate RAG completion state for a topic."""
         articles_dir = self.output_dir / "articles"
-        article_file = articles_dir / f"{topic}_rag.json"
+        safe_topic = topic.replace(" ", "_").replace("/", "_")
+        article_file = articles_dir / f"rag_{safe_topic}.md"
+        metadata_file = articles_dir / f"rag_{safe_topic}_metadata.json"
 
         if article_file.exists():
             try:
-                with open(article_file, "r") as f:
-                    article_data = json.load(f)
+                # Check article content
+                with open(article_file, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-                # Validate article has required fields and content
-                if (
-                    article_data.get("content")
-                    and len(article_data["content"].strip()) > 50
-                    and article_data.get("metadata", {}).get("method") == "rag"
-                ):
+                # Validate article has substantial content
+                if content and len(content.strip()) > 50:
+                    # Also check metadata if available
+                    if metadata_file.exists():
+                        try:
+                            with open(metadata_file, "r") as f:
+                                metadata = json.load(f)
+                            if metadata.get("method") == "rag":
+                                return "completed"
+                        except:
+                            pass
                     return "completed"
                 else:
                     logger.warning(
@@ -194,6 +221,43 @@ class ExperimentStateManager:
 
         return "not_started"
 
+    def _validate_agentic_state(self, topic: str) -> str:
+        """Validate agentic writer completion state for a topic."""
+        articles_dir = self.output_dir / "articles"
+        safe_topic = topic.replace(" ", "_").replace("/", "_")
+        article_file = articles_dir / f"agentic_{safe_topic}.md"
+        metadata_file = articles_dir / f"agentic_{safe_topic}_metadata.json"
+
+        if article_file.exists():
+            try:
+                # Check article content
+                with open(article_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                # Validate article has substantial content
+                if content and len(content.strip()) > 50:
+                    # Also check metadata if available
+                    if metadata_file.exists():
+                        try:
+                            with open(metadata_file, "r") as f:
+                                metadata = json.load(f)
+                            if metadata.get("method") == "agentic":
+                                return "completed"
+                        except:
+                            pass
+                    return "completed"
+                else:
+                    logger.warning(
+                        f"Agentic article for {topic} exists but appears incomplete"
+                    )
+                    return "in_progress"
+
+            except Exception as e:
+                logger.warning(f"Failed to validate agentic article for {topic}: {e}")
+                return "in_progress"
+
+        return "not_started"
+
     def cleanup_in_progress_topic(self, topic: str, method: str):
         """Clean up incomplete intermediate files for a topic/method."""
         try:
@@ -203,6 +267,8 @@ class ExperimentStateManager:
                 self._cleanup_direct_intermediate(topic)
             elif method == "rag":
                 self._cleanup_rag_intermediate(topic)
+            elif method == "agentic":
+                self._cleanup_agentic_intermediate(topic)
 
             logger.info(f"Cleaned up incomplete {method} files for topic: {topic}")
 
@@ -243,46 +309,20 @@ class ExperimentStateManager:
             article_file.unlink()
             logger.debug(f"Removed incomplete RAG article: {article_file}")
 
-    def analyze_existing_state(self, topics: List[str]) -> Dict[str, Dict[str, str]]:
-        """
-        Analyze the current state of all topics for all methods.
+    def _cleanup_agentic_intermediate(self, topic: str):
+        """Clean up incomplete agentic writer files."""
+        articles_dir = self.output_dir / "articles"
+        safe_topic = topic.replace(" ", "_").replace("/", "_")
+        article_file = articles_dir / f"agentic_{safe_topic}.md"
+        metadata_file = articles_dir / f"agentic_{safe_topic}_metadata.json"
 
-        Returns:
-            Dict mapping topic -> method -> state ('completed'/'in_progress'/'not_started')
-        """
-        topic_states = {}
+        if article_file.exists():
+            article_file.unlink()
+            logger.debug(f"Removed incomplete agentic article: {article_file}")
 
-        for topic in topics:
-            topic_states[topic] = {}
-            for method in self.methods:
-                state = self.validate_topic_state(topic, method)
-                topic_states[topic][method] = state
-
-                # Update internal tracking
-                if state == "completed":
-                    self.completed_topics[method].add(topic)
-                elif state == "in_progress":
-                    self.in_progress_topics[method].add(topic)
-
-        return topic_states
-
-    def get_remaining_topics(self, all_topics: List[str]) -> Dict[str, List[str]]:
-        """
-        Get topics that still need to be processed for each method.
-
-        Returns:
-            Dict mapping method -> list of remaining topics
-        """
-        remaining = {}
-
-        for method in self.methods:
-            remaining[method] = [
-                topic
-                for topic in all_topics
-                if topic not in self.completed_topics[method]
-            ]
-
-        return remaining
+        if metadata_file.exists():
+            metadata_file.unlink()
+            logger.debug(f"Removed incomplete agentic metadata: {metadata_file}")
 
     def mark_topic_completed(self, topic: str, method: str):
         """Mark a topic as completed for a method and save checkpoint."""
@@ -301,23 +341,6 @@ class ExperimentStateManager:
         """Check if a topic is completed for a specific method."""
         return topic in self.completed_topics.get(method, set())
 
-    def cleanup_and_restart_in_progress(self, topics: List[str]):
-        """Clean up all in-progress topics and prepare for restart."""
-        cleanup_count = 0
-
-        for topic in topics:
-            for method in self.methods:
-                if topic in self.in_progress_topics[method]:
-                    self.cleanup_in_progress_topic(topic, method)
-                    self.in_progress_topics[method].discard(topic)
-                    cleanup_count += 1
-
-        if cleanup_count > 0:
-            logger.info(
-                f"Cleaned up {cleanup_count} in-progress topic/method combinations"
-            )
-            self.save_checkpoint()
-
     def _log_checkpoint_status(self):
         """Log current checkpoint status for debugging."""
         for method in self.methods:
@@ -328,54 +351,3 @@ class ExperimentStateManager:
                 logger.info(
                     f"{method}: {completed_count} completed, {in_progress_count} in progress"
                 )
-
-    def get_progress_summary(self, total_topics: int) -> Dict[str, Dict[str, int]]:
-        """Get progress summary for all methods."""
-        summary = {}
-
-        for method in self.methods:
-            completed = len(self.completed_topics[method])
-            remaining = total_topics - completed
-
-            summary[method] = {
-                "completed": completed,
-                "remaining": remaining,
-                "total": total_topics,
-                "progress_pct": (
-                    round((completed / total_topics) * 100, 1)
-                    if total_topics > 0
-                    else 0
-                ),
-            }
-
-        return summary
-
-    def load_existing_results(self) -> Dict:
-        """Load existing results file if available."""
-        if not self.results_file.exists():
-            return {}
-
-        try:
-            with open(self.results_file, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load existing results: {e}")
-            return {}
-
-    def find_latest_run_dir(self, base_output_dir: Path) -> Optional[Path]:
-        """Find the most recent run directory for resuming."""
-        if not base_output_dir.exists():
-            return None
-
-        run_dirs = [
-            d
-            for d in base_output_dir.iterdir()
-            if d.is_dir() and d.name.startswith("run_")
-        ]
-
-        if not run_dirs:
-            return None
-
-        # Sort by modification time and return most recent
-        latest_dir = max(run_dirs, key=lambda d: d.stat().st_mtime)
-        return latest_dir

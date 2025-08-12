@@ -37,25 +37,6 @@ class BaseModelEngine(ABC):
         self.max_tokens = self.config.get_token_limit_for_task(task)
 
     @abstractmethod
-    def generate(
-        self,
-        prompt: str,
-        max_length: Optional[int] = None,
-        temperature: Optional[float] = None,
-    ) -> str:
-        """
-        Generate content from a prompt.
-
-        Args:
-            prompt: The input prompt
-            max_length: Maximum output length (optional)
-            temperature: Sampling temperature (optional)
-
-        Returns:
-            Generated text
-        """
-
-    @abstractmethod
     def __call__(self, messages=None, **kwargs):
         """
         Make engine callable for compatibility with STORM and other frameworks.

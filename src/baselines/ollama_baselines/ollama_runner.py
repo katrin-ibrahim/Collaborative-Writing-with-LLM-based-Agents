@@ -73,7 +73,13 @@ class BaselineRunner(BaseRunner):
 
     def get_supported_methods(self):
         """Return methods supported by Ollama runner."""
-        return ["direct", "storm", "rag"]  # Full method support
+        return [
+            "direct",
+            "storm",
+            "rag",
+            "agentic",
+            "collaborative",
+        ]  # Full method support
 
     def run_storm(self, topic: str) -> Article:
         """
@@ -157,28 +163,14 @@ class BaselineRunner(BaseRunner):
             prompt = f"""Generate {num_queries} possible Wikipedia article titles related to the topic "{topic}".
 
             Guidelines:
+            - Think about what the article could possibly cover.
+            - When you have an idea, what the topic could be about, think of possible sections that could be included in the article.
+            - The titles you generate should cover the possible sections of the article.
             - Titles must resemble actual Wikipedia article titles.
             - Use clear, encyclopedic language — avoid vague or overly broad phrases.
             - Include topic-specific terms to ensure relevance.
             - Avoid phrasing like questions, search queries, or casual writing.
 
-            Good examples:
-            - Topic: "Music in major and minor keys"
-              "Major and minor keys"
-              "Tonal harmony in Western music"
-              "Harmonic function of major and minor scales"
-            Bad examples:
-              "music keys" (too vague)
-              "how to write in minor key" (too informal)
-
-            - Topic: "Digital photography techniques"
-            Good examples:
-               "Post-processing in digital photography"
-               "Digital photography workflow"
-               "Camera settings in digital photography"
-            Bad examples:
-               "filters" (ambiguous)
-               "best photography tricks" (not encyclopedic)
 
             Only output possible Wikipedia article titles — one per line, no numbering or extra text.
 
@@ -186,6 +178,8 @@ class BaselineRunner(BaseRunner):
             """
 
             try:
+                import re
+
                 from .runner_utils import get_model_wrapper
 
                 wrapper = get_model_wrapper(self.client, self.model_config, "fast")
@@ -198,6 +192,7 @@ class BaselineRunner(BaseRunner):
                     content = response.content
                 else:
                     content = str(response)
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
 
                 raw_queries = [
                     line.strip() for line in content.split("\n") if line.strip()

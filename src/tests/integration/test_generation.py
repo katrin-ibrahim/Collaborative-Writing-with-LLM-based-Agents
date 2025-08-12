@@ -15,13 +15,18 @@ class TestGenerationIntegration:
         # Mock command line arguments
         test_args = [
             "-b",
-            "local",
+            "ollama",
             "-m",
             # "rag",
-            # "storm",
-            "direct",
+            "storm",
+            # "direct",
+            # "collaborative",
+            "-oh",
+            "http://localhost:11434",
             "-n",
             "1",
+            "-om",
+            "qwen3:4b",
         ]
 
         print(f"Running main with args: {test_args}")

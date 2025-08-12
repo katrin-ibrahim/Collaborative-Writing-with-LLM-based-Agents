@@ -13,19 +13,23 @@ from src.config.baselines_model_config import ModelConfig
 from src.utils.data_models import Article
 from src.utils.ollama_client import OllamaClient
 
-from .litellm_wrapper import OllamaLiteLLMWrapper
-
 logger = logging.getLogger(__name__)
 
 
 def get_model_wrapper(
     client: OllamaClient, config: ModelConfig, task: str
-) -> OllamaLiteLLMWrapper:
+) -> OllamaClient:
+    """Get configured OllamaClient for specific task."""
     model = config.get_model_for_task(task)
     temp = config.get_temperature_for_task(task)
     max_tokens = config.get_token_limit_for_task(task)
-    return OllamaLiteLLMWrapper(
-        ollama_client=client, model=model, temperature=temp, max_tokens=max_tokens
+
+    # Create a new instance configured for this specific task
+    return OllamaClient(
+        host=client.host,
+        model=model,
+        temperature=temp,
+        max_tokens=max_tokens,
     )
 
 

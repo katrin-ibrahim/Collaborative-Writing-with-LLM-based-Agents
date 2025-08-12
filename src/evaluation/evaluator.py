@@ -130,6 +130,100 @@ class ArticleEvaluator:
 
         return summary
 
+    def evaluate_review_article(
+        self,
+        article: Article,
+        reference: FreshWikiEntry,
+        include_review_metrics: bool = True,
+    ) -> Dict[str, float]:
+        """
+        Evaluate article with optional review-specific metrics.
+
+        Args:
+            article: Generated article object with content
+            reference: FreshWiki reference entry
+            include_review_metrics: Whether to include review-specific metrics
+
+        Returns:
+            Dictionary with STORM metrics and optionally review metrics
+        """
+        # Get standard STORM metrics
+        metrics = self.evaluate_article(article, reference)
+
+        if not include_review_metrics:
+            return metrics
+
+        # Add review-specific metrics if available in article metadata
+        if "review_score" in article.metadata:
+            metrics.update(
+                {
+                    "review_overall_score": article.metadata["review_score"] * 100,
+                    "review_issues_count": article.metadata.get("review_issues", 0),
+                    "review_recommendations_count": article.metadata.get(
+                        "review_recommendations", 0
+                    ),
+                }
+            )
+
+            # Add category scores if available
+            category_scores = article.metadata.get("category_scores", {})
+            for category, score in category_scores.items():
+                metrics[f"review_{category}_score"] = score * 100
+
+        # Add collaboration metrics if available
+        if "collaboration_iterations" in article.metadata:
+            metrics.update(
+                {
+                    "collaboration_iterations": article.metadata[
+                        "collaboration_iterations"
+                    ],
+                    "collaboration_initial_score": article.metadata.get(
+                        "initial_score", 0
+                    )
+                    * 100,
+                    "collaboration_final_score": article.metadata.get("final_score", 0)
+                    * 100,
+                    "collaboration_improvement": article.metadata.get(
+                        "score_improvement", 0
+                    )
+                    * 100,
+                    "collaboration_time": article.metadata.get("collaboration_time", 0),
+                    "issues_resolved": article.metadata.get("issues_resolved", 0),
+                    "recommendations_implemented": article.metadata.get(
+                        "recommendations_implemented", 0
+                    ),
+                }
+            )
+
+        return metrics
+
+    def get_extended_metric_descriptions(self) -> Dict[str, str]:
+        """Get descriptions of all metrics including review-specific ones."""
+        extended_descriptions = METRIC_DESCRIPTIONS.copy()
+
+        # Add review metric descriptions
+        extended_descriptions.update(
+            {
+                "review_overall_score": "Overall review quality score (0-100%)",
+                "review_issues_count": "Number of issues identified by reviewer",
+                "review_recommendations_count": "Number of recommendations provided",
+                "review_factual_score": "Factual accuracy score from reviewer (0-100%)",
+                "review_structural_score": "Structural quality score from reviewer (0-100%)",
+                "review_clarity_score": "Clarity score from reviewer (0-100%)",
+                "review_completeness_score": "Completeness score from reviewer (0-100%)",
+                "review_style_score": "Style score from reviewer (0-100%)",
+                "collaboration_iterations": "Number of collaboration iterations",
+                "collaboration_initial_score": "Initial article score before collaboration (0-100%)",
+                "collaboration_final_score": "Final article score after collaboration (0-100%)",
+                "collaboration_improvement": "Score improvement from collaboration (0-100%)",
+                "collaboration_time": "Total collaboration time in seconds",
+                "issues_resolved": "Number of issues resolved during collaboration",
+                "recommendations_implemented": "Number of recommendations implemented",
+            }
+        )
+
+        return extended_descriptions
+
     def _assess_overall_quality(self, composite_score: float) -> str:
         """Provide qualitative assessment of overall quality."""
         if composite_score >= 80:
