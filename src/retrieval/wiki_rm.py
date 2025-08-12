@@ -97,19 +97,6 @@ class WikiRM(BaseRetriever):
             # Standard call: search_rm(queries=..., max_results=...)
             return self.search(*args, **kwargs)
 
-    def retrieve(self, query=None, k=None, *args, **kwargs):
-        """
-        Alias for search method for STORM compatibility.
-        Handles STORM's calling convention: search_rm.retrieve(query, k=5)
-        """
-        if query is not None:
-            # STORM-style call
-            max_results = k if k is not None else kwargs.get("max_results", None)
-            return self.search(queries=query, max_results=max_results, **kwargs)
-        else:
-            # Standard call
-            return self.search(*args, **kwargs)
-
     def search(
         self,
         *args,
@@ -138,7 +125,7 @@ class WikiRM(BaseRetriever):
             query = args[0] if len(args) > 0 else None
             if max_results is None and len(args) > 1:
                 max_results = args[1]
-        elif "query_or_queries" in kwargs:
+        elif "query_or_queries" in kwargs and kwargs["query_or_queries"] is not None:
             # Query in kwargs
             query = kwargs.pop("query_or_queries", None)
         elif len(args) == 0 and not kwargs:
@@ -199,14 +186,14 @@ class WikiRM(BaseRetriever):
             # For RAG: return list of content strings
             passages = []
             for result in all_results[:max_results]:
-                if isinstance(result, dict) and "content" in result:
-                    passages.append(result["content"])
+                if isinstance(result, dict) and "snippets" in result:
+                    passages.append(result["snippets"])
                 elif isinstance(result, str):
                     passages.append(result)
             final_results = passages
         elif format_type == "storm":
             # For STORM: return dict with 'snippets' key
-            final_results = {"snippets": all_results[:max_results]}
+            final_results = all_results[:max_results]
         else:
             raise ValueError(f"Unknown format_type: {format_type}")
 
@@ -219,11 +206,39 @@ class WikiRM(BaseRetriever):
         )
         return final_results
 
+    @staticmethod
+    def transform_storm_query_to_keywords(query: str, topic: str = None) -> str:
+        import re
+
+        # Extract quoted phrases
+        quoted = re.findall(r'"([^"]*)"', query)
+
+        # Remove question words and punctuation
+        clean = re.sub(
+            r"\b(what|how|when|where|why|who|which|does|is|are|mean|means)\b",
+            "",
+            query,
+            flags=re.IGNORECASE,
+        )
+        clean = re.sub(r'[?!"]', "", clean)
+        clean = re.sub(r"\s+", " ", clean).strip()
+
+        # Combine quoted phrases with cleaned query
+        if quoted:
+            result = f'"{quoted[0]}" {clean}'
+        else:
+            result = clean
+
+        return result if len(result) > 3 else query
+
     def _search_single_query(
         self, topic: str, query: str, format_type: str
     ) -> List[Dict]:
         """Search for a single query and return structured results."""
         # Check cache first
+        if self.format_type == "storm":
+            query = self.transform_storm_query_to_keywords(query, topic)
+
         cache_key = self._get_cache_key(query)
         cached_results = self._load_from_cache(cache_key)
         if cached_results:
@@ -254,9 +269,7 @@ class WikiRM(BaseRetriever):
 
         except Exception as e:
             logger.error(f"Wikipedia search failed for '{query}': {e}")
-            raise RuntimeError(
-                f"Wikipedia search failed for query '{query}': {e}"
-            ) from e
+            return []
 
         # Cache the results
         self._save_to_cache(cache_key, results)
@@ -292,7 +305,7 @@ class WikiRM(BaseRetriever):
                         {
                             "title": page.title,
                             "section": "Content",
-                            "content": summary[:2000],
+                            "snippets": summary[:2000],
                             "url": page.url,
                             "source": "wikipedia",
                         }
@@ -313,7 +326,7 @@ class WikiRM(BaseRetriever):
                                 {
                                     "title": page.title,
                                     "section": section_name,
-                                    "content": content.strip()[:2000],
+                                    "snippets": content.strip()[:2000],
                                     "url": page.url,
                                     "source": "wikipedia",
                                 }
@@ -519,7 +532,7 @@ class WikiRM(BaseRetriever):
             for result in results:
                 if isinstance(result, dict):
                     url = result.get("url", "")
-                    content = result.get("content", "")
+                    content = result.get("snippets", "")
 
                     # Use URL if available, otherwise use content hash
                     identifier = url if url else hash(content.strip().lower())
