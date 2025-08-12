@@ -87,6 +87,135 @@ class BaseRunner(ABC):
             logger.error(f"Direct prompting failed for '{topic}': {e}")
             return error_article(topic, str(e), "direct")
 
+    # ---------------------------------------- Collaborative Writing Implementation ----------------------------------------
+    def run_collaborative(self, topic: str) -> Article:
+        """Run collaborative writer-reviewer workflow with iterative improvement."""
+        logger.info(f"Running collaborative writing for: {topic}")
+
+        try:
+            # Import advanced collaboration workflow
+            from src.agents.collaboration import WriterReviewerWorkflow
+
+            # Create collaboration configuration
+            collaboration_config = {
+                "collaboration.max_iterations": 2,  # Limit iterations for baseline experiments
+                "collaboration.convergence_threshold": 0.05,
+                "collaboration.min_improvement_threshold": 0.02,
+                "collaboration.target_score": 0.85,
+                "writer": {
+                    "writer.max_research_iterations": 2,
+                    "writer.use_external_knowledge": True,
+                },
+                "reviewer": {
+                    "reviewer.max_claims_per_article": 10,
+                    "reviewer.fact_check_timeout": 30,
+                    "reviewer.min_claim_confidence": 0.7,
+                    "reviewer.enable_structure_analysis": True,
+                    "reviewer.feedback_detail_level": "detailed",
+                },
+            }
+
+            # Initialize collaboration workflow
+            workflow = WriterReviewerWorkflow(collaboration_config)
+
+            # Run collaborative process
+            final_article, final_review, metrics = workflow.collaborate(topic)
+
+            # Create result with comprehensive metadata
+            collaborative_article = Article(
+                title=final_article.title,
+                content=final_article.content,
+                sections=final_article.sections,
+                metadata={
+                    **final_article.metadata,
+                    "method": "collaborative",
+                    "review_score": final_review.overall_score,
+                    "review_issues": len(final_review.issues),
+                    "review_recommendations": len(final_review.recommendations),
+                    "category_scores": {
+                        cat.value: score
+                        for cat, score in final_review.category_scores.items()
+                    },
+                    "review_summary": final_review.summary,
+                    # Collaboration metrics
+                    "collaboration_iterations": metrics.iterations,
+                    "initial_score": metrics.initial_score,
+                    "final_score": metrics.final_score,
+                    "score_improvement": metrics.improvement,
+                    "convergence_reason": metrics.convergence_reason,
+                    "collaboration_time": metrics.total_time,
+                    "writer_time": metrics.writer_time,
+                    "reviewer_time": metrics.reviewer_time,
+                    "issues_resolved": metrics.issues_resolved,
+                    "recommendations_implemented": metrics.recommendations_implemented,
+                    # Additional metadata
+                    "collaboration_summary": workflow.get_collaboration_summary(),
+                },
+            )
+
+            # Save article
+            if self.output_manager:
+                self.output_manager.save_article(collaborative_article, "collaborative")
+
+            logger.info(
+                f"Collaborative writing completed for {topic}: "
+                f"{metrics.iterations} iterations, score {metrics.initial_score:.2f}→{metrics.final_score:.2f} "
+                f"({metrics.improvement:+.2f}) in {metrics.total_time:.2f}s"
+            )
+            return collaborative_article
+
+        except Exception as e:
+            logger.error(f"Collaborative writing failed for '{topic}': {e}")
+            return error_article(topic, str(e), "collaborative")
+
+    # ---------------------------------------- Agentic Writer Implementation ----------------------------------------
+    def run_agentic(self, topic: str) -> Article:
+        """Run 3-node agentic writer baseline - shared implementation."""
+        logger.info(f"Running agentic writer for: {topic}")
+
+        try:
+            start_time = time.time()
+
+            # Import and configure agentic writer
+            from src.agents.writer.writer_agent import WriterAgent
+
+            # Create configuration for agentic writer
+            config = {
+                "writer.max_research_iterations": 2,
+                "writer.use_external_knowledge": True,
+            }
+
+            # Initialize agentic writer
+            writer_agent = WriterAgent(config)
+
+            # Process topic through 3-node workflow
+            article = writer_agent.process(topic)
+
+            generation_time = time.time() - start_time
+
+            # Update metadata to match baseline format
+            article.metadata.update(
+                {
+                    "generation_time": generation_time,
+                    "model": "agentic_writer_3node",
+                    "temperature": 0.7,  # Default for agentic decisions
+                    "max_tokens": 2048,  # Reasonable default
+                }
+            )
+
+            # Save article
+            if self.output_manager:
+                self.output_manager.save_article(article, "agentic")
+
+            logger.info(
+                f"Agentic writer completed for {topic} ({article.metadata.get('word_count', 0)} words, {generation_time:.2f}s)"
+            )
+            return article
+
+        except Exception as e:
+            logger.error(f"Agentic writer failed for '{topic}': {e}")
+            return error_article(topic, str(e), "agentic")
+
     # ---------------------------------------- RAG Implementation ----------------------------------------
     def run_rag(self, topic: str) -> Article:
         """Run RAG baseline - shared implementation with retrieval abstraction."""
@@ -177,6 +306,32 @@ class BaseRunner(ABC):
             )
         return self._run_batch_generic("rag", self.run_rag, topics, max_workers)
 
+    def run_agentic_batch(
+        self, topics: List[str], max_workers: int = None
+    ) -> List[Article]:
+        """Run agentic writer in parallel - shared implementation."""
+        if max_workers is None:
+            max_workers = (
+                DEFAULT_RETRIEVAL_CONFIG.max_workers_rag  # Same as RAG for now
+                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.parallel_threshold
+                else 1
+            )
+        return self._run_batch_generic("agentic", self.run_agentic, topics, max_workers)
+
+    def run_collaborative_batch(
+        self, topics: List[str], max_workers: int = None
+    ) -> List[Article]:
+        """Run collaborative writing in parallel - shared implementation."""
+        if max_workers is None:
+            max_workers = (
+                DEFAULT_RETRIEVAL_CONFIG.max_workers_rag  # Same as RAG for now
+                if len(topics) >= DEFAULT_RETRIEVAL_CONFIG.parallel_threshold
+                else 1
+            )
+        return self._run_batch_generic(
+            "collaborative", self.run_collaborative, topics, max_workers
+        )
+
     def run_batch(self, topics: List[str], methods: List[str]) -> List[Article]:
         """Run multiple topics and methods - shared orchestration."""
         results = []
@@ -194,6 +349,10 @@ class BaseRunner(ABC):
                 method_results = self.run_direct_batch(topics)
             elif method == "rag":
                 method_results = self.run_rag_batch(topics)
+            elif method == "agentic":
+                method_results = self.run_agentic_batch(topics)
+            elif method == "collaborative":
+                method_results = self.run_collaborative_batch(topics)
             elif method == "storm" and hasattr(self, "run_storm_batch"):
                 method_results = self.run_storm_batch(topics)
             elif hasattr(self, f"run_{method}"):
@@ -285,10 +444,10 @@ class BaseRunner(ABC):
         Fails clearly instead of providing fallbacks.
         """
         try:
-            from src.retrieval.rm import RetrievalFactory
+            from src.retrieval.wiki_rm import WikiRM
 
-            # Create Wikipedia-based RM
-            retrieval_system = RetrievalFactory.create_wikipedia_rm(
+            # Create Wikipedia-based retrieval manager
+            retrieval_system = WikiRM(
                 max_articles=DEFAULT_RETRIEVAL_CONFIG.num_queries,
                 max_sections=DEFAULT_RETRIEVAL_CONFIG.results_per_query,
             )
@@ -310,7 +469,7 @@ class BaseRunner(ABC):
         self, passages: List[str], max_passages: int = None
     ) -> str:
         if max_passages is None:
-            max_passages = DEFAULT_RETRIEVAL_CONFIG.max_content_pieces
+            max_passages = DEFAULT_RETRIEVAL_CONFIG.final_passages
 
         if not passages:
             raise ValueError("No passages provided for context creation")
@@ -408,7 +567,9 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
     try:
         # Load configuration
-        model_config = ModelConfig(mode=args.backend)
+        model_config = ModelConfig(
+            mode=args.backend, override_model=args.override_model
+        )
 
         # Setup output directory
         output_dir = setup_output_directory(args)

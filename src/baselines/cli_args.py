@@ -35,6 +35,12 @@ Examples:
 
   # Resume experiment from checkpoint
   %(prog)s --resume_dir /path/to/experiment/dir
+
+  # Use single model for all tasks
+  %(prog)s --override_model qwen2.5:14b --methods direct rag --num_topics 5
+
+  # Use GPT-OSS-20B for all tasks
+  %(prog)s --backend ollama --override_model gpt-oss:20b --methods direct --num_topics 3
         """,
     )
 
@@ -60,14 +66,15 @@ Examples:
         "-m",
         nargs="+",
         default=["direct"],
-        choices=["direct", "storm", "rag"],
-        help="Methods to run (default: direct). Note: STORM only works with --backend ollama",
+        choices=["direct", "storm", "rag", "agentic", "collaborative"],
+        help="Methods to run (default: direct). Note: STORM only works with --backend ollama. 'collaborative' uses writer-reviewer collaboration.",
     )
 
     # =================== Ollama-Specific Arguments ===================
     ollama_group = parser.add_argument_group("Ollama Backend Options")
     ollama_group.add_argument(
         "--ollama_host",
+        "-oh",
         default="http://10.167.31.201:11434/",
         help="Ollama server host URL (default: http://10.167.31.201:11434/)",
     )
@@ -98,6 +105,12 @@ Examples:
         "-c",
         default="config/models.yaml",
         help="Model configuration file (default: config/models.yaml)",
+    )
+
+    config_group.add_argument(
+        "--override_model",
+        "-om",
+        help="Override model to use for all tasks instead of task-specific models (e.g., qwen2.5:7b, qwen2.5:14b, qwen2.5:32b, gpt-oss:20b)",
     )
 
     # =================== Output & Debugging ===================

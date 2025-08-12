@@ -12,7 +12,7 @@ import numpy as np
 import os
 import wikipedia
 from sentence_transformers import SentenceTransformer
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
 from src.retrieval.base_retriever import BaseRetriever
@@ -22,25 +22,39 @@ logger = logging.getLogger(__name__)
 
 class WikiRM(BaseRetriever):
     """
-    Clean, simplified Wikipedia retriever that eliminates the wrapper hell.
+    Unified Wikipedia Retrieval Manager.
 
+    Clean, simplified Wikipedia retriever that eliminates the wrapper hell.
     Single implementation that can output both RAG and STORM formats
     without multiple conversion layers.
+
+    This class serves as both the concrete Wikipedia implementation and
+    the unified retrieval interface, eliminating the need for separate
+    RM wrapper classes.
     """
 
     def __init__(
         self,
         max_articles: Optional[int] = None,
         max_sections: Optional[int] = None,
+        format_type: str = "rag",
         cache_dir: str = "data/wiki_cache",
+        cache_results: bool = True,
     ):
         self.max_articles = (
-            max_articles if not None else DEFAULT_RETRIEVAL_CONFIG.max_articles
+            max_articles
+            if max_articles is not None
+            else DEFAULT_RETRIEVAL_CONFIG.results_per_query
         )
         self.max_sections = (
-            max_sections if not None else DEFAULT_RETRIEVAL_CONFIG.max_sections
+            max_sections
+            if max_sections is not None
+            else DEFAULT_RETRIEVAL_CONFIG.max_content_pieces
         )
+        self.format_type = format_type
         self.cache_dir = cache_dir
+        self.cache_results = cache_results
+        self._result_cache = {} if cache_results else None
 
         # Add semantic filtering setup
         self.semantic_enabled = DEFAULT_RETRIEVAL_CONFIG.semantic_filtering_enabled
@@ -70,35 +84,100 @@ class WikiRM(BaseRetriever):
             f"WikiRM initialized (articles={max_articles}, sections={max_sections}, semantic={self.semantic_enabled})"
         )
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, query=None, k=None, *args, **kwargs):
         """
         Allow direct call to search method for convenience.
+        Handles STORM's calling convention: search_rm(query, k=5)
         """
-        return self.search(*args, **kwargs)
+        if query is not None:
+            # STORM-style call: search_rm(query, k=5)
+            max_results = k if k is not None else kwargs.get("max_results", None)
+            return self.search(queries=query, max_results=max_results, **kwargs)
+        else:
+            # Standard call: search_rm(queries=..., max_results=...)
+            return self.search(*args, **kwargs)
+
+    def retrieve(self, query=None, k=None, *args, **kwargs):
+        """
+        Alias for search method for STORM compatibility.
+        Handles STORM's calling convention: search_rm.retrieve(query, k=5)
+        """
+        if query is not None:
+            # STORM-style call
+            max_results = k if k is not None else kwargs.get("max_results", None)
+            return self.search(queries=query, max_results=max_results, **kwargs)
+        else:
+            # Standard call
+            return self.search(*args, **kwargs)
 
     def search(
         self,
-        queries: Union[str, List[str]],
+        *args,
         max_results: int = None,
         format_type: str = None,
         topic: str = None,
+        deduplicate: bool = True,
+        query: str = None,
         **kwargs,
     ) -> List:
         """
         Single search method that handles both RAG and STORM formats.
         Eliminates the need for separate search() and retrieve() methods.
         """
+        # Debug logging to understand STORM's calling pattern
+        logger.debug(
+            f"WikiRM.search called with: args={args}, query={query}, kwargs={kwargs}"
+        )
+
+        # Handle various STORM calling conventions
+        if query is not None:
+            # Keyword argument: search(query="...")
+            query = query
+        if args:
+            # Positional arguments: search("query", 5) or search("query")
+            query = args[0] if len(args) > 0 else None
+            if max_results is None and len(args) > 1:
+                max_results = args[1]
+        elif "query_or_queries" in kwargs:
+            # Query in kwargs
+            query = kwargs.pop("query_or_queries", None)
+        elif len(args) == 0 and not kwargs:
+            # Called with no arguments - this might be a STORM initialization call
+            logger.warning(
+                "WikiRM.search called with no arguments - returning empty list"
+            )
+            return []
+
+        if query is None:
+            logger.error(
+                f"WikiRM.search called with no valid query. args={args}, kwargs={kwargs}"
+            )
+            raise ValueError(
+                "No valid query provided. Expected 'query', 'query' parameter, or positional argument."
+            )
+
         max_results = (
             max_results
             if max_results is not None
-            else DEFAULT_RETRIEVAL_CONFIG.max_articles
+            else DEFAULT_RETRIEVAL_CONFIG.results_per_query
         )
-        format_type = format_type if format_type else "storm"
+        format_type = format_type if format_type else self.format_type
+
         # Normalize input
-        if isinstance(queries, str):
-            query_list = [queries]
+        if isinstance(query, str):
+            query_list = [query]
         else:
-            query_list = list(queries)
+            query_list = list(query)
+
+        # Check result cache first
+        cache_key = None
+        if self.cache_results:
+            cache_key = self._generate_result_cache_key(
+                query_list, max_results, format_type
+            )
+            if cache_key in self._result_cache:
+                logger.debug("Returning cached search results")
+                return self._result_cache[cache_key]
 
         # Collect all results
         all_results = []
@@ -111,6 +190,10 @@ class WikiRM(BaseRetriever):
             if len(all_results) >= max_results:
                 break
 
+        # Deduplicate if requested
+        if deduplicate:
+            all_results = self._deduplicate_results(all_results, format_type)
+
         # Return in requested format
         if format_type == "rag":
             # For RAG: return list of content strings
@@ -120,14 +203,21 @@ class WikiRM(BaseRetriever):
                     passages.append(result["content"])
                 elif isinstance(result, str):
                     passages.append(result)
-            return passages
-
+            final_results = passages
         elif format_type == "storm":
-            # For STORM: return list of structured dicts
-            return all_results[:max_results]
-
+            # For STORM: return dict with 'snippets' key
+            final_results = {"snippets": all_results[:max_results]}
         else:
             raise ValueError(f"Unknown format_type: {format_type}")
+
+        # Cache results
+        if self.cache_results and cache_key:
+            self._result_cache[cache_key] = final_results
+
+        logger.info(
+            f"Retrieved {len(final_results)} results for {len(query_list)} query"
+        )
+        return final_results
 
     def _search_single_query(
         self, topic: str, query: str, format_type: str
@@ -389,3 +479,56 @@ class WikiRM(BaseRetriever):
                 json.dump(results, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.warning(f"Failed to cache results: {e}")
+
+    def clear_cache(self):
+        """Clear both result cache and file cache."""
+        if self.cache_results:
+            self._result_cache.clear()
+            logger.info("Result cache cleared")
+
+        # Clear semantic cache
+        self.semantic_cache.clear()
+        logger.info("Semantic cache cleared")
+
+    def _generate_result_cache_key(
+        self, queries: List[str], max_results: int, format_type: str
+    ) -> str:
+        """Generate a cache key for search results."""
+        key_data = f"{';'.join(sorted(queries))}:{max_results}:{format_type}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+
+    def _deduplicate_results(self, results: List, format_type: str) -> List:
+        """Remove duplicate results based on format type."""
+        if format_type == "rag":
+            # For RAG format (list of strings), deduplicate by content
+            seen = set()
+            unique_results = []
+            for result in results:
+                if isinstance(result, str):
+                    # Simple content-based deduplication
+                    content_hash = hash(result.strip().lower())
+                    if content_hash not in seen:
+                        seen.add(content_hash)
+                        unique_results.append(result)
+            return unique_results
+
+        elif format_type == "storm":
+            # For STORM format (list of dicts), deduplicate by URL or content
+            seen_urls = set()
+            unique_results = []
+            for result in results:
+                if isinstance(result, dict):
+                    url = result.get("url", "")
+                    content = result.get("content", "")
+
+                    # Use URL if available, otherwise use content hash
+                    identifier = url if url else hash(content.strip().lower())
+
+                    if identifier not in seen_urls:
+                        seen_urls.add(identifier)
+                        unique_results.append(result)
+            return unique_results
+
+        else:
+            # Unknown format, return as-is
+            return results

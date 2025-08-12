@@ -205,7 +205,7 @@ class LocalModelEngine(BaseModelEngine):
             # Get inputs (from cache if possible)
             inputs = self._get_cached_tokenization(prompt, max_length)
 
-            # Configure generation parameters - create a new instance instead of using copy()
+            # Configure generation parameters
             gen_config = GenerationConfig(**self.generation_config.to_dict())
             gen_config.temperature = temperature
             gen_config.max_length = None  # Use max_new_tokens instead

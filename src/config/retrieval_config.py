@@ -85,7 +85,7 @@ class RetrievalConfig:
             return False
         if self.max_content_pieces <= 0 or self.final_passages <= 0:
             return False
-        if self.passage_max_length <= 0 or self.batch_parallel_threshold <= 0:
+        if self.passage_max_length <= 0 or self.parallel_threshold <= 0:
             return False
         return True
 

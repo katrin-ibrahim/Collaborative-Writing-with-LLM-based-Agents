@@ -113,15 +113,14 @@ def build_rag_prompt(topic: str, context: str) -> str:
 Context Information:
 {context}
 
-Instructions:
-1. Use the provided context as your primary source of information
-2. Create a well-structured article with clear sections
-3. Include specific facts, dates, and details from the context
-4. Maintain a neutral, encyclopedic tone
-5. Cite information appropriately
-6. Target 1500-2000 words
+Guidelines:
+- Use the context to write an accurate, well-structured article
+- Organize information into clear sections
+- Write in encyclopedic style
+- Focus on factual, verifiable information
+- Create a comprehensive overview of the topic
 
-Write a comprehensive article about {topic}:"""
+Write the article:"""
 
 
 def enhance_content_prompt(topic: str, content: str) -> str:
@@ -131,9 +130,14 @@ def enhance_content_prompt(topic: str, content: str) -> str:
 Current article:
 {content}
 
-Please expand this article to be more comprehensive. Add more specific details, facts, dates, and sections. Target 1200-1600 words with 4-6 well-structured sections.
+Please rewrite and expand this article to be comprehensive, well-structured, and informative. Focus on:
+- Adding missing important information
+- Improving organization and flow
+- Ensuring factual accuracy
+- Using encyclopedic tone
+- Creating proper sections and subsections
 
-Enhanced article:"""
+Write the enhanced article:"""
 
 
 def validate_article_quality(content: str, min_words: int = 800) -> dict:

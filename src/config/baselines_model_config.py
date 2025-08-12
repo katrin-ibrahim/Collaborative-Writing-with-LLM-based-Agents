@@ -41,21 +41,15 @@ class ModelConfig:
                 "writing": 0.6,  # Balanced creativity and accuracy
                 "critique": 0.2,  # More conservative critique
                 "polish": 0.3,  # More conservative polishing
-                "retrieval": 0.1,  # Very focused retrieval decisions
-                "generation": 0.6,  # Balanced generation
-                "reflection": 0.2,  # Conservative reflection
             }
 
         if self.token_limits is None:
             self.token_limits = {
-                "fast": 500,  # Increased for better query generation
-                "outline": 600,  # Increased for better structure
+                "fast": 1200,  # Increased for better query generation
+                "outline": 1200,  # Increased for better structure
                 "writing": 2500,  # Increased for better articles
-                "critique": 1000,  # Increased for thorough critique
-                "polish": 1000,  # Increased for better polishing
-                "retrieval": 300,  # Increased for better retrieval
-                "generation": 1500,  # Increased for better generation
-                "reflection": 800,  # Increased for better reflection
+                "critique": 1200,  # Increased for thorough critique
+                "polish": 1200,  # Increased for better polishing
             }
 
         if self.local_model_mapping is None:
@@ -70,6 +64,9 @@ class ModelConfig:
                 "qwen2.5:7b": "qwen2.5:7b",
                 "qwen2.5:14b": "qwen2.5:14b",
                 "qwen2.5:32b": "qwen2.5:32b",
+                "gpt-oss:20b": "gpt-oss:20b",
+                "qwen3:4b": "qwen3:4b",
+                "qwen3:8b": "qwen3:8b",
             }
 
     def get_model_for_task(self, task: str) -> str:

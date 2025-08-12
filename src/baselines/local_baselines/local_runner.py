@@ -117,6 +117,6 @@ class LocalBaselineRunner(BaseRunner):
 
     def get_supported_methods(self):
         """Return methods supported by local runner."""
-        return ["direct", "rag"]  # No STORM for local
+        return ["direct", "rag", "agentic", "collaborative"]  # No STORM for local
 
     # All other methods (run_direct, run_rag, run_*_batch) implemented in BaseRunner

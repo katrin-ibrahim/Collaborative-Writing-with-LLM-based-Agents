@@ -67,7 +67,7 @@ def add_optimization_args(parser: argparse.ArgumentParser):
     )
 
 
-def load_model_config(config_file: str) -> ModelConfig:
+def load_model_config(config_file: str, override_model: str = None) -> ModelConfig:
     """Load model configuration from file."""
     if Path(config_file).exists():
         try:
@@ -75,12 +75,20 @@ def load_model_config(config_file: str) -> ModelConfig:
 
             with open(config_file, "r") as f:
                 config_dict = yaml.safe_load(f)
-            return ModelConfig.from_dict(config_dict)
+            config = ModelConfig.from_dict(config_dict)
         except Exception as e:
             logging.warning(f"Failed to load model config: {e}")
+            config = ModelConfig()
+    else:
+        logging.info("Using default model configuration")
+        config = ModelConfig()
 
-    logging.info("Using default model configuration")
-    return ModelConfig()
+    # Apply CLI override if provided
+    if override_model:
+        config.override_model = override_model
+        logging.info(f"🔧 Override model set to: {override_model}")
+
+    return config
 
 
 def run_optimization(args):
@@ -98,7 +106,7 @@ def run_optimization(args):
 
     # Load configuration
     try:
-        model_config = load_model_config(args.model_config)
+        model_config = load_model_config(args.model_config, args.override_model)
         logger.info(f"🤖 Model config loaded from: {args.model_config}")
 
     except Exception as e:
