@@ -138,7 +138,6 @@ class StatisticalAnalyzer:
         # Compare each metric
         for metric in [
             "rouge_1",
-            "rouge_2",
             "rouge_l",
             "heading_soft_recall",
             "heading_entity_recall",
@@ -321,7 +320,6 @@ class StatisticalAnalyzer:
 
                 for metric in [
                     "rouge_1",
-                    "rouge_2",
                     "rouge_l",
                     "heading_soft_recall",
                     "heading_entity_recall",

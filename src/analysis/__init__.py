@@ -8,6 +8,7 @@ and insight extraction.
 """
 
 from .aggregator import MetricsAggregator
+from .cross_experiment_visualizer import CrossExperimentVisualizer
 from .data_loader import ResultsLoader
 from .statistical_analyzer import StatisticalAnalyzer
 from .visualizer import ResultsVisualizer
@@ -17,6 +18,7 @@ __all__ = [
     "MetricsAggregator",
     "StatisticalAnalyzer",
     "ResultsVisualizer",
+    "CrossExperimentVisualizer",
 ]
 
 # Version info

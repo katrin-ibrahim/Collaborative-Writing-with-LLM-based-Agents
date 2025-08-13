@@ -82,24 +82,55 @@ class ResultsLoader:
         if not isinstance(self.data, dict):
             raise ValueError("Results must be a dictionary")
 
-        required_keys = ["timestamp", "configuration", "results"]
-        missing_keys = [key for key in required_keys if key not in self.data]
-        if missing_keys:
-            raise ValueError(f"Missing required keys: {missing_keys}")
+        # Try new structure first (summary + results), fallback to old structure
+        if "summary" in self.data and "results" in self.data:
+            # New structure - results from evaluation
+            required_keys = ["summary", "results"]
+            missing_keys = [key for key in required_keys if key not in self.data]
+            if missing_keys:
+                raise ValueError(f"Missing required keys: {missing_keys}")
+        else:
+            # Old structure - original format
+            required_keys = ["timestamp", "configuration", "results"]
+            missing_keys = [key for key in required_keys if key not in self.data]
+            if missing_keys:
+                raise ValueError(f"Missing required keys: {missing_keys}")
 
         # Validate results structure
         results = self.data.get("results", {})
         if not isinstance(results, dict):
             raise ValueError("Results section must be a dictionary")
 
-        # Check for valid method data
+        # Check for valid method data and filter out failed entries
         valid_methods = set()
+        filtered_results = {}
+
         for topic, topic_data in results.items():
             if not isinstance(topic_data, dict):
                 continue
-            for method in topic_data.keys():
+
+            filtered_topic_data = {}
+            for method, method_data in topic_data.items():
                 if method in ["direct", "storm", "rag"]:
-                    valid_methods.add(method)
+                    # Only include successful results with actual article content
+                    if (
+                        isinstance(method_data, dict)
+                        and method_data.get("success", False)
+                        and "evaluation" in method_data
+                        and method_data.get("error") != "Article file not found"
+                    ):
+
+                        filtered_topic_data[method] = method_data
+                        valid_methods.add(method)
+                    else:
+                        logger.info(f"Filtering out failed result: {topic}/{method}")
+
+            # Only include topics that have at least one successful method
+            if filtered_topic_data:
+                filtered_results[topic] = filtered_topic_data
+
+        # Update the data with filtered results
+        self.data["results"] = filtered_results
 
         if not valid_methods:
             raise ValueError(
@@ -107,21 +138,48 @@ class ResultsLoader:
             )
 
         logger.info(f"Validation passed. Found methods: {sorted(valid_methods)}")
+        logger.info(
+            f"Filtered to {len(filtered_results)} topics with successful results"
+        )
 
     def _extract_metadata(self) -> ExperimentMetadata:
         """Extract experiment metadata."""
-        config = self.data["configuration"]
-        summary = self.data["summary"]
+        # Handle both old and new structure
+        if "summary" in self.data:
+            # New structure from evaluation results
+            summary = self.data["summary"]
+            timestamp = summary.get(
+                "timestamp", self.data.get("evaluation_timestamp", "")
+            )
 
-        return ExperimentMetadata(
-            timestamp=self.data["timestamp"],
-            ollama_host=config.get("ollama_host", ""),
-            methods=config.get("methods", []),
-            num_topics=config.get("num_topics", 0),
-            models=config.get("models", {}),
-            total_time=summary.get("total_time", 0.0),
-            topics_processed=summary.get("topics_processed", 0),
-        )
+            # Extract methods from summary
+            methods = []
+            if "methods" in summary:
+                methods = list(summary["methods"].keys())
+
+            return ExperimentMetadata(
+                timestamp=timestamp,
+                ollama_host="unknown",  # Not available in new structure
+                methods=methods,
+                num_topics=summary.get("topics_processed", 0),
+                models={},  # Extract from methods if available
+                total_time=summary.get("total_time", 0.0),
+                topics_processed=summary.get("topics_processed", 0),
+            )
+        else:
+            # Old structure
+            config = self.data["configuration"]
+            summary = self.data.get("summary", {})
+
+            return ExperimentMetadata(
+                timestamp=self.data["timestamp"],
+                ollama_host=config.get("ollama_host", ""),
+                methods=config.get("methods", []),
+                num_topics=config.get("num_topics", 0),
+                models=config.get("models", {}),
+                total_time=summary.get("total_time", 0.0),
+                topics_processed=summary.get("topics_processed", 0),
+            )
 
     def get_topic_results(self) -> List[TopicResult]:
         """Extract structured topic results."""

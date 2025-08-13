@@ -27,6 +27,9 @@ class ResultsVisualizer:
 
         self.raw_aggregations = aggregated_data.get("raw_aggregations", {})
 
+        # Define consistent method ordering
+        self.method_order = ["direct", "rag", "storm"]
+
         # Set up plotting style
         plt.style.use("default")
         sns.set_palette("husl")
@@ -44,6 +47,19 @@ class ResultsVisualizer:
                 "figure.titlesize": 16,
             }
         )
+
+    def _get_ordered_methods(self):
+        """Get methods in consistent order."""
+        methods = [
+            method
+            for method in self.method_order
+            if method in self.raw_aggregations.keys()
+        ]
+        # Add any methods not in the standard order
+        for method in self.raw_aggregations.keys():
+            if method not in methods:
+                methods.append(method)
+        return methods
 
     def generate_all_charts(self) -> Dict[str, str]:
         """Generate all visualization charts and return file paths."""
@@ -82,14 +98,14 @@ class ResultsVisualizer:
         """Create detailed metric comparison across methods."""
         metric_names = [
             "rouge_1",
-            "rouge_2",
             "rouge_l",
             "heading_soft_recall",
             "heading_entity_recall",
             "article_entity_recall",
         ]
 
-        methods = list(self.raw_aggregations.keys())
+        # Define consistent method ordering
+        methods = self._get_ordered_methods()
         len(metric_names)
         n_methods = len(methods)
 
@@ -109,11 +125,13 @@ class ResultsVisualizer:
             method_stds = []
             method_labels = []
 
-            for method, agg in self.raw_aggregations.items():
-                if metric in agg.metrics:
-                    method_means.append(agg.metrics[metric].mean)
-                    method_stds.append(agg.metrics[metric].std)
-                    method_labels.append(method)
+            for method in methods:
+                if method in self.raw_aggregations:
+                    agg = self.raw_aggregations[method]
+                    if metric in agg.metrics:
+                        method_means.append(agg.metrics[metric].mean)
+                        method_stds.append(agg.metrics[metric].std)
+                        method_labels.append(method)
 
             if method_means:
                 x_pos = np.arange(len(method_labels))
@@ -165,12 +183,14 @@ class ResultsVisualizer:
         """Create distribution plots for each metric."""
         metric_names = [
             "rouge_1",
-            "rouge_2",
             "rouge_l",
             "heading_soft_recall",
             "heading_entity_recall",
             "article_entity_recall",
         ]
+
+        # Define consistent method ordering
+        methods = self._get_ordered_methods()
 
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         axes = axes.flatten()
@@ -185,17 +205,19 @@ class ResultsVisualizer:
             all_data = []
             method_labels = []
 
-            for method, agg in self.raw_aggregations.items():
-                if metric in agg.metrics and agg.metrics[metric].values:
-                    all_data.extend(agg.metrics[metric].values)
-                    method_labels.extend([method] * len(agg.metrics[metric].values))
+            for method in methods:
+                if method in self.raw_aggregations:
+                    agg = self.raw_aggregations[method]
+                    if metric in agg.metrics and agg.metrics[metric].values:
+                        all_data.extend(agg.metrics[metric].values)
+                        method_labels.extend([method] * len(agg.metrics[metric].values))
 
             if all_data:
                 # Create DataFrame for seaborn
                 df = pd.DataFrame({"score": all_data, "method": method_labels})
 
                 # Box plot with violin overlay
-                sns.boxplot(data=df, x="method", y="score", ax=ax)
+                sns.boxplot(data=df, x="method", y="score", ax=ax, order=methods)
                 sns.stripplot(
                     data=df,
                     x="method",
@@ -204,6 +226,7 @@ class ResultsVisualizer:
                     size=4,
                     alpha=0.6,
                     jitter=True,
+                    order=methods,
                 )
 
                 ax.set_title(metric.replace("_", " ").title(), fontweight="bold")
@@ -239,7 +262,9 @@ class ResultsVisualizer:
             "Success Rate and Word Count Analysis", fontsize=16, fontweight="bold"
         )
 
-        methods = list(self.raw_aggregations.keys())
+        # Define consistent method ordering
+        methods = self._get_ordered_methods()
+
         colors = sns.color_palette("husl", len(methods))
 
         # Success rates with confidence intervals (assuming binomial)
@@ -247,7 +272,8 @@ class ResultsVisualizer:
         ci_lower = []
         ci_upper = []
 
-        for agg in self.raw_aggregations.values():
+        for method in methods:
+            agg = self.raw_aggregations[method]
             rate = agg.success_rate
             n = (
                 agg.topic_count / rate if rate > 0 else agg.topic_count
@@ -305,19 +331,23 @@ class ResultsVisualizer:
         word_data = []
         word_methods = []
 
-        for method, agg in self.raw_aggregations.items():
-            # Create synthetic word count data based on mean (for visualization)
-            mean_words = agg.avg_word_count
-            n_samples = agg.topic_count
+        for method in methods:
+            if method in self.raw_aggregations:
+                agg = self.raw_aggregations[method]
+                # Create synthetic word count data based on mean (for visualization)
+                mean_words = agg.avg_word_count
+                n_samples = agg.topic_count
 
-            if mean_words > 0 and n_samples > 0:
-                # Generate approximate distribution
-                std_words = mean_words * 0.3  # Assume 30% CV
-                word_samples = np.random.normal(mean_words, std_words, n_samples)
-                word_samples = np.maximum(word_samples, 0)  # No negative word counts
+                if mean_words > 0 and n_samples > 0:
+                    # Generate approximate distribution
+                    std_words = mean_words * 0.3  # Assume 30% CV
+                    word_samples = np.random.normal(mean_words, std_words, n_samples)
+                    word_samples = np.maximum(
+                        word_samples, 0
+                    )  # No negative word counts
 
-                word_data.extend(word_samples)
-                word_methods.extend([method] * n_samples)
+                    word_data.extend(word_samples)
+                    word_methods.extend([method] * n_samples)
 
         if word_data:
             df_words = pd.DataFrame({"words": word_data, "method": word_methods})
@@ -547,9 +577,11 @@ class ResultsVisualizer:
         """Create scatter plot between two metrics."""
         fig, ax = plt.subplots(figsize=(10, 8))
 
-        colors = sns.color_palette("husl", len(self.raw_aggregations))
+        ordered_methods = self._get_ordered_methods()
+        colors = sns.color_palette("husl", len(ordered_methods))
 
-        for i, (method, agg) in enumerate(self.raw_aggregations.items()):
+        for i, method in enumerate(ordered_methods):
+            agg = self.raw_aggregations[method]
             if x_metric in agg.metrics and y_metric in agg.metrics:
                 x_values = agg.metrics[x_metric].values
                 y_values = agg.metrics[y_metric].values
