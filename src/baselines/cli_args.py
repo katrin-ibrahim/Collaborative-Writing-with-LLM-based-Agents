@@ -5,10 +5,8 @@ Supports both Ollama and local backends through --backend flag.
 
 import argparse
 
-from typing import Any, Dict
 
-
-def parse_arguments() -> Dict[str, Any]:
+def parse_arguments() -> argparse.Namespace:
     """
     Parse command-line arguments for baseline experiments.
     Single parser handles both local and Ollama backends.

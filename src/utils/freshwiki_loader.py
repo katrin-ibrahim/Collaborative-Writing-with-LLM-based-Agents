@@ -44,7 +44,7 @@ class FreshWikiLoader:
             logger.error(f"FreshWiki data not found at: {self.data_path}")
             return []
 
-        json_files = list((self.data_path / "json").glob("*.json"))[:num_topics]
+        json_files = sorted(list((self.data_path / "json").glob("*.json")))[:num_topics]
 
         entries = []
         for json_file in json_files:

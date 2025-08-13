@@ -24,9 +24,7 @@ class TestGenerationIntegration:
             "-oh",
             "http://localhost:11434",
             "-n",
-            "1",
-            "-om",
-            "qwen3:4b",
+            "20",
         ]
 
         print(f"Running main with args: {test_args}")
