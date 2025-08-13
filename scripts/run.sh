@@ -12,7 +12,7 @@
 
 # Variables
 MODEL_SIZE="14b"
-N_SAMPLES=1
+N_SAMPLES=20
 
 cd /storage/ukp/work/ibrahim1/Writer-Reviewer
 
@@ -27,5 +27,5 @@ nvidia-smi
 
 echo "Starting model loading at $(date)"
 echo "Experiment parameters: MODEL_SIZE=${MODEL_SIZE}, N_SAMPLES=${N_SAMPLES}"
-python -m src.baselines --backend local -n ${N_SAMPLES} -m rag 
+python -m src.baselines --backend local -n ${N_SAMPLES} -m direct rag
 echo "Job finished at $(date)"

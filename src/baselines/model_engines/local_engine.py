@@ -115,7 +115,8 @@ class LocalModelEngine(BaseModelEngine):
             # Determine device placement
             if self.device == "auto":
                 if torch.cuda.is_available():
-                    device_map = "auto"
+                    # Use specific GPU instead of "auto" to avoid meta tensor issues
+                    device_map = {"": 0}  # Place entire model on GPU 0
                 elif torch.backends.mps.is_available():
                     device_map = "mps"
                 else:
@@ -128,7 +129,7 @@ class LocalModelEngine(BaseModelEngine):
             # Load model with optimizations
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
-                torch_dtype=torch.float16 if device_map != "cpu" else torch.float32,
+                torch_dtype=torch.float16 if device_map not in ["cpu", "mps"] else torch.float32,
                 device_map=device_map,
                 trust_remote_code=True,
                 use_safetensors=True,
