@@ -532,7 +532,7 @@ class WikiRM(BaseRetriever):
         for result in results:
             if isinstance(result, dict):
                 url = result.get("url", "")
-                content = result.get("content", "")
+                content = result.get("snippets", "")
                 
                 # Use URL if available, otherwise use content hash
                 identifier = url if url else hash(content.strip().lower()) if content else hash(str(result))
