@@ -14,7 +14,7 @@ class ModelConfig:
 
     # Task-specific model assignments
     outline_model: str = "qwen2.5:14b"  # Balanced, for structure
-    writing_model: str = "qwen2.5:32b"  # Quality, for content
+    writing_model: str = "qwen3:4b"  # Quality, for content
     critique_model: str = "qwen2.5:14b"  # Reasoning, for self-critique
     polish_model: str = "qwen2.5:7b"  # Final polish
 
@@ -57,6 +57,7 @@ class ModelConfig:
                 "qwen2.5:7b": "models/models--Qwen2.5-7B-Instruct",
                 "qwen2.5:14b": "models/models--Qwen2.5-14B-Instruct",
                 "qwen2.5:32b": "models/models--Qwen2.5-32B-Instruct",
+                "qwen3:4b": "models/models--Qwen3-4B"
             }
 
         if self.ollama_model_mapping is None:
