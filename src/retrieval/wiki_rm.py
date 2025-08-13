@@ -193,7 +193,17 @@ class WikiRM(BaseRetriever):
             final_results = passages
         elif format_type == "storm":
             # For STORM: return dict with 'snippets' key
-            final_results = all_results[:max_results]
+            storm_results = []
+            for result in all_results[:max_results]:
+                if isinstance(result, dict):
+                    storm_result = {
+                        "url": result.get("url", ""),
+                        "title": result.get("title", ""),
+                        "description": result.get("snippets", "")[:200],
+                        "snippets": [result.get("snippets", "")],  # Content as LIST
+                    }
+                    storm_results.append(storm_result)
+            final_results = storm_results
         else:
             raise ValueError(f"Unknown format_type: {format_type}")
 
@@ -201,9 +211,6 @@ class WikiRM(BaseRetriever):
         if self.cache_results and cache_key:
             self._result_cache[cache_key] = final_results
 
-        logger.info(
-            f"Retrieved {len(final_results)} results for {len(query_list)} query"
-        )
         return final_results
 
     @staticmethod
