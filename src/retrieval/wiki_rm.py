@@ -329,17 +329,22 @@ class WikiRM(BaseRetriever):
                             section_name = f"Content Part {i + 1}"
 
                         if content and len(content.strip()) > 100:
-                            results.append(
-                                {
-                                    "title": page.title,
-                                    "section": section_name,
-                                    "snippets": content.strip()[:2000],
-                                    "url": page.url,
-                                    "source": "wikipedia",
-                                }
-                            )
-                    except Exception:
+                            result_item = {
+                                "title": page.title,
+                                "section": section_name,
+                                "snippets": content.strip()[:2000],
+                                "url": page.url,
+                                "source": "wikipedia",
+                            }
+                            results.append(result_item)
+                            logger.debug(f"Added result: {page.title} - {section_name}")
+                        else:
+                            logger.debug(f"Skipped item {i}: content too short ({len(content) if content else 0} chars)")
+                    except Exception as e:
+                        logger.warning(f"Error processing item {i} for page '{page_title}': {e}")
                         continue  # Skip problematic sections/chunks
+                
+                logger.info(f"Page '{page_title}' produced {len(results)} final results")
 
         except wikipedia.exceptions.DisambiguationError as e:
             # Try first disambiguation option
@@ -519,36 +524,28 @@ class WikiRM(BaseRetriever):
 
     def _deduplicate_results(self, results: List, format_type: str) -> List:
         """Remove duplicate results based on format type."""
-        if format_type == "rag":
-            # For RAG format (list of strings), deduplicate by content
-            seen = set()
-            unique_results = []
-            for result in results:
-                if isinstance(result, str):
-                    # Simple content-based deduplication
-                    content_hash = hash(result.strip().lower())
-                    if content_hash not in seen:
-                        seen.add(content_hash)
-                        unique_results.append(result)
-            return unique_results
-
-        elif format_type == "storm":
-            # For STORM format (list of dicts), deduplicate by URL or content
-            seen_urls = set()
-            unique_results = []
-            for result in results:
-                if isinstance(result, dict):
-                    url = result.get("url", "")
-                    content = result.get("snippets", "")
-
-                    # Use URL if available, otherwise use content hash
-                    identifier = url if url else hash(content.strip().lower())
-
-                    if identifier not in seen_urls:
-                        seen_urls.add(identifier)
-                        unique_results.append(result)
-            return unique_results
-
-        else:
-            # Unknown format, return as-is
-            return results
+        # At this stage, results are always dictionaries from Wikipedia
+        # regardless of the final format_type, so we deduplicate based on dict structure
+        seen_urls = set()
+        unique_results = []
+        
+        for result in results:
+            if isinstance(result, dict):
+                url = result.get("url", "")
+                content = result.get("content", "")
+                
+                # Use URL if available, otherwise use content hash
+                identifier = url if url else hash(content.strip().lower()) if content else hash(str(result))
+                
+                if identifier not in seen_urls:
+                    seen_urls.add(identifier)
+                    unique_results.append(result)
+            elif isinstance(result, str):
+                # Handle string results (shouldn't happen at this stage, but just in case)
+                content_hash = hash(result.strip().lower())
+                if content_hash not in seen_urls:
+                    seen_urls.add(content_hash)
+                    unique_results.append(result)
+        
+        logger.info(f"Deduplication: {len(results)} → {len(unique_results)} results")
+        return unique_results
