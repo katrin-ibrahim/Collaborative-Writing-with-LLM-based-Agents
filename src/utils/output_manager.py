@@ -108,6 +108,11 @@ class OutputManager:
                 "timestamp": article.metadata.get("timestamp", "unknown"),
                 **article.metadata,  # Include all other metadata
             }
+            additional_metadata = article._serialize_metadata(article.metadata)
+            for key, value in additional_metadata.items():
+                if key not in metadata:  # Don't overwrite existing clean values
+                    metadata[key] = value
+
 
             with open(metadata_filepath, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2)

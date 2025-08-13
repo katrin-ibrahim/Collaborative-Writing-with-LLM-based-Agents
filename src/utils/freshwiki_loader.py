@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 sys.path.append(str(Path(__file__).resolve().parent))
 
 
-@dataclass
+@dataclass 
 class FreshWikiEntry:
     """
     Simple FreshWiki evaluation entry.
@@ -32,7 +32,8 @@ class FreshWikiLoader:
 
     def __init__(
         self,
-        data_path: str = "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/freshwiki",
+        # data_path: str = "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/freshwiki",
+        data_path: str = "/storage/ukp/work/ibrahim1/Writer-Reviewer/data/freshwiki",
     ):
         self.data_path = Path(data_path)
         abs_path = self.data_path.resolve()
