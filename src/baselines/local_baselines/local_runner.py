@@ -98,13 +98,27 @@ class LocalBaselineRunner(BaseRunner):
                 else:
                     content = str(response)
 
-                # Parse queries
-                raw_queries = [
-                    line.strip()
-                    for line in content.split("\n")
-                    if line.strip()
-                    and not line.strip().startswith(("1.", "2.", "3.", "-", "*"))
-                ]
+                # Clean <think> tags like in ollama_client
+                import re
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+
+                # Parse queries and clean numbered prefixes
+                import re
+                raw_queries = []
+                for line in content.split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Remove numbered prefixes (1., 2., 3., etc.)
+                    line = re.sub(r'^\d+\.\s*', '', line)
+                    
+                    # Remove bullet points and other prefixes
+                    line = re.sub(r'^[-*•]\s*', '', line)
+                    
+                    # Skip if line is now empty or is just punctuation
+                    if line and len(line) > 5:
+                        raw_queries.append(line)
 
                 # Return queries with fallback
                 return raw_queries[:num_queries] if raw_queries else [topic]

@@ -282,7 +282,7 @@ if __name__ == "__main__":
         help="Target directory for quality topics",
     )
     parser.add_argument(
-        "--max_topics", type=int, default=30, help="Number of quality topics to extract"
+        "--max_topics", type=int, default=100, help="Number of quality topics to extract"
     )
 
     args = parser.parse_args()

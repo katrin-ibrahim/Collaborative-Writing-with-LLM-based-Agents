@@ -231,6 +231,10 @@ class LocalModelEngine(BaseModelEngine):
             if response_text.startswith(prompt):
                 response_text = response_text[len(prompt) :].strip()
 
+            # Clean <think> tags like in ollama_client
+            import re
+            response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL)
+
             return response_text
 
         except Exception as e:

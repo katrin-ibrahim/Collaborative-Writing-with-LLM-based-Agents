@@ -513,11 +513,19 @@ class BaseRunner(ABC):
         extra_metadata: dict = None,
     ) -> Article:
         """Create Article object - shared implementation."""
+        
+        # Get model name safely, avoiding the actual model object
+        model_name = None
+        if hasattr(engine, "model_name"):
+            model_name = engine.model_name
+        elif hasattr(engine, "model") and isinstance(engine.model, str):
+            model_name = engine.model
+        else:
+            model_name = str(engine)
+        
         metadata = {
             "method": method,
-            "model": getattr(
-                engine, "model", getattr(engine, "model_name", str(engine))
-            ),
+            "model": model_name,
             "word_count": word_count,
             "generation_time": generation_time,
             "temperature": getattr(engine, "temperature", 0.7),
