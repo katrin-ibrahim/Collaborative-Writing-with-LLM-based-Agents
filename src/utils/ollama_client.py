@@ -23,7 +23,7 @@ class OllamaClient:
     def __init__(
         self,
         host: str = "http://localhost:11434/",
-        model: str = "qwen2.5:7b",
+        model: str = "qwen3:4b",
         temperature: float = 0.7,
         max_tokens: int = 1000,
     ):

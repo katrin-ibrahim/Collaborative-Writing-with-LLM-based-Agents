@@ -143,7 +143,7 @@ Examples:
 
     # Set model name based on size for local backend
     if args.backend == "local":
-        args.model_name = f"qwen2.5:{args.model_size}"
+        args.model_name = f"qwen3:4b"
 
     # Validate method combinations
     if "storm" in args.methods and args.backend == "local":
