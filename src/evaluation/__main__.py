@@ -297,9 +297,14 @@ def main():
             # Find matching FreshWiki entry
             freshwiki_entry = None
             for entry in entries:
+                # Normalize both titles by replacing underscores with spaces for comparison
+                entry_topic_normalized = entry.topic.replace("_", " ").lower()
+                topic_normalized = topic.replace("_", " ").lower()
+
                 if (
-                    entry.topic.lower() == topic.lower()
-                    or topic.lower() in entry.topic.lower()
+                    entry_topic_normalized == topic_normalized
+                    or topic_normalized in entry_topic_normalized
+                    or entry_topic_normalized in topic_normalized
                 ):
                     freshwiki_entry = entry
                     break
