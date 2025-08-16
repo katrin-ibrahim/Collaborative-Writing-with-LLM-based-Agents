@@ -22,14 +22,8 @@ Examples:
   # Run all methods with Ollama (default backend)
   %(prog)s --methods direct storm rag --num_topics 10
 
-  # Run only direct + rag with local models
-  %(prog)s --backend local --methods direct rag --num_topics 5
-
-  # Use custom Ollama host
-  %(prog)s --backend ollama --ollama_host http://localhost:11434/ --num_topics 5
-
-  # Use custom local model path and GPU
-  %(prog)s --backend local --model_path /path/to/models --device cuda --num_topics 5
+  # Run only direct + rag with SLURM models
+  %(prog)s --backend slurm --methods direct rag --num_topics 5
 
   # Resume experiment from checkpoint
   %(prog)s --resume_dir /path/to/experiment/dir
@@ -46,9 +40,9 @@ Examples:
     parser.add_argument(
         "--backend",
         "-b",
-        choices=["ollama", "local"],
+        choices=["ollama", "slurm"],
         default="ollama",
-        help="Model backend to use (default: ollama)",
+        help="Model execution backend: 'ollama' for API-based (localhost/remote), 'slurm' for direct model execution",
     )
 
     parser.add_argument(
@@ -68,47 +62,44 @@ Examples:
         help="Methods to run (default: direct). Note: STORM only works with --backend ollama. 'collaborative' uses writer-reviewer collaboration.",
     )
 
-    # =================== Ollama-Specific Arguments ===================
-    ollama_group = parser.add_argument_group("Ollama Backend Options")
-    ollama_group.add_argument(
-        "--ollama_host",
-        "-oh",
-        default="http://10.167.31.201:11434/",
-        help="Ollama server host URL (default: http://10.167.31.201:11434/)",
-    )
-
-    # =================== Local-Specific Arguments ===================
-    local_group = parser.add_argument_group("Local Backend Options")
-    local_group.add_argument(
-        "--device",
-        default="auto",
-        help="Device for local models: auto, cuda, cpu, mps (default: auto)",
-    )
-
-    local_group.add_argument(
-        "--model_path", help="Path to local model directory (overrides config)"
-    )
-
-    local_group.add_argument(
-        "--model_size",
-        choices=["7b", "14b", "32b", "72b"],
-        default="32b",
-        help="Model size for local backend (default: 32b)",
-    )
-
     # =================== Common Configuration ===================
     config_group = parser.add_argument_group("Configuration Options")
     config_group.add_argument(
         "--model_config",
         "-c",
-        default="src/config/models.yaml",
-        help="Model configuration file (default: src/config/models.yaml)",
+        default="ollama_localhost",
+        choices=["ollama_localhost", "ollama_ukp", "slurm", "slurm_thinking"],
+        help="Model configuration preset (default: ollama_localhost)",
     )
 
     config_group.add_argument(
         "--override_model",
         "-om",
         help="Override model to use for all tasks instead of task-specific models (e.g., qwen2.5:7b, qwen2.5:14b, qwen2.5:32b, gpt-oss:20b)",
+    )
+
+    # =================== Granular Retrieval Parameters ===================
+    retrieval_group = parser.add_argument_group("Retrieval Configuration Override")
+
+    retrieval_group.add_argument(
+        "--retrieval_manager",
+        "-rm",
+        choices=["wiki", "bm25_wiki", "faiss_wiki"],
+        help="Retrieval manager type (overrides config file)",
+    )
+
+    retrieval_group.add_argument(
+        "--semantic_filtering",
+        "-sf",
+        action="store_true",
+        help="Enable semantic filtering for retrieval results",
+    )
+
+    retrieval_group.add_argument(
+        "--use_wikidata_enhancement",
+        "-uw",
+        action="store_true",
+        help="Enable Wikidata retrieval enhancement",
     )
 
     # =================== Output & Debugging ===================
@@ -132,6 +123,24 @@ Examples:
         "--resume_dir", "-r", type=str, help="Resume from specific experiment directory"
     )
 
+    output_group.add_argument(
+        "--output_dir", "-o", type=str, help="Custom output directory for results"
+    )
+
+    output_group.add_argument(
+        "--experiment_name",
+        "-en",
+        type=str,
+        help="Experiment name for auto-generated output directory (e.g., 'semantic_filtering_test')",
+    )
+
+    output_group.add_argument(
+        "--auto_name",
+        "-an",
+        action="store_true",
+        help="Auto-generate output directory name based on experiment parameters",
+    )
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -141,28 +150,14 @@ Examples:
     if args.resume_dir:
         args.resume = True
 
-    # Set model name based on size for local backend
-    if args.backend == "local":
-        args.model_name = f"qwen3:4b"
-
     # Validate method combinations
-    if "storm" in args.methods and args.backend == "local":
+    if "storm" in args.methods and args.backend == "slurm":
         parser.error(
-            "STORM method is not supported with --backend local. Use --backend ollama for STORM."
+            "STORM method is not supported with --backend slurm. Use --backend ollama for STORM."
         )
 
-    # Validate ollama-specific args
-    if args.backend != "ollama" and args.ollama_host != "http://10.167.31.201:11434/":
-        parser.error("--ollama_host can only be used with --backend ollama")
-
-    # Validate local-specific args
-    if args.backend != "local":
-        if args.device != "auto":
-            parser.error("--device can only be used with --backend local")
-        if args.model_path:
-            parser.error("--model_path can only be used with --backend local")
-        if args.model_size != "32b":
-            parser.error("--model_size can only be used with --backend local")
+    # Handle list retrieval configs request (remove this feature since we removed --retrieval_config)
+    # This was used for listing available YAML configs, but we're now using defaults + CLI overrides
 
     return args
 
@@ -190,8 +185,8 @@ def validate_args(args) -> bool:
             return False
 
     # Validate method-backend combinations
-    if args.backend == "local" and "storm" in args.methods:
-        print("Error: STORM is not supported with local backend")
+    if args.backend == "slurm" and "storm" in args.methods:
+        print("Error: STORM is not supported with slurm backend")
         return False
 
     return True
@@ -205,11 +200,6 @@ if __name__ == "__main__":
         print(f"  Backend: {args.backend}")
         print(f"  Methods: {args.methods}")
         print(f"  Topics: {args.num_topics}")
-        if args.backend == "ollama":
-            print(f"  Ollama Host: {args.ollama_host}")
-        else:
-            print(f"  Device: {args.device}")
-            print(f"  Model Size: {args.model_size}")
     else:
         print("❌ Argument validation failed")
         exit(1)

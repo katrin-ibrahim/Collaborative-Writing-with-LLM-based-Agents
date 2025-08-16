@@ -1,0 +1,30 @@
+# Local thinking models configuration
+mode: 'local'
+override_model: null
+
+# Task-specific model assignments using thinking/reasoning models
+outline_model: 'qwen3:4b'
+writing_model: 'qwen3:4b'
+critique_model: 'qwen3:4b'
+polish_model: 'qwen3:4b'
+default_model: 'qwen3:4b'
+
+# Temperature settings per task (lower for thinking models)
+temperatures:
+  fast: 0.3
+  outline: 0.2
+  writing: 0.4
+  critique: 0.1
+  polish: 0.2
+
+# Token limits per task (higher for thinking models)
+token_limits:
+  fast: 1500
+  outline: 2000
+  writing: 4000
+  critique: 2000
+  polish: 1500
+
+# Local model mappings
+local_model_mapping:
+  'qwen3:4b': 'models/models--Qwen3-4B'

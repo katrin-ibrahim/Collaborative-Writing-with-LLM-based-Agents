@@ -1,0 +1,32 @@
+# Local model configuration
+mode: 'local'
+override_model: null
+
+# Task-specific model assignments
+outline_model: 'qwen2.5:7b'
+writing_model: 'qwen2.5:32b'
+critique_model: 'qwen2.5:14b'
+polish_model: 'qwen2.5:7b'
+default_model: 'qwen2.5:32b'
+
+# Temperature settings per task
+temperatures:
+  fast: 0.5
+  outline: 0.4
+  writing: 0.6
+  critique: 0.2
+  polish: 0.3
+
+# Token limits per task
+token_limits:
+  fast: 1200
+  outline: 1200
+  writing: 2500
+  critique: 1200
+  polish: 1200
+
+# Local model mappings
+local_model_mapping:
+  'qwen2.5:7b': 'models/models--Qwen2.5-7B-Instruct'
+  'qwen2.5:14b': 'models/models--Qwen2.5-14B-Instruct'
+  'qwen2.5:32b': 'models/models--Qwen2.5-32B-Instruct'

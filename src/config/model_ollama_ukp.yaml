@@ -1,0 +1,26 @@
+# Ollama configuration for UKP server
+mode: 'ollama'
+override_model: null
+ollama_host: 'http://10.167.31.201:11434/'
+# Task-specific model assignments (using larger models available on UKP)
+outline_model: 'qwen2.5:7b'
+writing_model: 'qwen2.5:32b'
+critique_model: 'qwen2.5:14b'
+polish_model: 'qwen2.5:7b'
+default_model: 'qwen2.5:32b'
+
+# Temperature settings per task
+temperatures:
+  fast: 0.5
+  outline: 0.4
+  writing: 0.6
+  critique: 0.2
+  polish: 0.3
+
+# Token limits per task
+token_limits:
+  fast: 1200
+  outline: 1200
+  writing: 3000
+  critique: 1500
+  polish: 1200

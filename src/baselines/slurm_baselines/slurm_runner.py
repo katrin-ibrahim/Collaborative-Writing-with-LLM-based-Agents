@@ -1,5 +1,5 @@
 """
-Ultra-thin local baseline runner - only responsible for engine initialization.
+Ultra-thin SLURM baseline runner - only responsible for engine initialization.
 All shared logic moved to BaseRunner.
 """
 
@@ -9,14 +9,15 @@ from typing import List, Optional
 from src.baselines.baseline_runner_base import BaseRunner
 from src.baselines.model_engines.local_engine import LocalModelEngine
 from src.config.baselines_model_config import ModelConfig
+from src.config.retrieval_config import RetrievalConfig
 from src.utils.output_manager import OutputManager
 
 logger = logging.getLogger(__name__)
 
 
-class LocalBaselineRunner(BaseRunner):
+class SlurmBaselineRunner(BaseRunner):
     """
-    Ultra-thin local runner - only handles LocalModelEngine initialization.
+    Ultra-thin SLURM runner - only handles LocalModelEngine initialization.
     All methods (direct, rag, batch) implemented in BaseRunner.
     """
 
@@ -24,11 +25,16 @@ class LocalBaselineRunner(BaseRunner):
         self,
         model_config: Optional[ModelConfig] = None,
         output_manager: Optional[OutputManager] = None,
+        retrieval_config: Optional[RetrievalConfig] = None,
         device: str = "auto",
         model_path: Optional[str] = None,
     ):
         # Initialize base class
-        super().__init__(model_config=model_config, output_manager=output_manager)
+        super().__init__(
+            model_config=model_config,
+            output_manager=output_manager,
+            retrieval_config=retrieval_config,
+        )
 
         # Ensure local mode
         self.model_config.mode = "local"
@@ -40,7 +46,7 @@ class LocalBaselineRunner(BaseRunner):
         # Engine cache
         self._engine_cache = {}
 
-        logger.info("LocalBaselineRunner initialized")
+        logger.info("SlurmBaselineRunner initialized")
         logger.info(f"Using device: {self.device}")
 
     def get_model_engine(self, task: str) -> LocalModelEngine:
@@ -90,7 +96,7 @@ class LocalBaselineRunner(BaseRunner):
     Wikipedia search queries for "{topic}":"""
 
             try:
-                response = engine.generate(prompt, max_length=200, temperature=0.3)
+                response = engine.complete(prompt, max_length=200, temperature=0.3)
 
                 # Extract content
                 if hasattr(response, "content"):
@@ -100,22 +106,24 @@ class LocalBaselineRunner(BaseRunner):
 
                 # Clean <think> tags like in ollama_client
                 import re
+
                 content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
 
                 # Parse queries and clean numbered prefixes
                 import re
+
                 raw_queries = []
                 for line in content.split("\n"):
                     line = line.strip()
                     if not line:
                         continue
-                    
+
                     # Remove numbered prefixes (1., 2., 3., etc.)
-                    line = re.sub(r'^\d+\.\s*', '', line)
-                    
+                    line = re.sub(r"^\d+\.\s*", "", line)
+
                     # Remove bullet points and other prefixes
-                    line = re.sub(r'^[-*•]\s*', '', line)
-                    
+                    line = re.sub(r"^[-*•]\s*", "", line)
+
                     # Skip if line is now empty or is just punctuation
                     if line and len(line) > 5:
                         raw_queries.append(line)
@@ -124,13 +132,13 @@ class LocalBaselineRunner(BaseRunner):
                 return raw_queries[:num_queries] if raw_queries else [topic]
 
             except Exception as e:
-                logger.error(f"Local query generation failed: {e}")
+                logger.error(f"SLURM query generation failed: {e}")
                 return [topic]  # Fallback to topic
 
         return local_query_generator
 
     def get_supported_methods(self):
-        """Return methods supported by local runner."""
-        return ["direct", "rag", "agentic", "collaborative"]  # No STORM for local
+        """Return methods supported by SLURM runner."""
+        return ["direct", "rag", "agentic", "collaborative"]  # No STORM for SLURM
 
     # All other methods (run_direct, run_rag, run_*_batch) implemented in BaseRunner
