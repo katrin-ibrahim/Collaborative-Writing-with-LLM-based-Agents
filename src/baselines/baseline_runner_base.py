@@ -11,7 +11,7 @@ import logging
 from typing import List, Optional
 
 from src.config.baselines_model_config import ModelConfig
-from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
+from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
 from src.utils.baselines_utils import (
     build_direct_prompt,
     build_rag_prompt,
@@ -33,9 +33,11 @@ class BaseRunner(ABC):
         self,
         model_config: Optional[ModelConfig] = None,
         output_manager: Optional[OutputManager] = None,
+        retrieval_config: Optional[RetrievalConfig] = None,
     ):
         self.model_config = model_config or ModelConfig()
         self.output_manager = output_manager
+        self.retrieval_config = retrieval_config
         self.state_manager = None
 
     @abstractmethod
@@ -59,7 +61,10 @@ class BaseRunner(ABC):
 
             # Build prompt and generate
             prompt = build_direct_prompt(topic)
-            content = engine.generate(prompt)
+            response = engine.complete(prompt)
+
+            # Extract content using engine's helper method
+            content = engine.extract_content(response)
 
             generation_time = time.time() - start_time
             content_words = len(content.split()) if content else 0
@@ -231,17 +236,17 @@ class BaseRunner(ABC):
             retrieval_system = self._get_retrieval_system()
             query_generator = self._get_query_generator()
 
-            # Generate search queries
+            # Use instance config with fallback to default
+            config = self.retrieval_config or DEFAULT_RETRIEVAL_CONFIG
 
-            queries = query_generator(
-                engine, topic, num_queries=DEFAULT_RETRIEVAL_CONFIG.num_queries
-            )
+            # Generate search queries for the topic
+            queries = query_generator(engine, topic, num_queries=config.num_queries)
             logger.info(f"Generated {len(queries)} search queries for {topic}")
 
             # Retrieve context
             passages = retrieval_system.search(
                 queries,
-                max_results=DEFAULT_RETRIEVAL_CONFIG.results_per_query,
+                max_results=config.results_per_query,
                 topic=topic,
             )
             context = self._create_context_from_passages(passages)
@@ -249,7 +254,10 @@ class BaseRunner(ABC):
 
             # Generate article with context
             rag_prompt = build_rag_prompt(topic, context)
-            content = engine.generate(rag_prompt, max_length=1024, temperature=0.3)
+            response = engine.complete(rag_prompt, max_length=1024, temperature=0.3)
+
+            # Extract content using engine's helper method
+            content = engine.extract_content(response)
 
             generation_time = time.time() - start_time
             content_words = len(content.split()) if content else 0
@@ -438,18 +446,24 @@ class BaseRunner(ABC):
         return results
 
     # ---------------------------------------- Retrieval Abstraction ----------------------------------------
-    def _get_retrieval_system(self):
+    def _get_retrieval_system(self, retrieval_config=None):
         """
-        Get retrieval system.
+        Get retrieval system using configurable factory.
         Fails clearly instead of providing fallbacks.
         """
         try:
-            from src.retrieval.wiki_rm import WikiRM
+            from src.retrieval import create_retrieval_manager
 
-            # Create Wikipedia-based retrieval manager
-            retrieval_system = WikiRM(
-                max_articles=DEFAULT_RETRIEVAL_CONFIG.num_queries,
-                max_sections=DEFAULT_RETRIEVAL_CONFIG.results_per_query,
+            # Use provided config, instance config, or default (in that order)
+            config = (
+                retrieval_config or self.retrieval_config or DEFAULT_RETRIEVAL_CONFIG
+            )
+
+            # Create retrieval system using factory
+            retrieval_system = create_retrieval_manager(
+                retrieval_config=config,
+                max_articles=config.results_per_query,
+                max_sections=config.max_content_pieces,
             )
 
             return retrieval_system
@@ -513,7 +527,7 @@ class BaseRunner(ABC):
         extra_metadata: dict = None,
     ) -> Article:
         """Create Article object - shared implementation."""
-        
+
         # Get model name safely, avoiding the actual model object
         model_name = None
         if hasattr(engine, "model_name"):
@@ -522,7 +536,7 @@ class BaseRunner(ABC):
             model_name = engine.model
         else:
             model_name = str(engine)
-        
+
         metadata = {
             "method": method,
             "model": model_name,
@@ -574,10 +588,124 @@ def run_baseline_experiment(args, runner_class, runner_name):
     logger.info(f"📝 Topics: {args.num_topics}")
 
     try:
-        # Load configuration
-        model_config = ModelConfig(
-            mode=args.backend, override_model=args.override_model
-        )
+        # Use default retrieval configuration with CLI overrides only
+        retrieval_config = None
+        if hasattr(args, "retrieval_manager") and args.retrieval_manager:
+            # Use hybrid approach: base RM config + CLI overrides
+            try:
+                from src.config.retrieval_config import RetrievalConfig
+
+                # Handle semantic filtering flags
+                semantic_filtering = None
+                if hasattr(args, "semantic_filtering") and args.semantic_filtering:
+                    semantic_filtering = True
+
+                # Only collect the 3 allowed CLI overrides
+                overrides = {}
+
+                if semantic_filtering is not None:
+                    overrides["semantic_filtering_enabled"] = semantic_filtering
+
+                if (
+                    hasattr(args, "use_wikidata_enhancement")
+                    and args.use_wikidata_enhancement
+                ):
+                    overrides["use_wikidata_enhancement"] = True
+
+                retrieval_config = RetrievalConfig.from_base_config_with_overrides(
+                    rm_type=args.retrieval_manager, **overrides
+                )
+                logger.info(
+                    f"📋 Created hybrid retrieval config: {args.retrieval_manager}"
+                )
+                logger.info(
+                    f"🔍 Using retrieval manager: {retrieval_config.retrieval_manager_type}"
+                )
+                logger.info(
+                    f"🎯 Semantic filtering: {retrieval_config.semantic_filtering_enabled}"
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to create hybrid retrieval config: {e}")
+                logger.info("Using default retrieval configuration")
+                retrieval_config = None
+        else:
+            # Create default config with CLI overrides
+            try:
+                from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
+
+                # Start with default config
+                retrieval_config = DEFAULT_RETRIEVAL_CONFIG
+
+                # Apply CLI overrides if any
+                if hasattr(args, "semantic_filtering") and args.semantic_filtering:
+                    # Create a new config with the override
+                    from dataclasses import replace
+
+                    retrieval_config = replace(
+                        retrieval_config, semantic_filtering_enabled=True
+                    )
+                    logger.info("🎯 Enabled semantic filtering from CLI")
+
+                if (
+                    hasattr(args, "use_wikidata_enhancement")
+                    and args.use_wikidata_enhancement
+                ):
+                    from dataclasses import replace
+
+                    retrieval_config = replace(
+                        retrieval_config, use_wikidata_enhancement=True
+                    )
+                    logger.info("🎯 Enabled Wikidata enhancement from CLI")
+
+                logger.info("📋 Using default retrieval config with CLI overrides")
+
+            except Exception as e:
+                logger.error(f"Failed to apply CLI overrides to default config: {e}")
+                retrieval_config = None
+
+                retrieval_config = RetrievalConfig.from_base_config_with_overrides(
+                    rm_type=args.retrieval_manager, **overrides
+                )
+                logger.info(
+                    f"📋 Created hybrid retrieval config: {args.retrieval_manager}"
+                )
+                logger.info(
+                    f"🔍 Using retrieval manager: {retrieval_config.retrieval_manager_type}"
+                )
+                logger.info(
+                    f"🎯 Semantic filtering: {retrieval_config.semantic_filtering_enabled}"
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to create hybrid retrieval config: {e}")
+                logger.info("Falling back to default retrieval configuration")
+                retrieval_config = None
+
+        # Load model configuration with hybrid approach
+        if hasattr(args, "model_config") and args.model_config in [
+            "ollama_localhost",
+            "ollama_ukp",
+            "slurm",
+            "slurm_thinking",
+        ]:
+            try:
+                model_config = ModelConfig.from_yaml(args.model_config)
+                if args.override_model:
+                    model_config.override_model = args.override_model
+                logger.info(f"📋 Loaded model config: {args.model_config}")
+                logger.info(f"🎯 Model mode: {model_config.mode}")
+            except Exception as e:
+                logger.error(f"Failed to load model config '{args.model_config}': {e}")
+                logger.info("Falling back to default model configuration")
+                model_config = ModelConfig(
+                    mode=args.backend, override_model=args.override_model
+                )
+        else:
+            # Default model config
+            model_config = ModelConfig(
+                mode=args.backend, override_model=args.override_model
+            )
 
         # Setup output directory
         output_dir = setup_output_directory(args)
@@ -600,16 +728,12 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
         # Create runner instance
         runner_kwargs = {}
-        if runner_name.lower() == "ollama" and hasattr(args, "ollama_host"):
-            runner_kwargs["ollama_host"] = args.ollama_host
-        elif runner_name.lower() == "local":
-            if hasattr(args, "device"):
-                runner_kwargs["device"] = args.device
-            if hasattr(args, "model_path"):
-                runner_kwargs["model_path"] = args.model_path
 
         runner = runner_class(
-            model_config=model_config, output_manager=output_manager, **runner_kwargs
+            model_config=model_config,
+            output_manager=output_manager,
+            retrieval_config=retrieval_config,
+            **runner_kwargs,
         )
 
         runner.set_state_manager(state_manager)

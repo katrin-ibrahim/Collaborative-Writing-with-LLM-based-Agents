@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional
 
 from src.baselines.baseline_runner_base import BaseRunner
-from src.baselines.model_engines.local_engine import LocalModelEngine
+from src.baselines.slurm_baselines.slurm_engine import LocalModelEngine
 from src.config.baselines_model_config import ModelConfig
 from src.config.retrieval_config import RetrievalConfig
 from src.utils.output_manager import OutputManager

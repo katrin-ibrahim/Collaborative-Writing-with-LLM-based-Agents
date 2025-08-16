@@ -5,7 +5,7 @@ Simplified Ollama engine that delegates to OllamaClient.
 import logging
 from typing import List, Optional
 
-from src.baselines.model_engines.base_engine import BaseModelEngine
+from src.baselines.base_engine import BaseModelEngine
 from src.config.baselines_model_config import ModelConfig
 from src.utils.ollama_client import OllamaClient
 
@@ -57,5 +57,5 @@ class OllamaModelEngine(BaseModelEngine):
         return self.client.list_models()
 
     def complete(self, messages, **kwargs):
-        """Complete messages in chat format."""
+        """Complete messages and return response object."""
         return self.client.complete(messages, **kwargs)

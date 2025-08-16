@@ -13,7 +13,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from transformers.utils import logging as transformers_logging
 from typing import Any, Dict, List, Optional
 
-from src.baselines.model_engines.base_engine import BaseModelEngine
+from src.baselines.base_engine import BaseModelEngine
 from src.config.baselines_model_config import ModelConfig
 
 # Suppress unnecessary warnings for performance
@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 logger = logging.getLogger(__name__)
 
 
-class LocalModelEngine(BaseModelEngine):
+class SlurmModelEngine(BaseModelEngine):
     """
     High-performance local model engine with LiteLLM compatibility.
 
@@ -129,7 +129,9 @@ class LocalModelEngine(BaseModelEngine):
             # Load model with optimizations
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
-                torch_dtype=torch.float16 if device_map not in ["cpu", "mps"] else torch.float32,
+                torch_dtype=(
+                    torch.float16 if device_map not in ["cpu", "mps"] else torch.float32
+                ),
                 device_map=device_map,
                 trust_remote_code=True,
                 use_safetensors=True,
@@ -234,7 +236,10 @@ class LocalModelEngine(BaseModelEngine):
 
             # Clean <think> tags like in ollama_client
             import re
-            response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL)
+
+            response_text = re.sub(
+                r"<think>.*?</think>", "", response_text, flags=re.DOTALL
+            )
 
             return response_text
 
@@ -243,7 +248,7 @@ class LocalModelEngine(BaseModelEngine):
             return f"Error: {str(e)}"
 
     def complete(self, messages, **kwargs):
-        """Complete messages in chat format."""
+        """Complete messages and return response object."""
         try:
             # Parse messages to a string prompt if needed
             if isinstance(messages, list):
@@ -251,7 +256,7 @@ class LocalModelEngine(BaseModelEngine):
             else:
                 prompt = str(messages)
 
-            # Generate and return response
+            # Generate and return response object
             response_text = self._generate(
                 prompt,
                 max_length=kwargs.get("max_tokens", self.max_tokens),

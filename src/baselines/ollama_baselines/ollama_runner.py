@@ -7,8 +7,9 @@ import logging
 from typing import List, Optional
 
 from src.baselines.baseline_runner_base import BaseRunner
-from src.baselines.model_engines.ollama_engine import OllamaModelEngine
+from src.baselines.ollama_baselines.ollama_engine import OllamaModelEngine
 from src.config.baselines_model_config import ModelConfig
+from src.config.retrieval_config import RetrievalConfig
 from src.utils.baselines_utils import error_article
 from src.utils.data_models import Article
 from src.utils.ollama_client import OllamaClient
@@ -28,20 +29,33 @@ class BaselineRunner(BaseRunner):
 
     def __init__(
         self,
-        ollama_host: str = "http://10.167.31.201:11434/",
+        ollama_host: str = None,
         model_config: Optional[ModelConfig] = None,
         output_manager: Optional[OutputManager] = None,
+        retrieval_config: Optional[RetrievalConfig] = None,
     ):
         # Initialize base class
-        super().__init__(model_config=model_config, output_manager=output_manager)
+        super().__init__(
+            model_config=model_config,
+            output_manager=output_manager,
+            retrieval_config=retrieval_config,
+        )
 
-        # Store Ollama-specific parameters
-        self.ollama_host = ollama_host
+        # Determine ollama_host: model config takes priority over parameter
+        if self.model_config and self.model_config.ollama_host:
+            self.ollama_host = self.model_config.ollama_host
+            logger.info(f"Using ollama_host from model config: {self.ollama_host}")
+        elif ollama_host:
+            self.ollama_host = ollama_host
+            logger.info(f"Using ollama_host from parameter: {self.ollama_host}")
+        else:
+            self.ollama_host = "http://10.167.31.201:11434/"
+            logger.info(f"Using default ollama_host: {self.ollama_host}")
 
         # Create and verify Ollama client
-        self.client = OllamaClient(host=ollama_host)
+        self.client = OllamaClient(host=self.ollama_host)
         if not self.client.is_available():
-            raise RuntimeError(f"Ollama server not available at {ollama_host}")
+            raise RuntimeError(f"Ollama server not available at {self.ollama_host}")
 
         # Engine cache
         self._engine_cache = {}
@@ -252,18 +266,12 @@ class BaselineRunner(BaseRunner):
             try:
                 import re
 
-                from .runner_utils import get_model_wrapper
+                # Use engine instead of wrapper for consistency
+                engine = self.get_model_engine("fast")
+                response = engine.complete(prompt)
 
-                wrapper = get_model_wrapper(self.client, self.model_config, "fast")
-                response = wrapper(prompt)
-
-                # Extract content
-                if hasattr(response, "choices") and response.choices:
-                    content = response.choices[0].message.content
-                elif hasattr(response, "content"):
-                    content = response.content
-                else:
-                    content = str(response)
+                # Extract content using engine's method
+                content = engine.extract_content(response)
                 content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
 
                 raw_queries = [
