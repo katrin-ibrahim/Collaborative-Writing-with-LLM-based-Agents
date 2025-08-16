@@ -212,11 +212,14 @@ def get_article_content(results_dir: Path, method: str, topic: str) -> Optional[
     """Get article content from file without storing in memory."""
     articles_dir = results_dir / "articles"
 
+    # Normalize topic name (replace spaces with underscores for filenames)
+    topic_normalized = topic.replace(" ", "_")
+    topic_normalized = topic_normalized.replace("/", "_")  # Handle slashes too
+
     # Try different filename patterns
     possible_files = [
-        articles_dir / f"{method}_{topic}.md",
-        articles_dir / f"{method}" / f"{topic}.md",
-        articles_dir / f"{topic}_{method}.md",
+        articles_dir / f"{method}_{topic_normalized}.md",
+        articles_dir / f"{method}_{topic}.md",  # Original with spaces
     ]
 
     for article_file in possible_files:
@@ -232,6 +235,7 @@ def get_article_content(results_dir: Path, method: str, topic: str) -> Optional[
                 continue
 
     logger.warning(f"No article content found for {method}/{topic}")
+    logger.info(f"Tried files: {[str(f) for f in possible_files]}")
     return None
 
 
