@@ -1,3 +1,5 @@
+import os
+import yaml
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -11,6 +13,9 @@ class ModelConfig:
 
     # Override model to use for all tasks if set
     override_model: Optional[str] = None
+
+    # Ollama host URL
+    ollama_host: Optional[str] = None
 
     # Task-specific model assignments
     outline_model: str = "qwen3:4b"  # Balanced, for structure
@@ -117,3 +122,22 @@ class ModelConfig:
     def from_dict(cls, config_dict: Dict) -> "ModelConfig":
         """Create ModelConfig from dictionary."""
         return cls(**{k: v for k, v in config_dict.items() if hasattr(cls, k)})
+
+    @classmethod
+    def from_yaml(cls, config_name: str) -> "ModelConfig":
+        """Load model config from YAML file or preset name."""
+        # If it's a preset name, convert to file path
+        if config_name in ["ollama_localhost", "ollama_ukp", "slurm", "slurm_thinking"]:
+            config_path = f"src/config/model_{config_name}.yaml"
+        else:
+            config_path = config_name
+
+        # Check if file exists
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Model config file not found: {config_path}")
+
+        # Load YAML file
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f)
+
+        return cls.from_dict(config_data)
