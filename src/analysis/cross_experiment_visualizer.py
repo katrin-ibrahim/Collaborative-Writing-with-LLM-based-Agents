@@ -22,7 +22,9 @@ class CrossExperimentVisualizer:
     """Generate visualizations comparing methods across multiple experiments."""
 
     def __init__(
-        self, experiment_paths: List[str], output_dir: str = "cross_experiment_analysis"
+        self,
+        experiment_paths: List[str],
+        output_dir: str = "results/cross_experiment_analysis",
     ):
         self.experiment_paths = [Path(p) for p in experiment_paths]
         self.output_dir = Path(output_dir)

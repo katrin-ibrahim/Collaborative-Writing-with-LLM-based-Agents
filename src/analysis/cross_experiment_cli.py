@@ -56,8 +56,8 @@ def main():
     parser.add_argument(
         "--output-dir",
         "-o",
-        default="cross_experiment_analysis",
-        help="Output directory for charts (default: cross_experiment_analysis)",
+        default="results/cross_experiment_analysis",
+        help="Output directory for charts (default: results/cross_experiment_analysis)",
     )
 
     parser.add_argument(
