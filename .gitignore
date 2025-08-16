@@ -8,9 +8,9 @@ __pycache__
 .vscode
 # Ignore everything in results
 results/**
-!results/
-!results/**/
-!results/**/results.json
+# !results/
+# !results/**/
+# !results/**/results.json
 .env
 # ignore files that start with test_
 test_*.out
