@@ -101,8 +101,8 @@ Examples:
     config_group.add_argument(
         "--model_config",
         "-c",
-        default="config/models.yaml",
-        help="Model configuration file (default: config/models.yaml)",
+        default="src/config/models.yaml",
+        help="Model configuration file (default: src/config/models.yaml)",
     )
 
     config_group.add_argument(

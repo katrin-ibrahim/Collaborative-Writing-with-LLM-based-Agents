@@ -440,7 +440,7 @@ class AdaptiveOptimizer:
 
         # Load test topics
         freshwiki = FreshWikiLoader()
-        all_entries = freshwiki.get_evaluation_sample(100)  # Get larger pool
+        all_entries = freshwiki.load_topics(100)  # Get larger pool
         self.test_topics = [entry.topic for entry in all_entries[:topics_per_test]]
 
         logger.info(f"🎯 Optimizer initialized:")

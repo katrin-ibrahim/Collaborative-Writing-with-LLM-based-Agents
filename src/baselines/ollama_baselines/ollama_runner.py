@@ -149,6 +149,78 @@ class BaselineRunner(BaseRunner):
             return article
 
         except Exception as e:
+            logger.error(f"STORM failed for {topic}: {e}")
+            return error_article(topic, "storm", str(e))
+
+    def run_storm_with_config(self, topic: str, storm_config: dict = None) -> Article:
+        """
+        Run STORM with custom configuration - needed for optimization.
+        """
+        logger.info(f"Running STORM with config for: {topic}")
+        logger.info(f"Config: {storm_config}")
+        import time
+        from datetime import datetime
+
+        try:
+            start_time = time.time()
+            # Setup STORM runner with custom config
+            storm_runner, storm_output_dir, final_config = setup_storm_runner(
+                client=self.client,
+                config=self.model_config,
+                storm_output_dir=(
+                    self.output_manager.setup_storm_output_dir(topic)
+                    if self.output_manager
+                    else None
+                ),
+                storm_config=storm_config,  # Pass custom config
+            )
+
+            # Run STORM
+            storm_runner.run(
+                topic=topic,
+                do_research=True,
+                do_generate_outline=True,
+                do_generate_article=True,
+                do_polish_article=True,
+            )
+
+            # Extract STORM output and create Article
+            from pathlib import Path
+
+            from src.utils.baselines_utils import extract_storm_output
+
+            content = extract_storm_output(Path(storm_output_dir), topic)
+
+            generation_time = (time.time() - start_time) / 60
+            logger.info(
+                f"STORM generation time for {topic}: {generation_time:.2f} minutes"
+            )
+
+            content_words = len(content.split()) if content else 0
+
+            # Create Article object
+            article = Article(
+                title=topic,
+                content=content,
+                sections={},
+                metadata={
+                    "method": "storm",
+                    "model": self.model_config.get_model_for_task("writing"),
+                    "word_count": content_words,
+                    "generation_time": generation_time,
+                    "timestamp": datetime.now().isoformat(),
+                    "storm_config": final_config,
+                },
+            )
+
+            # Save article if output manager available
+            if self.output_manager:
+                self.output_manager.save_article(article, "storm")
+
+            logger.info(f"STORM completed for {topic}")
+            return article
+
+        except Exception as e:
             logger.error(f"STORM failed for '{topic}': {e}")
             return error_article(topic, str(e), "storm")
 

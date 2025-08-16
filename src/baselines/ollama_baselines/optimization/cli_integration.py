@@ -106,7 +106,8 @@ def run_optimization(args):
 
     # Load configuration
     try:
-        model_config = load_model_config(args.model_config, args.override_model)
+        override_model = getattr(args, "override_model", None)
+        model_config = load_model_config(args.model_config, override_model)
         logger.info(f"🤖 Model config loaded from: {args.model_config}")
 
     except Exception as e:
@@ -331,7 +332,14 @@ Examples:
         "--ollama_host", default="http://10.167.31.201:11434/", help="Ollama server URL"
     )
     parser.add_argument(
-        "--model_config", default="config/models.yaml", help="Model configuration file"
+        "--model_config",
+        default="src/config/models.yaml",
+        help="Model configuration file",
+    )
+    parser.add_argument(
+        "--override_model",
+        type=str,
+        help="Override model to use for all tasks (e.g., 'qwen3:4b')",
     )
     parser.add_argument(
         "--output_dir",
