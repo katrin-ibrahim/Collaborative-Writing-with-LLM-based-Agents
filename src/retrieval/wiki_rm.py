@@ -14,7 +14,7 @@ import wikipedia
 from sentence_transformers import SentenceTransformer
 from typing import Dict, List, Optional
 
-from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
+from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
 from src.retrieval.base_retriever import BaseRetriever
 
 logger = logging.getLogger(__name__)
@@ -40,16 +40,20 @@ class WikiRM(BaseRetriever):
         format_type: str = "rag",
         cache_dir: str = "data/wiki_cache",
         cache_results: bool = True,
+        config: Optional["RetrievalConfig"] = None,
     ):
+        # Use passed config or default
+        retrieval_config = config or DEFAULT_RETRIEVAL_CONFIG
+
         self.max_articles = (
             max_articles
             if max_articles is not None
-            else DEFAULT_RETRIEVAL_CONFIG.results_per_query
+            else retrieval_config.results_per_query
         )
         self.max_sections = (
             max_sections
             if max_sections is not None
-            else DEFAULT_RETRIEVAL_CONFIG.max_content_pieces
+            else retrieval_config.max_content_pieces
         )
         self.format_type = format_type
         self.cache_dir = cache_dir
@@ -57,17 +61,17 @@ class WikiRM(BaseRetriever):
         self._result_cache = {} if cache_results else None
 
         # Add semantic filtering setup
-        self.semantic_enabled = DEFAULT_RETRIEVAL_CONFIG.semantic_filtering_enabled
+        self.semantic_enabled = retrieval_config.semantic_filtering_enabled
         self.embedding_model = None
         self.semantic_cache = {}
 
         if self.semantic_enabled:
             try:
                 self.embedding_model = SentenceTransformer(
-                    DEFAULT_RETRIEVAL_CONFIG.embedding_model
+                    retrieval_config.embedding_model
                 )
                 logger.info(
-                    f"Semantic filtering enabled with {DEFAULT_RETRIEVAL_CONFIG.embedding_model}"
+                    f"Semantic filtering enabled with {retrieval_config.embedding_model}"
                 )
             except Exception as e:
                 logger.warning(
@@ -339,12 +343,18 @@ class WikiRM(BaseRetriever):
                             results.append(result_item)
                             logger.debug(f"Added result: {page.title} - {section_name}")
                         else:
-                            logger.debug(f"Skipped item {i}: content too short ({len(content) if content else 0} chars)")
+                            logger.debug(
+                                f"Skipped item {i}: content too short ({len(content) if content else 0} chars)"
+                            )
                     except Exception as e:
-                        logger.warning(f"Error processing item {i} for page '{page_title}': {e}")
+                        logger.warning(
+                            f"Error processing item {i} for page '{page_title}': {e}"
+                        )
                         continue  # Skip problematic sections/chunks
-                
-                logger.info(f"Page '{page_title}' produced {len(results)} final results")
+
+                logger.info(
+                    f"Page '{page_title}' produced {len(results)} final results"
+                )
 
         except wikipedia.exceptions.DisambiguationError as e:
             # Try first disambiguation option
@@ -528,15 +538,19 @@ class WikiRM(BaseRetriever):
         # regardless of the final format_type, so we deduplicate based on dict structure
         seen_urls = set()
         unique_results = []
-        
+
         for result in results:
             if isinstance(result, dict):
                 url = result.get("url", "")
                 content = result.get("snippets", "")
-                
+
                 # Use URL if available, otherwise use content hash
-                identifier = url if url else hash(content.strip().lower()) if content else hash(str(result))
-                
+                identifier = (
+                    url
+                    if url
+                    else hash(content.strip().lower()) if content else hash(str(result))
+                )
+
                 if identifier not in seen_urls:
                     seen_urls.add(identifier)
                     unique_results.append(result)
@@ -546,6 +560,6 @@ class WikiRM(BaseRetriever):
                 if content_hash not in seen_urls:
                     seen_urls.add(content_hash)
                     unique_results.append(result)
-        
+
         logger.info(f"Deduplication: {len(results)} → {len(unique_results)} results")
         return unique_results

@@ -311,20 +311,6 @@ def main():
     parser = argparse.ArgumentParser(
         description="Adaptive Configuration Optimizer for AI Writer Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Optimize both STORM and RAG with 3 topics per test
-  python optimize.py --opt-topics 3
-
-  # Optimize only STORM with more thorough testing
-  python optimize.py --opt-methods storm --opt-topics 5
-
-  # Quick RAG optimization
-  python optimize.py --opt-methods rag --opt-topics 3
-
-  # Custom configuration
-  python optimize.py --opt-topics 2 --opt-max-configs 5 --debug
-        """,
     )
 
     # Basic arguments (similar to your existing CLI)
