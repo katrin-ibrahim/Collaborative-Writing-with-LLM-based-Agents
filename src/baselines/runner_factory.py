@@ -10,7 +10,7 @@ def create_runner(backend: str) -> Tuple[Type, str]:
     Create the appropriate runner class for the specified backend.
 
     Args:
-        backend: The backend type ('ollama' or 'local')
+        backend: The backend type ('ollama' or 'slurm')
 
     Returns:
         Tuple of (RunnerClass, runner_name)
@@ -24,9 +24,9 @@ def create_runner(backend: str) -> Tuple[Type, str]:
         )
 
         return OllamaRunner, "Ollama"
-    elif backend == "local":
-        from src.baselines.local_baselines.local_runner import LocalBaselineRunner
+    elif backend == "slurm":
+        from src.baselines.slurm_baselines.slurm_runner import SlurmBaselineRunner
 
-        return LocalBaselineRunner, "Local"
+        return SlurmBaselineRunner, "SLURM"
     else:
-        raise ValueError(f"Invalid backend: {backend}. Must be 'ollama' or 'local'.")
+        raise ValueError(f"Invalid backend: {backend}. Must be 'ollama' or 'slurm'.")

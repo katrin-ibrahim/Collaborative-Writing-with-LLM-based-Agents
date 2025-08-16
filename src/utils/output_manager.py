@@ -15,21 +15,33 @@ class OutputManager:
 
     @staticmethod
     def create_output_dir(
-        backend: str, methods: list, num_topics: int, timestamp: str = None
+        backend: str,
+        methods: list,
+        num_topics: int,
+        timestamp: str = None,
+        custom_name: str = None,
     ) -> str:
         """
         Create standardized output directory path following the convention:
         results/[backend]/[method(s)]_N=[num_of_topics]_T=[timestamp]
 
+        If custom_name is provided, it replaces the auto-generated name part:
+        results/[backend]/[custom_name]
+
         Args:
-            backend: The backend name (e.g., "ollama", "local")
+            backend: The backend name (e.g., "ollama", "slurm")
             methods: List of methods to be used
             num_topics: Number of topics to process
             timestamp: Optional timestamp, if not provided current time will be used
+            custom_name: Optional custom name to override the auto-generated name
 
         Returns:
             Full directory path as string
         """
+        # If custom name is provided, use it instead of auto-generated name
+        if custom_name:
+            return f"results/{backend}/{custom_name}"
+
         # Use current timestamp if not provided
         if timestamp is None:
             now = datetime.now()
@@ -112,7 +124,6 @@ class OutputManager:
             for key, value in additional_metadata.items():
                 if key not in metadata:  # Don't overwrite existing clean values
                     metadata[key] = value
-
 
             with open(metadata_filepath, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2)
