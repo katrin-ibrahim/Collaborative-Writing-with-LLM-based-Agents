@@ -33,8 +33,8 @@ class RetrievalConfig:
     queries_per_turn: int = 2
 
     # Content Processing
-    passage_max_length: int = 600
-    passage_min_length: int = 100
+    passage_max_length: int = 2048
+    passage_min_length: int = 700
 
     # Batch Processing Configuration
     parallel_threshold: int = 3  # Threshold for parallel processing

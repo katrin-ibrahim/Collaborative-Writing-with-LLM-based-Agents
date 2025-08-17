@@ -1,9 +1,6 @@
 """
-Enhanced BM25 Wikipedia Retrieval Manager with Lazy Loading
-Uses disk-based article storage and b        db.close()
-
-    def _populate_database(self):incrementally.
-Supports full Wikipedia dumps without loading everything into memory.
+Enhanced BM25 Wikipedia Retrieval Manager with Advanced Text Preprocessing
+Uses robust text preprocessing, proper tokenization, and Wikipedia content cleaning.
 """
 
 import sqlite3
@@ -17,14 +14,15 @@ from rank_bm25 import BM25Okapi
 from typing import Dict, List, Optional
 
 from .data_loader import WikipediaDataLoader
+from .text_preprocessor import EnhancedTextPreprocessor
 
 logger = logging.getLogger(__name__)
 
 
 class EnhancedBM25WikiRM:
     """
-    Enhanced BM25 search that can handle full Wikipedia dumps efficiently.
-    Uses SQLite for article storage and builds BM25 index incrementally.
+    Enhanced BM25 search with advanced text preprocessing and Wikipedia content cleaning.
+    Uses SQLite for article storage and builds BM25 index with proper tokenization.
     """
 
     def __init__(
@@ -34,17 +32,22 @@ class EnhancedBM25WikiRM:
         max_articles: Optional[int] = None,
         project_root: Optional[str] = None,
         format_type: str = "rag",
+        use_stemming: bool = True,
+        language: str = "english",
     ):
         """
-        Initialize enhanced BM25 retrieval manager.
+        Initialize enhanced BM25 retrieval manager with advanced preprocessing.
 
         Args:
             db_file: SQLite database file for article storage
             bm25_cache: Pickle file for BM25 index cache
             max_articles: Maximum articles to index (None = all available)
             project_root: Project root directory (auto-detected if None)
+            format_type: Default format type for results
+            use_stemming: Whether to use stemming in preprocessing
+            language: Language for stop words and processing
         """
-        logger.info("Initializing Enhanced BM25WikiRM...")
+        logger.info("Initializing Enhanced BM25WikiRM with advanced preprocessing...")
 
         # Determine project root
         if project_root is None:
@@ -58,6 +61,13 @@ class EnhancedBM25WikiRM:
         self.bm25_cache = os.path.join(self.project_root, bm25_cache)
         self.max_articles = max_articles
 
+        # Initialize advanced text preprocessor
+        self.preprocessor = EnhancedTextPreprocessor(
+            language=language, use_stemming=use_stemming
+        )
+
+        logger.info(f"Text preprocessor initialized: {self.preprocessor.get_stats()}")
+
         logger.debug(f"Full database path: {self.db_file}")
         logger.debug(f"Database file exists: {os.path.exists(self.db_file)}")
 
@@ -70,7 +80,9 @@ class EnhancedBM25WikiRM:
             self._load_or_build_bm25_index()
         )
 
-        logger.info(f"Enhanced BM25WikiRM ready with {self.article_count} articles!")
+        logger.info(
+            f"Enhanced BM25WikiRM ready with {self.article_count} articles and advanced preprocessing!"
+        )
 
     def _find_project_root(self) -> str:
         """Find the project root directory."""
@@ -94,7 +106,7 @@ class EnhancedBM25WikiRM:
         return self._local.db_connection
 
     def _init_database_schema(self):
-        """Initialize SQLite database schema (thread-safe)."""
+        """Initialize SQLite database schema with preprocessing info."""
         db = sqlite3.connect(self.db_file)
         db.execute(
             """
@@ -103,30 +115,56 @@ class EnhancedBM25WikiRM:
                 title TEXT NOT NULL,
                 url TEXT,
                 content TEXT NOT NULL,
-                tokens TEXT  -- Space-separated tokens for BM25
+                cleaned_content TEXT,  -- Cleaned Wikipedia content
+                tokens TEXT,  -- Space-separated preprocessed tokens for BM25
+                raw_tokens TEXT,  -- Space-separated raw tokens for debugging
+                preprocessing_version TEXT  -- Track preprocessing version
             )
         """
         )
         db.execute("CREATE INDEX IF NOT EXISTS idx_title ON articles(title)")
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_preprocessing ON articles(preprocessing_version)"
+        )
         db.commit()
         db.close()
 
-        db.close()
+    def _get_preprocessing_version(self) -> str:
+        """Get current preprocessing version for cache invalidation."""
+        return f"v2.0_stem:{self.preprocessor.use_stemming}_lang:{self.preprocessor.language}"
 
     def _populate_database(self) -> int:
-        """Populate database with Wikipedia articles."""
-        logger.info("Populating database with Wikipedia articles...")
+        """Populate database with Wikipedia articles using enhanced preprocessing."""
+        logger.info(
+            "Populating database with Wikipedia articles and advanced preprocessing..."
+        )
 
-        # Check if database is already populated
+        current_version = self._get_preprocessing_version()
+
+        # Check if database needs updating
         db = self._get_db_connection()
-        cursor = db.execute("SELECT COUNT(*) FROM articles")
+        cursor = db.execute(
+            "SELECT COUNT(*) FROM articles WHERE preprocessing_version = ?",
+            (current_version,),
+        )
         existing_count = cursor.fetchone()[0]
 
         if existing_count > 0:
-            logger.info(f"Database already contains {existing_count} articles")
+            logger.info(
+                f"Database already contains {existing_count} articles with current preprocessing"
+            )
             return existing_count
 
-        # Load articles and populate database
+        # Check if we need to clear old preprocessing versions
+        cursor = db.execute("SELECT COUNT(*) FROM articles")
+        total_count = cursor.fetchone()[0]
+
+        if total_count > 0:
+            logger.info("Found articles with old preprocessing version, rebuilding...")
+            db.execute("DELETE FROM articles")
+            db.commit()
+
+        # Load articles and populate database with preprocessing
         articles = WikipediaDataLoader.load_articles(self.max_articles or 1000000)
 
         batch_size = 1000
@@ -135,68 +173,93 @@ class EnhancedBM25WikiRM:
         for i in range(0, len(articles), batch_size):
             batch = articles[i : i + batch_size]
 
-            # Prepare batch data
+            # Prepare batch data with preprocessing
             batch_data = []
             for article in batch:
-                # Tokenize content for BM25
-                tokens = article["text"].lower().split()
-                tokens_str = " ".join(tokens)
+                # Clean Wikipedia content
+                cleaned_content = self.preprocessor.clean_wikipedia_content(
+                    article["text"]
+                )
+
+                # Get preprocessed tokens
+                processed_tokens = self.preprocessor.preprocess_text(article["text"])
+                tokens_str = " ".join(processed_tokens)
+
+                # Get raw tokens for debugging
+                raw_tokens = article["text"].lower().split()
+                raw_tokens_str = " ".join(raw_tokens)
 
                 batch_data.append(
-                    (article["title"], article["url"], article["text"], tokens_str)
+                    (
+                        article["title"],
+                        article["url"],
+                        article["text"],
+                        cleaned_content,
+                        tokens_str,
+                        raw_tokens_str,
+                        current_version,
+                    )
                 )
 
             # Insert batch
             db.executemany(
-                "INSERT INTO articles (title, url, content, tokens) VALUES (?, ?, ?, ?)",
+                """INSERT INTO articles
+                   (title, url, content, cleaned_content, tokens, raw_tokens, preprocessing_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 batch_data,
             )
             db.commit()
 
             total_inserted += len(batch)
             if total_inserted % 10000 == 0:
-                logger.info(f"Inserted {total_inserted} articles...")
+                logger.info(
+                    f"Processed and inserted {total_inserted} articles with advanced preprocessing..."
+                )
 
-        logger.info(f"Database populated with {total_inserted} articles")
+        logger.info(
+            f"Database populated with {total_inserted} articles using advanced preprocessing"
+        )
         return total_inserted
 
     def _load_or_build_bm25_index(self):
-        """Load existing BM25 index or build a new one."""
-        # First, ensure database is populated
+        """Load existing BM25 index or build a new one with preprocessing."""
+        # First, ensure database is populated with current preprocessing
         article_count = self._populate_database()
 
-        # Try to load cached BM25 index
-        if os.path.exists(self.bm25_cache):
-            logger.info("Loading cached BM25 index...")
+        current_version = self._get_preprocessing_version()
+        versioned_cache = f"{self.bm25_cache}.{current_version}"
+
+        # Try to load cached BM25 index for current preprocessing version
+        if os.path.exists(versioned_cache):
+            logger.info(
+                "Loading cached BM25 index with matching preprocessing version..."
+            )
             try:
-                with open(self.bm25_cache, "rb") as f:
+                with open(versioned_cache, "rb") as f:
                     cached_data = pickle.load(f)
 
-                # Handle both old and new cache formats
-                if isinstance(cached_data, tuple) and len(cached_data) == 2:
-                    bm25, id_mapping = cached_data
-                    logger.info("BM25 index with ID mapping loaded from cache")
+                if isinstance(cached_data, tuple) and len(cached_data) >= 2:
+                    bm25, id_mapping = cached_data[:2]
+                    logger.info(
+                        "BM25 index with advanced preprocessing loaded from cache"
+                    )
                     return bm25, id_mapping, article_count
-                else:
-                    # Old format without ID mapping
-                    bm25 = cached_data
-                    logger.info("BM25 index loaded from cache (old format)")
-                    logger.info("Rebuilding to create ID mapping...")
-                    # Fall through to rebuild with ID mapping
 
             except Exception as e:
                 logger.warning(f"Failed to load BM25 cache: {e}")
-                logger.info("Building new BM25 index...")
 
-        # Build new BM25 index
-        logger.info("Building BM25 index from database...")
+        # Build new BM25 index with advanced preprocessing
+        logger.info("Building BM25 index with advanced preprocessing...")
 
-        # Load tokenized content from database
+        # Load preprocessed tokens from database
         db = self._get_db_connection()
-        cursor = db.execute("SELECT id, tokens FROM articles ORDER BY id")
+        cursor = db.execute(
+            "SELECT id, tokens FROM articles WHERE preprocessing_version = ? ORDER BY id",
+            (current_version,),
+        )
 
         corpus = []
-        id_mapping = []  # Track which database ID corresponds to each BM25 index
+        id_mapping = []
         batch_size = 10000
 
         while True:
@@ -205,22 +268,35 @@ class EnhancedBM25WikiRM:
                 break
 
             for article_id, tokens_str in batch:
-                corpus.append(tokens_str.split())
-                id_mapping.append(article_id)
+                if tokens_str and tokens_str.strip():
+                    corpus.append(tokens_str.split())
+                    id_mapping.append(article_id)
 
             if len(corpus) % 50000 == 0:
-                logger.info(f"Loaded {len(corpus)} documents for BM25...")
+                logger.info(f"Loaded {len(corpus)} preprocessed documents for BM25...")
+
+        if not corpus:
+            raise RuntimeError(
+                "No valid preprocessed documents found for BM25 indexing"
+            )
 
         # Build BM25 index
-        logger.info(f"Building BM25 index with {len(corpus)} documents...")
+        logger.info(f"Building BM25 index with {len(corpus)} preprocessed documents...")
         bm25 = BM25Okapi(corpus)
 
-        # Cache the index and ID mapping
-        logger.info("Caching BM25 index...")
-        with open(self.bm25_cache, "wb") as f:
-            pickle.dump((bm25, id_mapping), f)
+        # Cache the index and ID mapping with version
+        logger.info("Caching BM25 index with preprocessing version...")
+        with open(versioned_cache, "wb") as f:
+            pickle.dump((bm25, id_mapping, current_version), f)
 
-        logger.info("BM25 index built and cached!")
+        # Clean up old cache files
+        try:
+            if os.path.exists(self.bm25_cache) and self.bm25_cache != versioned_cache:
+                os.remove(self.bm25_cache)
+        except:
+            pass
+
+        logger.info("BM25 index built and cached with advanced preprocessing!")
         return bm25, id_mapping, len(corpus)
 
     def search(
@@ -232,12 +308,11 @@ class EnhancedBM25WikiRM:
         **kwargs,
     ) -> List:
         """
-        STORM-compatible search method using BM25 scoring.
+        STORM-compatible search method using BM25 scoring with advanced preprocessing.
         """
-        if query is None or query[0] is None or query[0] == "":
-            logger.debug("No query provided, returning empty results")
-            return []
         # Handle STORM calling conventions (same as WikiRM)
+        if query is not None:
+            query = query
         elif args:
             query = args[0] if len(args) > 0 else None
             if max_results is None and len(args) > 1:
@@ -247,14 +322,40 @@ class EnhancedBM25WikiRM:
         elif len(args) == 0 and not kwargs:
             return []
 
+        if query is None:
+            logger.debug("No valid query provided, returning empty results")
+            return []
+
+        # Validate query content - handle both strings and arrays
+        if isinstance(query, str):
+            if not query.strip():  # Empty string
+                logger.debug("Empty string query provided, returning empty results")
+                return []
+        elif isinstance(query, (list, tuple)):
+            if not query or all(
+                not str(q).strip() for q in query
+            ):  # Empty array or all empty items
+                logger.debug(
+                    "Empty array query or all empty items provided, returning empty results"
+                )
+                return []
+        else:
+            logger.debug(f"Invalid query type {type(query)}, returning empty results")
+            return []
+
         max_results = max_results if max_results is not None else 10
         format_type = format_type if format_type else "rag"
 
-        # Normalize input
+        # Normalize input and filter out None/empty values
         if isinstance(query, str):
-            query_list = [query]
+            query_list = [query] if query.strip() else []
         else:
-            query_list = list(query)
+            # Filter out None values and empty strings from the list
+            query_list = [str(q) for q in query if q is not None and str(q).strip()]
+
+        if not query_list:
+            logger.debug("No valid queries after filtering, returning empty results")
+            return []
 
         all_results = []
 
@@ -283,56 +384,32 @@ class EnhancedBM25WikiRM:
             return all_results[:max_results]
 
     def _search_single_query(self, query: str, max_results: int) -> List[Dict]:
-        """Search using BM25 scoring."""
+        """Search using BM25 scoring with advanced query preprocessing."""
         try:
-            # Tokenize query
-            query_tokens = query.lower().split()
-            if query_tokens is None or len(query_tokens) == 0:
-                logger.debug("Empty query after tokenization, returning empty results")
+            # Preprocess query using same pipeline as documents
+            query_tokens = self.preprocessor.preprocess_query(query)
+
+            logger.debug(f"Original query: '{query}'")
+            logger.debug(f"Preprocessed query tokens: {query_tokens}")
+
+            if not query_tokens:
+                logger.debug(
+                    "No valid tokens after preprocessing, returning empty results"
+                )
                 return []
+
             # Get BM25 scores
             scores = self.bm25.get_scores(query_tokens)
 
             # Get top results indices
-            scores.argsort()
             top_indices = scores.argsort()[-max_results:][::-1]
 
             # Fetch articles from database
             results = []
 
-            logger.debug(f"Search method using database file: {self.db_file}")
-
-            # Use a single connection for all queries to avoid connection issues
-            import sqlite3
-
-            import os
-
-            logger.debug(f"Opening single connection to: {self.db_file}")
-            logger.debug(f"File exists: {os.path.exists(self.db_file)}")
-            logger.debug(
-                f"File size: {os.path.getsize(self.db_file) if os.path.exists(self.db_file) else 'N/A'}"
-            )
-
+            # Use database connection
             db = sqlite3.connect(self.db_file)
-
-            # Test the connection
             cursor = db.cursor()
-            cursor.execute("SELECT COUNT(*) FROM articles")
-            test_count = cursor.fetchone()[0]
-            logger.debug(f"Connection test: {test_count} articles found")
-
-            # Debug: Check table structure
-            cursor.execute("PRAGMA table_info(articles)")
-            columns = cursor.fetchall()
-            logger.debug(f"Table structure: {[col[1] for col in columns]}")
-
-            # Debug: Test a specific known ID first
-            test_id = 127
-            cursor.execute("SELECT title FROM articles WHERE id = ?", (test_id,))
-            test_row = cursor.fetchone()
-            logger.debug(f"Test query for ID {test_id}: {test_row is not None}")
-            if test_row:
-                logger.debug(f"Test title: {test_row[0]}")
 
             for idx in top_indices:
                 if scores[idx] > 0:  # Only include relevant results
@@ -340,17 +417,15 @@ class EnhancedBM25WikiRM:
                     db_id = self.id_mapping[idx]
 
                     logger.debug(
-                        f"Processing BM25 index {idx} -> DB ID {db_id}, score: {scores[idx]}"
+                        f"Processing BM25 index {idx} -> DB ID {db_id}, score: {scores[idx]:.4f}"
                     )
 
-                    # Fetch article from database using the same connection
+                    # Fetch article from database
                     cursor.execute(
                         "SELECT title, url, content FROM articles WHERE id = ?",
                         (db_id,),
                     )
                     row = cursor.fetchone()
-
-                    logger.debug(f"Query result for ID {db_id}: {row is not None}")
 
                     if row:
                         title, url, content = row
@@ -361,49 +436,36 @@ class EnhancedBM25WikiRM:
                             "source": "enhanced_bm25_wiki",
                             "score": float(scores[idx]),
                         }
-                        logger.debug(f"Created result dict: {type(result_dict)}")
-                        logger.debug(f"Result dict keys: {list(result_dict.keys())}")
-                        logger.debug(f"Result dict title: {result_dict['title']}")
                         results.append(result_dict)
-                        logger.debug(f"Results list now has {len(results)} items")
-                        logger.debug(f"Last added item type: {type(results[-1])}")
-                        logger.debug(f"Added result: {title}")
+                        logger.debug(
+                            f"Found relevant result: {title} (score: {scores[idx]:.4f})"
+                        )
                     else:
                         logger.warning(
                             f"No article found for BM25 index {idx} (DB ID {db_id})"
                         )
 
-            # Close the database connection
             db.close()
 
-            logger.debug(f"About to return results: {len(results)} items")
-            for i, item in enumerate(results):
-                logger.debug(f"Result {i} type: {type(item)}")
-                if isinstance(item, dict):
-                    logger.debug(f"Result {i} title: {item.get('title', 'NO TITLE')}")
-                else:
-                    logger.debug(f"Result {i} content (first 50): {str(item)[:50]}")
-
-            # Return a copy to avoid any reference issues
-            final_results = [
-                dict(item) if isinstance(item, dict) else item for item in results
-            ]
-            logger.debug(f"Final results copy: {len(final_results)} items")
-            for i, item in enumerate(final_results):
-                logger.debug(f"Final result {i} type: {type(item)}")
-
-            return final_results
+            logger.info(
+                f"Query '{query}' returned {len(results)} results with advanced preprocessing"
+            )
+            return results
 
         except Exception as e:
             logger.error(f"Enhanced BM25 search failed: {e}")
             return []
 
     def get_stats(self) -> Dict:
-        """Get statistics about the loaded index."""
+        """Get statistics about the loaded index and preprocessing."""
+        preprocessor_stats = self.preprocessor.get_stats()
+
         return {
             "num_articles": self.article_count,
             "db_file": self.db_file,
             "bm25_cache": self.bm25_cache,
+            "preprocessing_version": self._get_preprocessing_version(),
+            "preprocessor_stats": preprocessor_stats,
             "db_size_mb": (
                 os.path.getsize(self.db_file) / (1024 * 1024)
                 if os.path.exists(self.db_file)
