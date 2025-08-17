@@ -107,6 +107,7 @@ class BaseRunner(ABC):
                 "collaboration.convergence_threshold": 0.05,
                 "collaboration.min_improvement_threshold": 0.02,
                 "collaboration.target_score": 0.85,
+                "retrieval_config": self.retrieval_config,  # Pass CLI-configured retrieval config
                 "writer": {
                     "writer.max_research_iterations": 2,
                     "writer.use_external_knowledge": True,
@@ -188,6 +189,7 @@ class BaseRunner(ABC):
             config = {
                 "writer.max_research_iterations": 2,
                 "writer.use_external_knowledge": True,
+                "retrieval_config": self.retrieval_config,  # Pass CLI-configured retrieval config
             }
 
             # Initialize agentic writer
@@ -241,16 +243,16 @@ class BaseRunner(ABC):
 
             # Generate search queries for the topic
             queries = query_generator(engine, topic, num_queries=config.num_queries)
-            logger.info(f"Generated {len(queries)} search queries for {topic}")
+            # logger.info(f"Generated {len(queries)} search queries for {topic}")
 
             # Retrieve context
             passages = retrieval_system.search(
-                queries,
+                query=queries,
                 max_results=config.results_per_query,
                 topic=topic,
             )
             context = self._create_context_from_passages(passages)
-            logger.info(f"Created context with {len(context)} characters for {topic}")
+            # logger.info(f"Created context with {len(context)} characters for {topic}")
 
             # Generate article with context
             rag_prompt = build_rag_prompt(topic, context)
@@ -459,12 +461,8 @@ class BaseRunner(ABC):
                 retrieval_config or self.retrieval_config or DEFAULT_RETRIEVAL_CONFIG
             )
 
-            # Create retrieval system using factory
-            retrieval_system = create_retrieval_manager(
-                retrieval_config=config,
-                max_articles=config.results_per_query,
-                max_sections=config.max_content_pieces,
-            )
+            # Create retrieval system using factory - config contains all parameters
+            retrieval_system = create_retrieval_manager(retrieval_config=config)
 
             return retrieval_system
 
@@ -588,24 +586,17 @@ def run_baseline_experiment(args, runner_class, runner_name):
     logger.info(f"📝 Topics: {args.num_topics}")
 
     try:
-        # Use default retrieval configuration with CLI overrides only
+        # Create retrieval configuration with CLI overrides
         retrieval_config = None
         if hasattr(args, "retrieval_manager") and args.retrieval_manager:
             # Use hybrid approach: base RM config + CLI overrides
             try:
                 from src.config.retrieval_config import RetrievalConfig
 
-                # Handle semantic filtering flags
-                semantic_filtering = None
-                if hasattr(args, "semantic_filtering") and args.semantic_filtering:
-                    semantic_filtering = True
-
-                # Only collect the 3 allowed CLI overrides
+                # Collect CLI overrides
                 overrides = {}
-
-                if semantic_filtering is not None:
-                    overrides["semantic_filtering_enabled"] = semantic_filtering
-
+                if hasattr(args, "semantic_filtering") and args.semantic_filtering:
+                    overrides["semantic_filtering_enabled"] = True
                 if (
                     hasattr(args, "use_wikidata_enhancement")
                     and args.use_wikidata_enhancement
@@ -627,21 +618,19 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
             except Exception as e:
                 logger.error(f"Failed to create hybrid retrieval config: {e}")
-                logger.info("Using default retrieval configuration")
+                logger.info("Falling back to default retrieval configuration")
                 retrieval_config = None
         else:
-            # Create default config with CLI overrides
+            # Use default config with CLI overrides
             try:
+                from dataclasses import replace
+
                 from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
 
-                # Start with default config
                 retrieval_config = DEFAULT_RETRIEVAL_CONFIG
 
                 # Apply CLI overrides if any
                 if hasattr(args, "semantic_filtering") and args.semantic_filtering:
-                    # Create a new config with the override
-                    from dataclasses import replace
-
                     retrieval_config = replace(
                         retrieval_config, semantic_filtering_enabled=True
                     )
@@ -651,8 +640,6 @@ def run_baseline_experiment(args, runner_class, runner_name):
                     hasattr(args, "use_wikidata_enhancement")
                     and args.use_wikidata_enhancement
                 ):
-                    from dataclasses import replace
-
                     retrieval_config = replace(
                         retrieval_config, use_wikidata_enhancement=True
                     )
@@ -662,24 +649,6 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
             except Exception as e:
                 logger.error(f"Failed to apply CLI overrides to default config: {e}")
-                retrieval_config = None
-
-                retrieval_config = RetrievalConfig.from_base_config_with_overrides(
-                    rm_type=args.retrieval_manager, **overrides
-                )
-                logger.info(
-                    f"📋 Created hybrid retrieval config: {args.retrieval_manager}"
-                )
-                logger.info(
-                    f"🔍 Using retrieval manager: {retrieval_config.retrieval_manager_type}"
-                )
-                logger.info(
-                    f"🎯 Semantic filtering: {retrieval_config.semantic_filtering_enabled}"
-                )
-
-            except Exception as e:
-                logger.error(f"Failed to create hybrid retrieval config: {e}")
-                logger.info("Falling back to default retrieval configuration")
                 retrieval_config = None
 
         # Load model configuration with hybrid approach

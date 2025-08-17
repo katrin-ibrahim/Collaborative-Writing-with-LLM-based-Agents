@@ -70,9 +70,6 @@ class WikiRM(BaseRetriever):
                 self.embedding_model = SentenceTransformer(
                     retrieval_config.embedding_model
                 )
-                logger.info(
-                    f"Semantic filtering enabled with {retrieval_config.embedding_model}"
-                )
             except Exception as e:
                 logger.warning(
                     f"Failed to load embedding model: {e}. Disabling semantic filtering."
@@ -352,9 +349,9 @@ class WikiRM(BaseRetriever):
                         )
                         continue  # Skip problematic sections/chunks
 
-                logger.info(
-                    f"Page '{page_title}' produced {len(results)} final results"
-                )
+                # logger.info(
+                #     f"Page '{page_title}' produced {len(results)} final results"
+                # )
 
         except wikipedia.exceptions.DisambiguationError as e:
             # Try first disambiguation option
@@ -450,7 +447,7 @@ class WikiRM(BaseRetriever):
             return []
 
         if query is None or not query.strip():
-            logger.warning("Empty query provided for semantic similarity calculation.")
+            # logger.warning("Empty query provided for semantic similarity calculation.")
             return []
 
         try:

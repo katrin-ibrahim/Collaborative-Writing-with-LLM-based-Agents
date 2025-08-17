@@ -84,7 +84,13 @@ Examples:
     retrieval_group.add_argument(
         "--retrieval_manager",
         "-rm",
-        choices=["wiki", "bm25_wiki", "faiss_wiki"],
+        choices=[
+            "wiki",
+            "bm25_wiki",
+            "faiss_wiki",
+            "enhanced_bm25_wiki",
+            "enhanced_faiss_wiki",
+        ],
         help="Retrieval manager type (overrides config file)",
     )
 

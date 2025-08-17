@@ -110,6 +110,7 @@ class BaselineRunner(BaseRunner):
             storm_runner, storm_output_dir, storm_config = setup_storm_runner(
                 client=self.client,
                 config=self.model_config,
+                retrieval_config=self.retrieval_config,
                 storm_output_dir=(
                     self.output_manager.setup_storm_output_dir(topic)
                     if self.output_manager
@@ -181,6 +182,7 @@ class BaselineRunner(BaseRunner):
             storm_runner, storm_output_dir, final_config = setup_storm_runner(
                 client=self.client,
                 config=self.model_config,
+                retrieval_config=self.retrieval_config,
                 storm_output_dir=(
                     self.output_manager.setup_storm_output_dir(topic)
                     if self.output_manager

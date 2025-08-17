@@ -128,7 +128,9 @@ class ModelConfig:
         """Load model config from YAML file or preset name."""
         # If it's a preset name, convert to file path
         if config_name in ["ollama_localhost", "ollama_ukp", "slurm", "slurm_thinking"]:
-            config_path = f"src/config/model_{config_name}.yaml"
+            #  go to base directory and load the config
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.join(base_dir, f"model_{config_name}.yaml")
         else:
             config_path = config_name
 

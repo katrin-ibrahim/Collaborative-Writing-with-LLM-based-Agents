@@ -8,15 +8,14 @@ from knowledge_storm import (
     STORMWikiRunnerArguments,
 )
 
-from ...config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG
-
 # Add src directory to path
 src_dir = Path(__file__).parent.parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 from src.config.baselines_model_config import ModelConfig
-from src.retrieval.wiki_rm import WikiRM
+from src.config.retrieval_config import RetrievalConfig
+from src.retrieval import create_retrieval_manager
 from src.utils.ollama_client import OllamaClient
 
 from .runner_utils import get_model_wrapper
@@ -27,6 +26,7 @@ def setup_storm_runner(
     config: ModelConfig = None,
     storm_output_dir: str = None,
     storm_config: dict = None,
+    retrieval_config: RetrievalConfig = None,
 ):
     """
     Setup STORM runner with optional configuration override.
@@ -36,6 +36,7 @@ def setup_storm_runner(
         config: Model configuration
         storm_output_dir: Output directory for STORM
         storm_config: Optional Storm configuration parameters
+        retrieval_config: Optional retrieval configuration (from runner)
     """
     lm_config = STORMWikiLMConfigs()
 
@@ -45,21 +46,32 @@ def setup_storm_runner(
     lm_config.set_article_gen_lm(get_model_wrapper(client, config, "writing"))
     lm_config.set_article_polish_lm(get_model_wrapper(client, config, "polish"))
 
-    # Default Storm configuration
+    # Use provided retrieval config (with CLI args) or create default with wiki RM
+    if retrieval_config:
+        used_retrieval_config = retrieval_config
+    else:
+        # Fallback: create config for wiki RM that respects base configuration
+        used_retrieval_config = RetrievalConfig.from_base_config_with_overrides(
+            rm_type="wiki"
+        )
+
+    # Default Storm configuration using retrieval config values
     default_config = {
-        "max_conv_turn": 4,
-        "max_perspective": 7,
-        "max_search_queries_per_turn": DEFAULT_RETRIEVAL_CONFIG.queries_per_turn,
-        "search_top_k": DEFAULT_RETRIEVAL_CONFIG.results_per_query,
-        "max_thread_num": 4,
+        "max_conv_turn": 3,
+        "max_perspective": 2,
+        "max_search_queries_per_turn": used_retrieval_config.queries_per_turn,
+        "search_top_k": used_retrieval_config.results_per_query,
+        "max_thread_num": 2,
     }
 
     # Merge with provided config
     if storm_config:
         default_config.update(storm_config)
 
-    # Setup search retrieval with configured parameters
-    search_rm = WikiRM(format_type="storm")
+    # Use the provided retrieval config for STORM search
+    search_rm = create_retrieval_manager(
+        retrieval_config=used_retrieval_config, format_type="storm"
+    )
     logging.getLogger("baselines.wikipedia_search").setLevel(logging.DEBUG)
 
     engine_args = STORMWikiRunnerArguments(

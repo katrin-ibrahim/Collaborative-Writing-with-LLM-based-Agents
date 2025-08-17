@@ -15,6 +15,7 @@ def create_retrieval_manager(
     retrieval_config: Optional[RetrievalConfig] = None,
     config_name: Optional[str] = None,
     rm_type: Optional[str] = None,
+    format_type: Optional[str] = None,
     **kwargs,
 ):
     """
@@ -60,7 +61,9 @@ def create_retrieval_manager(
         try:
             from src.retrieval.bm25_wiki_rm import BM25WikiRM
 
-            num_articles = kwargs.get("num_articles", 100000)
+            num_articles = kwargs.get(
+                "num_articles", 10000
+            )  # Reduced for memory efficiency
             # Don't pass default_args to avoid parameter conflicts
             return BM25WikiRM(num_articles=num_articles)
         except ImportError as e:
@@ -71,11 +74,33 @@ def create_retrieval_manager(
             logger.error(f"BM25WikiRM initialization failed: {e}")
             raise RuntimeError(f"BM25WikiRM failed to initialize: {e}")
 
+    elif manager_type == "enhanced_bm25_wiki":
+        try:
+            from src.retrieval.enhanced_bm25_wiki_rm import EnhancedBM25WikiRM
+
+            # Enhanced BM25 uses lazy loading and can handle full dumps
+            db_file = kwargs.get("db_file", "wikipedia_bm25.db")
+            bm25_cache = kwargs.get("bm25_cache", "bm25_index.pkl")
+            max_articles = kwargs.get("max_articles", None)  # None = all articles
+
+            return EnhancedBM25WikiRM(
+                db_file=db_file, bm25_cache=bm25_cache, max_articles=max_articles
+            )
+        except ImportError as e:
+            logger.error(f"Enhanced BM25 dependencies not available: {e}")
+            logger.error("Install with: pip install rank-bm25")
+            raise ImportError(f"Enhanced BM25WikiRM not available: {e}")
+        except Exception as e:
+            logger.error(f"Enhanced BM25WikiRM initialization failed: {e}")
+            raise RuntimeError(f"Enhanced BM25WikiRM failed to initialize: {e}")
+
     elif manager_type == "faiss_wiki":
         try:
             from src.retrieval.faiss_wiki_rm import FAISSWikiRM
 
-            num_articles = kwargs.get("num_articles", 100000)
+            num_articles = kwargs.get(
+                "num_articles", 10000
+            )  # Reduced for memory efficiency
             embedding_model = kwargs.get("embedding_model", "all-MiniLM-L6-v2")
             # Don't pass default_args to avoid parameter conflicts
             return FAISSWikiRM(
@@ -89,9 +114,33 @@ def create_retrieval_manager(
             logger.error(f"FAISSWikiRM initialization failed: {e}")
             raise RuntimeError(f"FAISSWikiRM failed to initialize: {e}")
 
+    elif manager_type == "enhanced_faiss_wiki":
+        try:
+            from src.retrieval.enhanced_faiss_wiki_rm import EnhancedFAISSWikiRM
+
+            # Enhanced FAISS uses pre-built indices and lazy loading
+            embedding_model = kwargs.get("embedding_model", "all-MiniLM-L6-v2")
+            index_prefix = kwargs.get("index_prefix", "faiss_full")
+            fallback_articles = kwargs.get("fallback_articles", 10000)
+
+            return EnhancedFAISSWikiRM(
+                embedding_model=embedding_model,
+                index_prefix=index_prefix,
+                fallback_articles=fallback_articles,
+            )
+        except ImportError as e:
+            logger.error(f"Enhanced FAISS dependencies not available: {e}")
+            logger.error("Install with: pip install faiss-cpu sentence-transformers")
+            raise ImportError(f"Enhanced FAISSWikiRM not available: {e}")
+        except Exception as e:
+            logger.error(f"Enhanced FAISSWikiRM initialization failed: {e}")
+            raise RuntimeError(f"Enhanced FAISSWikiRM failed to initialize: {e}")
+
     else:
         logger.error(f"Unknown retrieval manager type: {manager_type}")
-        logger.error(f"Supported types: wiki, bm25_wiki, faiss_wiki")
+        logger.error(
+            f"Supported types: wiki, bm25_wiki, enhanced_bm25_wiki, faiss_wiki, enhanced_faiss_wiki"
+        )
         raise ValueError(f"Unsupported retrieval manager type: {manager_type}")
 
 
