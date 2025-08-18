@@ -78,3 +78,7 @@ scipy>=1.8.0  # For statistical tests
 ollama~=0.5.1
 pandas~=2.3.0
 jsonlines~=4.0.0
+
+# Natural Language Processing
+nltk>=3.8
+# Alternative: spacy>=3.4  # If you prefer spaCy over NLTK

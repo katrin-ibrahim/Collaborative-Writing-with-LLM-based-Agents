@@ -129,14 +129,6 @@ class Article(BaseModel):
         )
 
 
-class ModelConfig(BaseModel):
-    """Configuration for model parameters and paths."""
-
-    name: str = Field(default_factory=str)
-    temperature: float = 0.7
-    token_limit: int = 1024
-
-
 class EvaluationResult(BaseModel):
     """Evaluation metrics for a generated article."""
 

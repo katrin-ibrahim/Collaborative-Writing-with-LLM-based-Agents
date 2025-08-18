@@ -11,7 +11,6 @@ __all__ = [
     "Outline",
     "SearchResult",
     "EvaluationResult",
-    "ModelConfig",
     "FreshWikiLoader",
     "FreshWikiEntry",
     "extract_quality_topics",

@@ -22,6 +22,7 @@ src/tests/integration/.benchmarks
 src/tests/integration/data
 src/tests/integration/results
 *.pkl
+*.pkl.*
 *.backup
 *.index
 *.db
