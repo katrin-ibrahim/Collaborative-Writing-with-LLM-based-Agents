@@ -55,22 +55,22 @@ class Article(BaseModel):
 
     def _serialize_metadata(self, metadata):
         """Serialize metadata to JSON-compatible format."""
-        import torch
-        
+
         serialized = {}
         for key, value in metadata.items():
             # Skip model objects and other non-serializable types
             if self._is_model_object(value):
                 # Store model name/type instead of the object
-                if hasattr(value, '__class__'):
+                if hasattr(value, "__class__"):
                     serialized[key] = f"<{value.__class__.__name__}>"
                 else:
                     serialized[key] = "<model_object>"
                 continue
-                
+
             try:
                 # Test if value is JSON serializable
                 import json
+
                 json.dumps(value)
                 serialized[key] = value
             except (TypeError, ValueError):
@@ -81,28 +81,37 @@ class Article(BaseModel):
     def _is_model_object(self, obj):
         """Check if object is a model that shouldn't be serialized."""
         import torch
-        
+
         # Check for PyTorch models
-        if hasattr(torch, 'nn') and isinstance(obj, torch.nn.Module):
+        if hasattr(torch, "nn") and isinstance(obj, torch.nn.Module):
             return True
-            
+
         # Check for transformers models
-        if hasattr(obj, '__class__'):
+        if hasattr(obj, "__class__"):
             class_name = obj.__class__.__name__
-            if any(model_type in class_name for model_type in [
-                'ForCausalLM', 'Model', 'Tokenizer', 'Pipeline',
-                'SentenceTransformer', 'AutoModel', 'AutoTokenizer'
-            ]):
+            if any(
+                model_type in class_name
+                for model_type in [
+                    "ForCausalLM",
+                    "Model",
+                    "Tokenizer",
+                    "Pipeline",
+                    "SentenceTransformer",
+                    "AutoModel",
+                    "AutoTokenizer",
+                ]
+            ):
                 return True
-        
+
         # Check for large objects (likely models)
         try:
             import sys
+
             if sys.getsizeof(obj) > 1024 * 1024:  # Objects larger than 1MB
                 return True
         except (TypeError, AttributeError):
             pass
-            
+
         return False
 
     @classmethod

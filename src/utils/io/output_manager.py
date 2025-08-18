@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import logging
 
-from src.utils.data_models import Article
+from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
 
