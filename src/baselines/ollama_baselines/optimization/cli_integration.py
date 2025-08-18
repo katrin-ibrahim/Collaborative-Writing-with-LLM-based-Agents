@@ -13,7 +13,7 @@ from src.baselines.ollama_baselines.optimization.adaptive_optimizer import (
     AdaptiveOptimizer,
 )
 from src.config.baselines_model_config import ModelConfig
-from src.utils.logging_setup import setup_logging
+from src.utils.io import setup_logging
 
 
 def add_optimization_args(parser: argparse.ArgumentParser):

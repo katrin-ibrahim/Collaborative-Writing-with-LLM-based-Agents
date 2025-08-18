@@ -10,7 +10,7 @@ from src.baselines.baseline_runner_base import BaseRunner
 from src.baselines.slurm_baselines.slurm_engine import LocalModelEngine
 from src.config.baselines_model_config import ModelConfig
 from src.config.retrieval_config import RetrievalConfig
-from src.utils.output_manager import OutputManager
+from src.utils.io import OutputManager
 
 logger = logging.getLogger(__name__)
 

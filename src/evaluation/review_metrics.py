@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.agents.collaboration.writer_reviewer_workflow import CollaborationMetrics
 from src.agents.reviewer.data_models import FeedbackCategory, ReviewFeedback
-from src.utils.data_models import Article
+from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
 

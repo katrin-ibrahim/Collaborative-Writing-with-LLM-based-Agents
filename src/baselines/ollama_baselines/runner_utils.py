@@ -10,8 +10,8 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 from src.config.baselines_model_config import ModelConfig
-from src.utils.data_models import Article
-from src.utils.ollama_client import OllamaClient
+from src.utils.clients import OllamaClient
+from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
 

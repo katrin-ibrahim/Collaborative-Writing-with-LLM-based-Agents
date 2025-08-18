@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from sentence_transformers import SentenceTransformer
 from typing import Any, Dict, List, Optional
 
-from src.utils.data_models import SearchResult
+from src.utils.data import SearchResult
 
 
 @dataclass

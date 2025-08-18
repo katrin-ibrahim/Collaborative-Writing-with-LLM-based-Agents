@@ -2,8 +2,8 @@
 import logging
 from typing import Any, Dict
 
-from src.utils.data_models import Outline
-from src.utils.ollama_client import OllamaClient
+from src.utils.clients import OllamaClient
+from src.utils.data import Outline
 
 logger = logging.getLogger(__name__)
 

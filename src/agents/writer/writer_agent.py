@@ -7,8 +7,8 @@ from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from src.agents.base_agent import BaseAgent
 from src.agents.tools.content_toolkit import generate_outline, generate_section_content
-from src.agents.tools.search_toolkit import search_all_sources
-from src.utils.data_models import Article, Outline, SearchResult
+from src.agents.tools.search_toolkit import create_search_tool
+from src.utils.data import Article, Outline, SearchResult
 
 
 class WriterState(TypedDict):
@@ -38,6 +38,10 @@ class WriterAgent(BaseAgent):
         # Simplified configuration
         self.max_research_iterations = config.get("writer.max_research_iterations", 2)
         self.use_external_knowledge = config.get("writer.use_external_knowledge", True)
+
+        # Create search tool with retrieval config from CLI args
+        retrieval_config = config.get("retrieval_config")
+        self.search_tool = create_search_tool(retrieval_config)
 
         self.workflow = self._build_workflow()
 
@@ -113,10 +117,8 @@ class WriterAgent(BaseAgent):
 
         Analyze the topic "{state['topic']}" and generate 2-3 specific search queries that will help me find information about this topic.
 
-        Break down the topic into its key components and generate targeted search queries. For example:
-        - If the topic mentions "all major and minor keys", search for information about complete key cycles, 24-key compositions, etc.
-        - If the topic mentions specific musical forms, search for those forms and related composers
-        - Focus on the main subject matter and related concepts
+        Break down the topic into its key components and generate targeted search queries.
+
 
         Generate focused search queries that will help me understand this specific topic:
 
@@ -128,7 +130,7 @@ class WriterAgent(BaseAgent):
             q.strip()
             for q in response.split("\n")
             if q.strip() and not q.strip().startswith(("1.", "2.", "3.", "-", "*"))
-        ][
+        ][  # todo: remove hardcoded limit
             :3
         ]  # Limit to 3 queries
 
@@ -138,7 +140,7 @@ class WriterAgent(BaseAgent):
         # Execute each LLM-generated query
         for query in search_queries:
             try:
-                result = search_all_sources.invoke(
+                result = self.search_tool(
                     {"query": query, "wiki_results": 3, "web_results": 2}
                 )
                 search_results = [SearchResult(**r) for r in result["results"]]

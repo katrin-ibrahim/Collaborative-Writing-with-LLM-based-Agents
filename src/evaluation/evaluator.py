@@ -14,8 +14,7 @@ from src.evaluation.metrics import (
     STORM_METRICS,
     evaluate_article_metrics,
 )
-from src.utils.data_models import Article
-from src.utils.freshwiki_loader import FreshWikiEntry
+from src.utils.data import Article, FreshWikiEntry
 
 logger = logging.getLogger(__name__)
 

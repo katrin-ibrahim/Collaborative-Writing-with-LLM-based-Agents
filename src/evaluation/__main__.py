@@ -20,8 +20,8 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 from src.evaluation.evaluator import ArticleEvaluator
-from src.utils.freshwiki_loader import FreshWikiLoader
-from src.utils.logging_setup import setup_logging
+from src.utils.data import FreshWikiLoader
+from src.utils.io import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -368,7 +368,7 @@ def main():
                     continue
 
                 # Create Article object
-                from src.utils.data_models import Article
+                from src.utils.data import Article
 
                 article = Article(title=topic, content=article_content)
 

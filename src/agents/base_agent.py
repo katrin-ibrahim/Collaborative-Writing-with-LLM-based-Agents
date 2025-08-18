@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 import logging
 from typing import Any, Dict
 
-from src.utils.ollama_client import OllamaClient
+from src.utils.clients import OllamaClient
 
 logger = logging.getLogger(__name__)
 

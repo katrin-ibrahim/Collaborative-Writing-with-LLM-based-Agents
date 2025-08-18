@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from src.baselines.base_engine import BaseModelEngine
 from src.config.baselines_model_config import ModelConfig
-from src.utils.ollama_client import OllamaClient
+from src.utils.clients import OllamaClient
 
 logger = logging.getLogger(__name__)
 

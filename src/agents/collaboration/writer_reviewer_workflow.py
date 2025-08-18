@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 from src.agents.reviewer import ReviewerAgent, ReviewFeedback
 from src.agents.reviewer.error_handling import validate_reviewer_config
 from src.agents.writer.writer_agent import WriterAgent
-from src.utils.data_models import Article
+from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
 

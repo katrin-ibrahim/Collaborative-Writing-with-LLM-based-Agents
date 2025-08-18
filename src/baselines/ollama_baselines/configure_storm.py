@@ -16,7 +16,7 @@ if str(src_dir) not in sys.path:
 from src.config.baselines_model_config import ModelConfig
 from src.config.retrieval_config import RetrievalConfig
 from src.retrieval import create_retrieval_manager
-from src.utils.ollama_client import OllamaClient
+from src.utils.clients import OllamaClient
 
 from .runner_utils import get_model_wrapper
 

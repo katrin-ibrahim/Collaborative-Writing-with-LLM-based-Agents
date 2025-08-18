@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from src.utils.data_models import SearchResult
+from src.utils.data import SearchResult
 
 
 class EvaluationToolkit:

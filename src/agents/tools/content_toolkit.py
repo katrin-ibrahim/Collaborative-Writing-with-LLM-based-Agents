@@ -2,7 +2,7 @@ from langchain_core.tools import tool
 from typing import Any, Dict
 
 from src.agents.writer.outline_generator import OutlineGenerator
-from src.utils.data_models import Outline
+from src.utils.data import Outline
 
 # Global outline generator instance
 _outline_generator = None

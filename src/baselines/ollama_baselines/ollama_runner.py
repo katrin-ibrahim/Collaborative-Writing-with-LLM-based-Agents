@@ -10,10 +10,10 @@ from src.baselines.baseline_runner_base import BaseRunner
 from src.baselines.ollama_baselines.ollama_engine import OllamaModelEngine
 from src.config.baselines_model_config import ModelConfig
 from src.config.retrieval_config import RetrievalConfig
-from src.utils.baselines_utils import error_article
-from src.utils.data_models import Article
-from src.utils.ollama_client import OllamaClient
-from src.utils.output_manager import OutputManager
+from src.utils.article import error_article
+from src.utils.clients import OllamaClient
+from src.utils.data import Article
+from src.utils.io import OutputManager
 
 # STORM imports - only here to avoid local runner conflicts
 from .configure_storm import setup_storm_runner
@@ -130,7 +130,7 @@ class BaselineRunner(BaseRunner):
             # Extract STORM output and create Article
             from pathlib import Path
 
-            from src.utils.baselines_utils import extract_storm_output
+            from src.utils.article import extract_storm_output
 
             content = extract_storm_output(Path(storm_output_dir), topic)
 
@@ -203,7 +203,7 @@ class BaselineRunner(BaseRunner):
             # Extract STORM output and create Article
             from pathlib import Path
 
-            from src.utils.baselines_utils import extract_storm_output
+            from src.utils.article import extract_storm_output
 
             content = extract_storm_output(Path(storm_output_dir), topic)
 

@@ -12,13 +12,10 @@ from typing import List, Optional
 
 from src.config.baselines_model_config import ModelConfig
 from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
-from src.utils.baselines_utils import (
-    build_direct_prompt,
-    build_rag_prompt,
-    error_article,
-)
-from src.utils.data_models import Article
-from src.utils.output_manager import OutputManager
+from src.utils.article import error_article
+from src.utils.data import Article
+from src.utils.io import OutputManager
+from src.utils.prompts import build_direct_prompt, build_rag_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -576,10 +573,9 @@ def run_baseline_experiment(args, runner_class, runner_name):
     """
     Single canonical experiment runner - eliminates duplication.
     """
-    from src.utils.baselines_utils import setup_output_directory
-    from src.utils.experiment_state_manager import ExperimentStateManager
-    from src.utils.freshwiki_loader import FreshWikiLoader
-    from src.utils.logging_setup import setup_logging
+    from src.utils.data import FreshWikiLoader
+    from src.utils.experiment import ExperimentStateManager, setup_output_directory
+    from src.utils.io import setup_logging
 
     setup_logging(args.log_level)
     logger.info(f"🔬 {runner_name} Baseline Experiment Runner")

@@ -2,7 +2,7 @@ from langchain_core.tools import tool
 from typing import Any, Dict, List
 
 from src.knowledge.knowledge_base import KnowledgeBase
-from src.utils.data_models import SearchResult
+from src.utils.data import SearchResult
 
 
 @tool

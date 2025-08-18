@@ -20,7 +20,7 @@ from src.agents.reviewer.reviewer_tools import (
     fact_check_claim,
     generate_structured_feedback,
 )
-from src.utils.data_models import Article
+from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,13 @@ class ReviewerAgent(BaseAgent):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
+
+        # Create search tool with retrieval config from CLI args
+        retrieval_config = config.get("retrieval_config")
+        from src.agents.tools.search_toolkit import create_search_tool
+
+        self.search_tool = create_search_tool(retrieval_config)
+
         self.workflow = self._build_workflow()
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -314,10 +321,8 @@ class ReviewerAgent(BaseAgent):
                     # Enhanced fact-checking with LLM analysis
                     search_context = f"{article_title} {claim_type}"
 
-                    # Get search results using the imported tool
-                    from src.agents.tools.search_toolkit import search_all_sources
-
-                    search_result = search_all_sources.invoke(
+                    # Get search results using the configured search tool
+                    search_result = self.search_tool.invoke(
                         {"query": claim_text, "wiki_results": 3, "web_results": 2}
                     )
 

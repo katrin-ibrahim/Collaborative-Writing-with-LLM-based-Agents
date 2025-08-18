@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from src.agents.reviewer.data_models import Claim
 from src.agents.tools.knowledge_toolkit import extract_claims_from_content
-from src.agents.tools.search_toolkit import search_all_sources
+from src.agents.tools.search_toolkit import create_search_tool
 
 
 @tool
@@ -50,52 +50,66 @@ def extract_verifiable_claims(content: str, max_claims: int = 10) -> Dict[str, A
     }
 
 
-@tool
-def fact_check_claim(claim_text: str, context: str = "") -> Dict[str, Any]:
-    """
-    Verify a specific claim against available sources.
+def create_reviewer_tools(retrieval_config=None):
+    """Create reviewer tools with specific retrieval configuration."""
 
-    Args:
-        claim_text: The claim to verify
-        context: Additional context for the search
+    # Create search tool with the provided config
+    search_tool = create_search_tool(retrieval_config)
 
-    Returns:
-        Dictionary with fact-check results and evidence
-    """
-    # Search for evidence using existing search tool
-    search_query = f"{claim_text} {context}".strip()
-    search_result = search_all_sources.invoke(
-        {"query": search_query, "wiki_results": 3, "web_results": 2}
-    )
+    @tool
+    def fact_check_claim(claim_text: str, context: str = "") -> Dict[str, Any]:
+        """
+        Verify a specific claim against available sources.
 
-    # Analyze evidence (simplified heuristic approach)
-    supporting_evidence = []
-    contradicting_evidence = []
-    sources = []
+        Args:
+            claim_text: The claim to verify
+            context: Additional context for the search
 
-    for result_data in search_result["results"]:
-        content = result_data["content"].lower()
-        claim_lower = claim_text.lower()
+        Returns:
+            Dictionary with fact-check results and evidence
+        """
+        # Search for evidence using configured search tool
+        search_query = f"{claim_text} {context}".strip()
+        search_result = search_tool.invoke(
+            {"query": search_query, "wiki_results": 3, "web_results": 2}
+        )
 
-        # Simple keyword matching for evidence classification
-        if any(word in content for word in claim_lower.split()[:3]):
-            supporting_evidence.append(result_data["content"][:200] + "...")
-            sources.append(result_data["source"])
+        # Analyze evidence (simplified heuristic approach)
+        supporting_evidence = []
+        contradicting_evidence = []
+        sources = []
 
-    # Calculate accuracy score based on evidence
-    accuracy_score = min(1.0, len(supporting_evidence) * 0.3)
-    verification_status = "verified" if accuracy_score > 0.6 else "needs_verification"
+        for result_data in search_result["results"]:
+            content = result_data["content"].lower()
+            claim_lower = claim_text.lower()
 
-    return {
-        "claim": claim_text,
-        "accuracy_score": accuracy_score,
-        "supporting_evidence": supporting_evidence,
-        "contradicting_evidence": contradicting_evidence,
-        "verification_status": verification_status,
-        "sources": sources,
-        "evidence_count": len(supporting_evidence),
-        "summary": f"Fact-checked claim with {len(supporting_evidence)} supporting sources",
-    }
+            # Simple keyword matching for evidence classification
+            if any(word in content for word in claim_lower.split()[:3]):
+                supporting_evidence.append(result_data["content"][:200] + "...")
+                sources.append(result_data["source"])
+
+        # Calculate accuracy score based on evidence
+        accuracy_score = min(1.0, len(supporting_evidence) * 0.3)
+        verification_status = (
+            "verified" if accuracy_score > 0.6 else "needs_verification"
+        )
+
+        return {
+            "claim": claim_text,
+            "accuracy_score": accuracy_score,
+            "supporting_evidence": supporting_evidence,
+            "contradicting_evidence": contradicting_evidence,
+            "verification_status": verification_status,
+            "sources": sources,
+            "evidence_count": len(supporting_evidence),
+            "summary": f"Fact-checked claim with {len(supporting_evidence)} supporting sources",
+        }
+
+    return fact_check_claim
+
+
+# Default reviewer tools for backward compatibility
+fact_check_claim = create_reviewer_tools()
 
 
 @tool
