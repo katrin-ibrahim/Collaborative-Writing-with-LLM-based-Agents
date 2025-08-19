@@ -13,7 +13,7 @@ from typing import List, Optional
 from src.config.baselines_model_config import ModelConfig
 from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
 from src.utils.article import error_article
-from src.utils.data import Article
+from src.utils.data import Article, SearchResult
 from src.utils.io import OutputManager
 from src.utils.prompts import build_direct_prompt, build_rag_prompt
 
@@ -244,7 +244,7 @@ class BaseRunner(ABC):
 
             # Retrieve context
             passages = retrieval_system.search(
-                query=queries,
+                queries=queries,
                 max_results=config.results_per_query,
                 topic=topic,
             )
@@ -475,40 +475,20 @@ class BaseRunner(ABC):
         """
 
     def _create_context_from_passages(
-        self, passages: List[str], max_passages: int = None
+        self, passages: list[SearchResult], max_passages: int = None
     ) -> str:
         if max_passages is None:
             max_passages = DEFAULT_RETRIEVAL_CONFIG.final_passages
 
         if not passages:
             raise ValueError("No passages provided for context creation")
-
-        # Enhanced passage selection: filter by quality first
-        quality_passages = []
-        for passage in passages:
-            if (
-                passage
-                and len(passage.strip()) >= DEFAULT_RETRIEVAL_CONFIG.passage_min_length
-            ):
-                quality_passages.append(passage.strip())
-
-        # Take top quality passages
-        top_passages = quality_passages[:max_passages]
+        if len(passages) > max_passages:
+            passages = passages[:max_passages]  # Limit to max_passages
         context_parts = []
+        for i, passage in enumerate(passages, start=1):
+            context_parts.append(passage.snippets)
 
-        for i, passage in enumerate(top_passages, 1):
-            # Enhanced length handling
-            if len(passage) > DEFAULT_RETRIEVAL_CONFIG.passage_max_length:
-                # Smart truncation: try to end at sentence boundary
-                truncated = passage[: DEFAULT_RETRIEVAL_CONFIG.passage_max_length]
-                last_period = truncated.rfind(".")
-                if last_period > DEFAULT_RETRIEVAL_CONFIG.passage_max_length * 0.8:
-                    passage = truncated[: last_period + 1]
-                else:
-                    passage = truncated + "..."
-
-            context_parts.append(f"[Source {i}]: {passage}")
-        return " ".join(context_parts)
+        return "\n\n ".join(context_parts)
 
     # ---------------------------------------- Utilities ----------------------------------------
     def _create_article(

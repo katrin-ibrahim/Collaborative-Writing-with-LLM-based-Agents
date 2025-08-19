@@ -86,10 +86,7 @@ Examples:
         "-rm",
         choices=[
             "wiki",
-            "bm25_wiki",
-            "faiss_wiki",
-            "enhanced_bm25_wiki",
-            "enhanced_faiss_wiki",
+            "supabase_faiss",
         ],
         help="Retrieval manager type (overrides config file)",
     )

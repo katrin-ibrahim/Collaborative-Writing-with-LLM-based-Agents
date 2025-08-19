@@ -44,11 +44,23 @@ def create_retrieval_manager(
 
     logger.info(f"Creating retrieval manager of type: {manager_type}")
 
+    # Validate semantic filtering usage
+    if (
+        hasattr(retrieval_config, "semantic_filtering_enabled")
+        and retrieval_config.semantic_filtering_enabled
+    ):
+        faiss_based_managers = ["supabase_faiss"]
+        if manager_type in faiss_based_managers:
+            logger.warning(
+                f"⚠️  Semantic filtering is enabled but has no effect on {manager_type}. "
+                f"FAISS-based retrieval managers already provide semantic similarity search. "
+                f"Consider using semantic filtering only with 'wiki' or 'bm25_wiki' managers."
+            )
+
     # Default arguments for all managers
     default_args = {
-        "max_articles": retrieval_config.results_per_query,
-        "max_sections": retrieval_config.max_content_pieces,
         "config": retrieval_config,  # Pass the config to managers that support it
+        "format_type": format_type,  # Optional format type for output
     }
     default_args.update(kwargs)
 
@@ -57,55 +69,17 @@ def create_retrieval_manager(
 
         return WikiRM(**default_args)
 
-    elif manager_type == "bm25_wiki":
+    elif manager_type == "supabase_faiss":
         try:
-            from src.retrieval.bm25_wiki_rm import BM25WikiRM
+            from src.retrieval.supabase_faiss_rm import FAISSRM
 
-            num_articles = kwargs.get(
-                "num_articles", 10000
-            )  # Reduced for memory efficiency
             # Don't pass default_args to avoid parameter conflicts
-            return BM25WikiRM(num_articles=num_articles)
-        except ImportError as e:
-            logger.error(f"BM25 dependencies not available: {e}")
-            logger.error("Install with: pip install rank-bm25")
-            raise ImportError(f"BM25WikiRM not available: {e}")
-        except Exception as e:
-            logger.error(f"BM25WikiRM initialization failed: {e}")
-            raise RuntimeError(f"BM25WikiRM failed to initialize: {e}")
-
-    elif manager_type == "enhanced_bm25_wiki":
-        try:
-            from src.retrieval.enhanced_bm25_wiki_rm import EnhancedBM25WikiRM
-
-            # Enhanced BM25 uses lazy loading and can handle full dumps
-            db_file = kwargs.get("db_file", "wikipedia_bm25.db")
-            bm25_cache = kwargs.get("bm25_cache", "bm25_index.pkl")
-            max_articles = kwargs.get("max_articles", None)  # None = all articles
-
-            return EnhancedBM25WikiRM(
-                db_file=db_file, bm25_cache=bm25_cache, max_articles=max_articles
-            )
-        except ImportError as e:
-            logger.error(f"Enhanced BM25 dependencies not available: {e}")
-            logger.error("Install with: pip install rank-bm25")
-            raise ImportError(f"Enhanced BM25WikiRM not available: {e}")
-        except Exception as e:
-            logger.error(f"Enhanced BM25WikiRM initialization failed: {e}")
-            raise RuntimeError(f"Enhanced BM25WikiRM failed to initialize: {e}")
-
-    elif manager_type == "faiss_wiki":
-        try:
-            from src.retrieval.faiss_wiki_rm import FAISSWikiRM
-
-            num_articles = kwargs.get(
-                "num_articles", 10000
-            )  # Reduced for memory efficiency
-            embedding_model = kwargs.get("embedding_model", "all-MiniLM-L6-v2")
-            # Don't pass default_args to avoid parameter conflicts
-            return FAISSWikiRM(
-                num_articles=num_articles, embedding_model=embedding_model
-            )
+            default_args = {
+                "config": retrieval_config,  # Pass the config to managers that support it
+                "format_type": format_type,  # Optional format type for output
+            }
+            default_args.update(kwargs)
+            return FAISSRM(**default_args)
         except ImportError as e:
             logger.error(f"FAISS dependencies not available: {e}")
             logger.error("Install with: pip install faiss-cpu sentence-transformers")
@@ -114,33 +88,9 @@ def create_retrieval_manager(
             logger.error(f"FAISSWikiRM initialization failed: {e}")
             raise RuntimeError(f"FAISSWikiRM failed to initialize: {e}")
 
-    elif manager_type == "enhanced_faiss_wiki":
-        try:
-            from src.retrieval.enhanced_faiss_wiki_rm import EnhancedFAISSWikiRM
-
-            # Enhanced FAISS uses pre-built indices and lazy loading
-            embedding_model = kwargs.get("embedding_model", "all-MiniLM-L6-v2")
-            index_prefix = kwargs.get("index_prefix", "faiss_full")
-            fallback_articles = kwargs.get("fallback_articles", 10000)
-
-            return EnhancedFAISSWikiRM(
-                embedding_model=embedding_model,
-                index_prefix=index_prefix,
-                fallback_articles=fallback_articles,
-            )
-        except ImportError as e:
-            logger.error(f"Enhanced FAISS dependencies not available: {e}")
-            logger.error("Install with: pip install faiss-cpu sentence-transformers")
-            raise ImportError(f"Enhanced FAISSWikiRM not available: {e}")
-        except Exception as e:
-            logger.error(f"Enhanced FAISSWikiRM initialization failed: {e}")
-            raise RuntimeError(f"Enhanced FAISSWikiRM failed to initialize: {e}")
-
     else:
         logger.error(f"Unknown retrieval manager type: {manager_type}")
-        logger.error(
-            f"Supported types: wiki, bm25_wiki, enhanced_bm25_wiki, faiss_wiki, enhanced_faiss_wiki"
-        )
+        logger.error(f"Supported types: wiki, supabase_faiss")
         raise ValueError(f"Unsupported retrieval manager type: {manager_type}")
 
 

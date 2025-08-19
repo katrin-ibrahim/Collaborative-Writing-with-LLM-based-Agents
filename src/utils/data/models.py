@@ -5,15 +5,17 @@ from typing import Any, Dict, List, Optional
 class SearchResult(BaseModel):
     """Represents a single search result passage."""
 
-    content: str
+    snippets: str
     source: str
+    url: Optional[str] = None
     relevance_score: float = 0.0
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization."""
         return {
-            "content": self.content,
+            "snippets": self.snippets,
             "source": self.source,
+            "url": self.url,
             "relevance_score": self.relevance_score,
         }
 

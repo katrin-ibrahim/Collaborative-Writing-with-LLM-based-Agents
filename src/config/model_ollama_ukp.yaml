@@ -11,16 +11,16 @@ default_model: 'qwen2.5:32b'
 
 # Temperature settings per task
 temperatures:
-  fast: 0.5
-  outline: 0.4
+  fast: 0.2
+  outline: 0.2
   writing: 0.6
   critique: 0.2
   polish: 0.3
 
 # Token limits per task
 token_limits:
-  fast: 1200
-  outline: 1200
-  writing: 3000
+  fast: 5000
+  outline: 1000
+  writing: 8000
   critique: 1500
-  polish: 1200
+  polish: 1500

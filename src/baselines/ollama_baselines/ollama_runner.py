@@ -251,16 +251,24 @@ class BaselineRunner(BaseRunner):
             prompt = f"""Generate {num_queries} possible Wikipedia article titles related to the topic "{topic}".
 
             Guidelines:
-            - Think about what the article could possibly cover.
-            - When you have an idea, what the topic could be about, think of possible sections that could be included in the article.
-            - The titles you generate should cover the possible sections of the article.
-            - Titles must resemble actual Wikipedia article titles.
-            - Use clear, encyclopedic language — avoid vague or overly broad phrases.
-            - Include topic-specific terms to ensure relevance.
+            - Use your internal knowledge and understanding of the topic to analyze the given topic and generate an internal outline for the Wikipedia article you are writing.
+            - Ask yourself:
+                What do I know about this topic?
+                What do I think this topic article could contain?
+                What would I search for if I were preparing to write a full Wikipedia article?
+                Am I considering the most relevant and specific aspects of the topic?
+                Am I certain that I have covered all the important aspects of the topic?
+                Am I confident that these titles accurately reflect the content of the article?
+            - Then generate an internal outline for a for a Wikipedia article.
+            - Using your internal outline, generate a list of possible article titles that could be used for a Wikipedia article.
+            - Each title should be a concise, descriptive phrase that accurately reflects the content of the article.
+            - Titles should be suitable for a Wikipedia article, avoiding overly broad or generic titles.
+            - Each title should be a single line, without numbering or extra text, and should be distinct from other titles.
+            - Avoid using phrases that could lead to irrelevant results.
             - Avoid phrasing like questions, search queries, or casual writing.
 
 
-            Only output possible Wikipedia article titles — one per line, no numbering or extra text.
+            CRITICAl INSTRUCTION: ONLY output possible Wikipedia article titles — one per line, no numbering and absolutely NO extra text.
 
             Wikipedia article titles for "{topic}":
             """
