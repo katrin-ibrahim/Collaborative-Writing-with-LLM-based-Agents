@@ -98,13 +98,6 @@ Examples:
         help="Enable semantic filtering for retrieval results",
     )
 
-    retrieval_group.add_argument(
-        "--use_wikidata_enhancement",
-        "-uw",
-        action="store_true",
-        help="Enable Wikidata retrieval enhancement",
-    )
-
     # =================== Output & Debugging ===================
     output_group = parser.add_argument_group("Output & Debugging Options")
     output_group.add_argument(

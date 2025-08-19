@@ -16,8 +16,6 @@ from abc import ABC, abstractmethod
 
 from typing import List, Optional
 
-logger = logging.getLogger(__name__)
-
 
 class BaseModelEngine(ABC):
     """
@@ -78,19 +76,6 @@ class BaseModelEngine(ABC):
 
         Returns:
             Extracted string content
-        """
-        return self.extract_response_content(response)
-
-    @staticmethod
-    def extract_response_content(response) -> str:
-        """
-        Extract string content from various response formats.
-
-        Args:
-            response: Response object from any engine (LiteLLM, OllamaClient, etc.)
-
-        Returns:
-            String content extracted from the response
         """
         if isinstance(response, str):
             return response

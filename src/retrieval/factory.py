@@ -1,6 +1,6 @@
 """
 Retrieval Manager Factory
-Creates appropriate retrieval manager instances based on configuration.
+Creates appropriate retrieval manager instance based on configuration.
 """
 
 import logging
@@ -25,6 +25,7 @@ def create_retrieval_manager(
         retrieval_config: RetrievalConfig instance (optional)
         config_name: Name of YAML config to load (e.g., 'txtai', 'bm25_wikidump')
         rm_type: Override retrieval manager type (optional)
+        format_type: Output format type (optional)
         **kwargs: Additional arguments passed to the retrieval manager
 
     Returns:
@@ -44,19 +45,6 @@ def create_retrieval_manager(
 
     logger.info(f"Creating retrieval manager of type: {manager_type}")
 
-    # Validate semantic filtering usage
-    if (
-        hasattr(retrieval_config, "semantic_filtering_enabled")
-        and retrieval_config.semantic_filtering_enabled
-    ):
-        faiss_based_managers = ["supabase_faiss"]
-        if manager_type in faiss_based_managers:
-            logger.warning(
-                f"⚠️  Semantic filtering is enabled but has no effect on {manager_type}. "
-                f"FAISS-based retrieval managers already provide semantic similarity search. "
-                f"Consider using semantic filtering only with 'wiki' or 'bm25_wiki' managers."
-            )
-
     # Default arguments for all managers
     default_args = {
         "config": retrieval_config,  # Pass the config to managers that support it
@@ -64,22 +52,17 @@ def create_retrieval_manager(
     }
     default_args.update(kwargs)
 
+    # Create base retrieval manager
     if manager_type == "wiki":
         from src.retrieval.wiki_rm import WikiRM
 
-        return WikiRM(**default_args)
+        base_rm = WikiRM(**default_args)
 
     elif manager_type == "supabase_faiss":
         try:
-            from src.retrieval.supabase_faiss_rm import FAISSRM
+            from src.retrieval.supabase_faiss_rm import FaissRM
 
-            # Don't pass default_args to avoid parameter conflicts
-            default_args = {
-                "config": retrieval_config,  # Pass the config to managers that support it
-                "format_type": format_type,  # Optional format type for output
-            }
-            default_args.update(kwargs)
-            return FAISSRM(**default_args)
+            base_rm = FaissRM(**default_args)
         except ImportError as e:
             logger.error(f"FAISS dependencies not available: {e}")
             logger.error("Install with: pip install faiss-cpu sentence-transformers")
@@ -92,51 +75,5 @@ def create_retrieval_manager(
         logger.error(f"Unknown retrieval manager type: {manager_type}")
         logger.error(f"Supported types: wiki, supabase_faiss")
         raise ValueError(f"Unsupported retrieval manager type: {manager_type}")
-
-
-def create_enhanced_retrieval_manager(
-    base_rm_type: str = "wiki",
-    config_name: Optional[str] = None,
-    use_wikidata_enhancement: bool = False,
-    retrieval_config: Optional[RetrievalConfig] = None,
-    **kwargs,
-):
-    """
-    Create a retrieval manager with optional Wikidata enhancement.
-
-    Args:
-        base_rm_type: Base retrieval manager type
-        config_name: Name of YAML config to load (e.g., 'txtai', 'bm25_wikidump')
-        use_wikidata_enhancement: Whether to wrap with WikidataEnhancer
-        retrieval_config: RetrievalConfig instance
-        **kwargs: Additional arguments
-
-    Returns:
-        Retrieval manager (optionally enhanced)
-    """
-    # Load from YAML if config name provided
-    if config_name:
-        retrieval_config = RetrievalConfig.from_yaml(config_name)
-        # Override enhancement setting from config if available
-        if hasattr(retrieval_config, "use_wikidata_enhancement"):
-            use_wikidata_enhancement = getattr(
-                retrieval_config, "use_wikidata_enhancement", use_wikidata_enhancement
-            )
-
-    # Create base retrieval manager
-    base_rm = create_retrieval_manager(
-        retrieval_config=retrieval_config, rm_type=base_rm_type, **kwargs
-    )
-
-    # Optionally enhance with Wikidata
-    if use_wikidata_enhancement:
-        try:
-            from src.retrieval.wikidata_enhancer import WikidataEnhancer
-
-            logger.info("Enhancing retrieval manager with Wikidata entities")
-            return WikidataEnhancer(base_rm)
-        except ImportError as e:
-            logger.warning(f"Wikidata enhancement not available: {e}")
-            return base_rm
 
     return base_rm

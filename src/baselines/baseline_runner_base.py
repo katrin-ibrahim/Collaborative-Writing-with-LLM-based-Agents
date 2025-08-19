@@ -249,11 +249,10 @@ class BaseRunner(ABC):
                 topic=topic,
             )
             context = self._create_context_from_passages(passages)
-            # logger.info(f"Created context with {len(context)} characters for {topic}")
 
             # Generate article with context
             rag_prompt = build_rag_prompt(topic, context)
-            response = engine.complete(rag_prompt, max_length=1024, temperature=0.3)
+            response = engine.complete(rag_prompt)
 
             # Extract content using engine's helper method
             content = engine.extract_content(response)
@@ -474,19 +473,16 @@ class BaseRunner(ABC):
         Get query generation function - backend specific.
         """
 
-    def _create_context_from_passages(
-        self, passages: list[SearchResult], max_passages: int = None
-    ) -> str:
-        if max_passages is None:
-            max_passages = DEFAULT_RETRIEVAL_CONFIG.final_passages
+    def _create_context_from_passages(self, passages: list[SearchResult]) -> str:
 
         if not passages:
             raise ValueError("No passages provided for context creation")
-        if len(passages) > max_passages:
-            passages = passages[:max_passages]  # Limit to max_passages
         context_parts = []
         for i, passage in enumerate(passages, start=1):
-            context_parts.append(passage.snippets)
+            context_part = (
+                f"Context Part {i}:\n \n{passage['snippets']} \n url: {passage['url']}"
+            )
+            context_parts.append(context_part)
 
         return "\n\n ".join(context_parts)
 
@@ -573,11 +569,6 @@ def run_baseline_experiment(args, runner_class, runner_name):
                 overrides = {}
                 if hasattr(args, "semantic_filtering") and args.semantic_filtering:
                     overrides["semantic_filtering_enabled"] = True
-                if (
-                    hasattr(args, "use_wikidata_enhancement")
-                    and args.use_wikidata_enhancement
-                ):
-                    overrides["use_wikidata_enhancement"] = True
 
                 retrieval_config = RetrievalConfig.from_base_config_with_overrides(
                     rm_type=args.retrieval_manager, **overrides
@@ -611,15 +602,6 @@ def run_baseline_experiment(args, runner_class, runner_name):
                         retrieval_config, semantic_filtering_enabled=True
                     )
                     logger.info("🎯 Enabled semantic filtering from CLI")
-
-                if (
-                    hasattr(args, "use_wikidata_enhancement")
-                    and args.use_wikidata_enhancement
-                ):
-                    retrieval_config = replace(
-                        retrieval_config, use_wikidata_enhancement=True
-                    )
-                    logger.info("🎯 Enabled Wikidata enhancement from CLI")
 
                 logger.info("📋 Using default retrieval config with CLI overrides")
 

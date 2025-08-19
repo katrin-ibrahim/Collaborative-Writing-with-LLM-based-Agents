@@ -14,6 +14,7 @@ from src.utils.article import error_article
 from src.utils.clients import OllamaClient
 from src.utils.data import Article
 from src.utils.io import OutputManager
+from src.utils.prompts.templates import build_query_generator_prompt
 
 # STORM imports - only here to avoid local runner conflicts
 from .configure_storm import setup_storm_runner
@@ -248,31 +249,7 @@ class BaselineRunner(BaseRunner):
         def ollama_query_generator(
             engine, topic: str, num_queries: int = 5
         ) -> List[str]:
-            prompt = f"""Generate {num_queries} possible Wikipedia article titles related to the topic "{topic}".
-
-            Guidelines:
-            - Use your internal knowledge and understanding of the topic to analyze the given topic and generate an internal outline for the Wikipedia article you are writing.
-            - Ask yourself:
-                What do I know about this topic?
-                What do I think this topic article could contain?
-                What would I search for if I were preparing to write a full Wikipedia article?
-                Am I considering the most relevant and specific aspects of the topic?
-                Am I certain that I have covered all the important aspects of the topic?
-                Am I confident that these titles accurately reflect the content of the article?
-            - Then generate an internal outline for a for a Wikipedia article.
-            - Using your internal outline, generate a list of possible article titles that could be used for a Wikipedia article.
-            - Each title should be a concise, descriptive phrase that accurately reflects the content of the article.
-            - Titles should be suitable for a Wikipedia article, avoiding overly broad or generic titles.
-            - Each title should be a single line, without numbering or extra text, and should be distinct from other titles.
-            - Avoid using phrases that could lead to irrelevant results.
-            - Avoid phrasing like questions, search queries, or casual writing.
-
-
-            CRITICAl INSTRUCTION: ONLY output possible Wikipedia article titles — one per line, no numbering and absolutely NO extra text.
-
-            Wikipedia article titles for "{topic}":
-            """
-
+            prompt = build_query_generator_prompt(topic, num_queries)
             try:
                 import re
 

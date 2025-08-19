@@ -6,9 +6,8 @@ Contains multiple retrieval managers for HER testing and fair comparison.
 from .base_retriever import BaseRetriever
 
 # Factory for creating retrieval managers
-from .factory import create_enhanced_retrieval_manager, create_retrieval_manager
+from .factory import create_retrieval_manager
 from .wiki_rm import WikiRM
-from .wikidata_enhancer import WikidataEnhancer
 
 # Retrieval Managers (with graceful imports)
 try:
@@ -22,7 +21,5 @@ __all__ = [
     "BaseRetriever",
     "WikiRM",
     "FaissRM",
-    "WikidataEnhancer",
     "create_retrieval_manager",
-    "create_enhanced_retrieval_manager",
 ]
