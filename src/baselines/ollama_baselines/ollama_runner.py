@@ -165,7 +165,10 @@ class BaselineRunner(BaseRunner):
             return article
 
         except Exception as e:
+            import traceback
+
             logger.error(f"STORM failed for {topic}: {e}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return error_article(topic, "storm", str(e))
 
     def run_storm_with_config(self, topic: str, storm_config: dict = None) -> Article:

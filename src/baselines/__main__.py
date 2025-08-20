@@ -32,7 +32,6 @@ def setup_hf_cache_for_backend(backend: str):
 
     # Set environment variables that all HF libraries will use
     os.environ["HF_HOME"] = cache_dir
-    os.environ["TRANSFORMERS_CACHE"] = cache_dir
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
 
 

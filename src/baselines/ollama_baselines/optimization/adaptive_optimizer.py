@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.baselines.ollama_baselines.ollama_runner import BaselineRunner
 from src.evaluation.evaluator import ArticleEvaluator
-from src.utils.freshwiki_loader import FreshWikiLoader
-from src.utils.output_manager import OutputManager
+from src.utils.data import FreshWikiLoader
+from src.utils.io import OutputManager
 
 logger = logging.getLogger(__name__)
 

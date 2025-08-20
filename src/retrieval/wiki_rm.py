@@ -83,7 +83,7 @@ class WikiRM(BaseRetriever):
                 max_workers=self.retrieval_config.max_workers_wiki
             ) as executor:
                 future_to_title = {
-                    executor.submit(self._extract_page_content, title, query): title
+                    executor.submit(self._extract_page_content, title): title
                     for title in search_results
                 }
 

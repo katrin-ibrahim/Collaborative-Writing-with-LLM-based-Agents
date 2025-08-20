@@ -129,10 +129,20 @@ class ContentFilter:
 
             # Fall back to content hash if no URL
             if content:
-                content_hash = hash(content.strip().lower())
-                if content_hash not in seen_content_hashes:
-                    seen_content_hashes.add(content_hash)
-                    unique_results.append(result)
+                # Handle both string and list content
+                if isinstance(content, list):
+                    # For lists, join all snippets and use that for hashing
+                    content_str = " ".join(
+                        str(snippet) for snippet in content if snippet
+                    )
+                else:
+                    content_str = str(content)
+
+                if content_str:
+                    content_hash = hash(content_str.strip().lower())
+                    if content_hash not in seen_content_hashes:
+                        seen_content_hashes.add(content_hash)
+                        unique_results.append(result)
             elif not url:  # Empty result, but keep it
                 unique_results.append(result)
 

@@ -554,8 +554,6 @@ def run_baseline_experiment(args, runner_class, runner_name):
     from src.utils.io import setup_logging
 
     setup_logging(args.log_level)
-    logger.info(f"🔬 {runner_name} Baseline Experiment Runner")
-    logger.info(f"📝 Topics: {args.num_topics}")
 
     try:
         # Create retrieval configuration with CLI overrides
@@ -572,15 +570,6 @@ def run_baseline_experiment(args, runner_class, runner_name):
 
                 retrieval_config = RetrievalConfig.from_base_config_with_overrides(
                     rm_type=args.retrieval_manager, **overrides
-                )
-                logger.info(
-                    f"📋 Created hybrid retrieval config: {args.retrieval_manager}"
-                )
-                logger.info(
-                    f"🔍 Using retrieval manager: {retrieval_config.retrieval_manager_type}"
-                )
-                logger.info(
-                    f"🎯 Semantic filtering: {retrieval_config.semantic_filtering_enabled}"
                 )
 
             except Exception as e:
@@ -601,9 +590,7 @@ def run_baseline_experiment(args, runner_class, runner_name):
                     retrieval_config = replace(
                         retrieval_config, semantic_filtering_enabled=True
                     )
-                    logger.info("🎯 Enabled semantic filtering from CLI")
-
-                logger.info("📋 Using default retrieval config with CLI overrides")
+                    logger.info(" Enabled semantic filtering from CLI")
 
             except Exception as e:
                 logger.error(f"Failed to apply CLI overrides to default config: {e}")
