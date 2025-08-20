@@ -159,7 +159,7 @@ class BaseRetriever(ABC):
         format_type: str = "rag",
         topic: str = None,
         deduplicate: bool = True,
-        queries: Union[str, List[str]] = None,
+        query_or_queries: Union[str, List[str]] = None,
         **kwargs,
     ) -> List:
         """
@@ -167,7 +167,7 @@ class BaseRetriever(ABC):
         Subclasses only need to implement _retrieve_article().
 
         Args:
-            queries: Single query string or list of query strings
+            query_or_queries: Single query string or list of query strings
             max_results: Maximum number of results to return
             format_type: Output format ("rag" for passages, "storm" for structured data)
             topic: Optional topic to filter results
@@ -179,20 +179,20 @@ class BaseRetriever(ABC):
         """
         # Handle various calling conventions
         logger.debug(
-            f"{self.__class__.__name__}.search called with: args={args}, queries={queries}, kwargs={kwargs}"
+            f"{self.__class__.__name__}.search called with: args={args}, queries={query_or_queries}, kwargs={kwargs}"
         )
 
-        if queries is None:
+        if query_or_queries is None:
             if args:
                 # Positional arguments: search("query", 5) or search("query")
-                queries = args[0] if len(args) > 0 else None
+                query_or_queries = args[0] if len(args) > 0 else None
                 if max_results is None and len(args) > 1:
                     max_results = args[1]
             elif (
                 "query_or_queries" in kwargs and kwargs["query_or_queries"] is not None
             ):
                 # Query in kwargs
-                queries = kwargs.pop("query_or_queries", None)
+                query_or_queries = kwargs.pop("query_or_queries", None)
             elif len(args) == 0 and not kwargs:
                 # Called with no arguments - this might be a STORM initialization call
                 logger.warning(
@@ -201,7 +201,7 @@ class BaseRetriever(ABC):
                 return []
             else:
                 raise ValueError(
-                    "No valid query provided. Expected 'query', 'query' parameter, or positional argument."
+                    "No valid query provided. Expected 'query_or_queries' parameter, or positional argument."
                 )
 
         # Set defaults using config values
@@ -213,10 +213,10 @@ class BaseRetriever(ABC):
         )
 
         # Normalize input
-        if isinstance(queries, str):
-            query_list = [queries]
+        if isinstance(query_or_queries, str):
+            query_list = [query_or_queries]
         else:
-            query_list = list(queries)
+            query_list = list(query_or_queries)
 
         # Check result cache first
         cache_key = None
@@ -232,7 +232,7 @@ class BaseRetriever(ABC):
         search_results = []
 
         # 1. Get all candidate results for each query
-        for query in query_list:
+        for i, query in enumerate(query_list):
             if not self.content_filter.validate_query(query):
                 logger.warning(
                     f"{self.__class__.__name__}.search called with malformed query, skipping: '{query[:100]}...'"

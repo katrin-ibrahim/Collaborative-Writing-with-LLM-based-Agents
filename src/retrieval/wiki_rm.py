@@ -138,7 +138,8 @@ class WikiRM(BaseRetriever):
                         result_item = {
                             "title": page.title,
                             "section": section_name,
-                            "snippets": content.strip(),
+                            "snippets": [content.strip()],
+                            "description": content.strip()[:100],
                             "url": page.url,
                             "source": "wikipedia",
                         }

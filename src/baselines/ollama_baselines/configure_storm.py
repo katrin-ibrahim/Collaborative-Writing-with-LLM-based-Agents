@@ -80,7 +80,6 @@ def setup_storm_runner(
         max_perspective=default_config["max_perspective"],
         search_top_k=default_config["search_top_k"],
         max_thread_num=default_config["max_thread_num"],
-        max_search_queries_per_turn=default_config["max_search_queries_per_turn"],
     )
 
     runner = STORMWikiRunner(engine_args, lm_config, search_rm)
