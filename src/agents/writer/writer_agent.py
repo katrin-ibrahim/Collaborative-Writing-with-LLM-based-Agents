@@ -1,295 +1,638 @@
 # src/agents/writer/writer_agent.py
+"""
+Refactored WriterAgent using real tools and sophisticated planning-first workflow.
+Eliminates fake ContentToolkit and implements proper tool usage.
+"""
+
 import operator
 
+import logging
 from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from src.agents.base_agent import BaseAgent
-from src.agents.tools.content_toolkit import generate_outline, generate_section_content
-from src.agents.tools.search_toolkit import create_search_tool
-from src.utils.data import Article, Outline, SearchResult
+from src.agents.tools.agent_toolkit import AgentToolkit
+from src.utils.data.models import Article, Outline
+
+logger = logging.getLogger(__name__)
 
 
 class WriterState(TypedDict):
-    """Simplified state for 3-node writer workflow."""
+    """State for sophisticated writer workflow with planning-first approach."""
 
     messages: Annotated[List[BaseMessage], operator.add]
     topic: str
-    search_results: List[SearchResult]
-    outline: Optional[Outline]
+
+    # Planning phase
+    initial_outline: Optional[Outline]
+    research_queries: List[str]
+
+    # Research phase
+    search_results: List[Dict[str, Any]]
+    organized_knowledge: Optional[Dict[str, Any]]
+
+    # Refinement phase
+    refined_outline: Optional[Outline]
+    knowledge_gaps: List[str]
+
+    # Writing phase
     article_content: str
+    self_validation: Optional[Dict[str, Any]]
+
+    # Flow control
     research_iterations: int
-    needs_more_research: bool
+    ready_to_write: bool
+
+    # Metadata
     metadata: Dict[str, Any]
 
 
 class WriterAgent(BaseAgent):
     """
-    Simplified 3-node Writer agent using LangGraph with autonomous tool selection.
+    Sophisticated Writer agent with planning-first workflow and real tool usage.
 
-    Workflow: research -> plan_outline -> write_content
-    Features conditional research-more loop and baseline format compatibility.
+    Workflow: plan_outline → targeted_research → refine_outline → write_content
+    Uses only real tools that provide external capabilities.
     """
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        # Simplified configuration
-        self.max_research_iterations = config.get("writer.max_research_iterations", 2)
-        self.use_external_knowledge = config.get("writer.use_external_knowledge", True)
+        # Configuration
+        self.max_research_iterations = config.get("writer.max_research_iterations", 3)
+        self.knowledge_coverage_threshold = config.get(
+            "writer.knowledge_coverage_threshold", 0.7
+        )
+        self.max_research_queries_per_iteration = config.get(
+            "writer.max_queries_per_iteration", 6
+        )
 
-        # Create search tool with retrieval config from CLI args
-        retrieval_config = config.get("retrieval_config")
-        self.search_tool = create_search_tool(retrieval_config)
+        # Initialize real tools
+        self.toolkit = AgentToolkit(config)
 
+        # Build sophisticated workflow
         self.workflow = self._build_workflow()
 
-        self.logger.info(
-            f"WriterAgent initialized with max_research_iterations={self.max_research_iterations}"
+        logger.info(
+            f"WriterAgent initialized with planning-first workflow "
+            f"(max_iterations={self.max_research_iterations}, "
+            f"coverage_threshold={self.knowledge_coverage_threshold})"
         )
 
     def _build_workflow(self) -> StateGraph:
-        """Build simplified 3-node LangGraph workflow."""
+        """Build sophisticated planning-first workflow."""
         workflow = StateGraph(WriterState)
 
-        # Add 3 core nodes
-        workflow.add_node("research", self._research_node)
+        # Add workflow nodes
         workflow.add_node("plan_outline", self._plan_outline_node)
+        workflow.add_node("targeted_research", self._targeted_research_node)
+        workflow.add_node("refine_outline", self._refine_outline_node)
         workflow.add_node("write_content", self._write_content_node)
 
-        # Set entry point
-        workflow.set_entry_point("research")
+        # Set entry point to planning
+        workflow.set_entry_point("plan_outline")
 
-        # Add conditional edges
+        # Planning → Research (always)
+        workflow.add_edge("plan_outline", "targeted_research")
+
+        # Research → Refinement (always)
+        workflow.add_edge("targeted_research", "refine_outline")
+
+        # Refinement → Conditional (research more or write)
         workflow.add_conditional_edges(
-            "research",
-            self._decide_after_research,
-            {"research_more": "research", "plan_outline": "plan_outline"},
+            "refine_outline",
+            self._decide_after_outline_refinement,
+            {"research_more": "targeted_research", "ready_to_write": "write_content"},
         )
 
-        workflow.add_edge("plan_outline", "write_content")
+        # Writing → End
         workflow.add_edge("write_content", END)
 
         return workflow.compile()
 
     def process(self, topic: str) -> Article:
-        """Process topic through simplified 3-node workflow."""
+        """Process topic through sophisticated planning-first workflow."""
+
+        logger.info(f"Starting sophisticated writer workflow for: {topic}")
+
+        # Initialize state
         initial_state = WriterState(
-            messages=[
-                HumanMessage(content=f"Write a comprehensive article about: {topic}")
-            ],
+            messages=[HumanMessage(content=f"Write an article about: {topic}")],
             topic=topic,
+            initial_outline=None,
+            research_queries=[],
             search_results=[],
-            outline=None,
+            organized_knowledge=None,
+            refined_outline=None,
+            knowledge_gaps=[],
             article_content="",
+            self_validation=None,
             research_iterations=0,
-            needs_more_research=True,
-            metadata={"method": "simplified_writer", "decisions": []},
+            ready_to_write=False,
+            metadata={
+                "method": "sophisticated_writer",
+                "workflow_version": "2.0",
+                "tool_usage": [],
+                "decisions": [],
+            },
         )
 
-        final_state = self.workflow.invoke(initial_state)
-        return self._state_to_article(final_state)
+        # Execute workflow
+        try:
+            final_state = self.workflow.invoke(initial_state)
+            article = self._create_article_from_state(final_state)
 
-    def _research_node(self, state: WriterState) -> WriterState:
-        """Research node with autonomous tool selection."""
-        if not self.use_external_knowledge:
-            state["needs_more_research"] = False
-            state["metadata"]["decisions"].append(
-                "Skipped research (external knowledge disabled)"
+            logger.info(
+                f"Completed sophisticated writer workflow for '{topic}' "
+                f"({final_state['research_iterations']} research iterations, "
+                f"{len(final_state['search_results'])} sources)"
             )
-            return state
 
-        if state["research_iterations"] >= self.max_research_iterations:
-            state["needs_more_research"] = False
-            state["metadata"]["decisions"].append(
-                f"Max research iterations reached ({self.max_research_iterations})"
-            )
-            return state
+            return article
 
-        # LLM generates focused research queries for the specific topic
-        research_prompt = f"""
-        I need to research "{state['topic']}" for writing a comprehensive Wikipedia-style article.
+        except Exception as e:
+            logger.error(f"Writer workflow failed for '{topic}': {e}")
+            return self._create_error_article(topic, str(e))
 
-        Current status:
-        - Research iteration: {state['research_iterations'] + 1}/{self.max_research_iterations}
-        - Existing results: {len(state['search_results'])}
+    def _plan_outline_node(self, state: WriterState) -> WriterState:
+        """Create initial outline using LLM reasoning (no tool needed)."""
 
-        Analyze the topic "{state['topic']}" and generate 2-3 specific search queries that will help me find information about this topic.
+        logger.info(f"Planning initial outline for: {state['topic']}")
 
-        Break down the topic into its key components and generate targeted search queries.
+        # LLM creates initial structure - this is reasoning, not external capability
+        planning_prompt = f"""
+        Create a detailed outline for a comprehensive article about: {state['topic']}
 
+        Consider:
+        - What are the essential aspects readers need to understand?
+        - What background information is required?
+        - What are the key concepts, applications, or examples?
+        - What current developments or future implications exist?
+        - How should information be logically organized?
 
-        Generate focused search queries that will help me understand this specific topic:
+        Create an outline with:
+        1. A clear, specific title
+        2. 4-6 main sections that thoroughly cover the topic
+        3. Logical flow from basic concepts to advanced topics
 
-        Format: one query per line, no numbers or bullets.
+        Format as:
+        Title: [Specific Title]
+
+        1. [Section 1 - Usually introduction/background]
+        2. [Section 2 - Core concepts]
+        3. [Section 3 - Applications/examples]
+        4. [Section 4 - Current state/developments]
+        5. [Section 5 - Future/implications]
+        6. [Section 6 - Conclusion (if needed)]
         """
 
-        response = self.api_client.call_api(research_prompt)
-        search_queries = [
-            q.strip()
-            for q in response.split("\n")
-            if q.strip() and not q.strip().startswith(("1.", "2.", "3.", "-", "*"))
-        ][  # todo: remove hardcoded limit
-            :3
-        ]  # Limit to 3 queries
+        outline_response = self.api_client.call_api(planning_prompt)
+        initial_outline = self._parse_outline_response(outline_response, state["topic"])
 
-        # Execute searches with focused approach
-        new_results = []
+        # Generate targeted research queries based on outline
+        research_queries = self._generate_research_queries_from_outline(
+            initial_outline, state["topic"]
+        )
 
-        # Execute each LLM-generated query
-        for query in search_queries:
-            try:
-                result = self.search_tool(
-                    {"query": query, "wiki_results": 3, "web_results": 2}
-                )
-                search_results = [SearchResult(**r) for r in result["results"]]
-                new_results.extend(search_results)
-                self.logger.info(
-                    f"Search successful for query: '{query}' - found {len(search_results)} results"
-                )
-            except Exception as e:
-                self.logger.warning(f"Search failed for query '{query}': {e}")
-                # Continue with other queries
+        state["initial_outline"] = initial_outline
+        state["research_queries"] = research_queries
+        state["metadata"]["decisions"].append(
+            f"Created initial outline with {len(initial_outline.headings)} sections"
+        )
+        state["metadata"]["decisions"].append(
+            f"Generated {len(research_queries)} targeted research queries"
+        )
 
-        # Only add results if we found any
-        if new_results:
-            state["search_results"].extend(new_results)
-            state["metadata"]["decisions"].append(
-                f"Research iteration {state['research_iterations'] + 1}: Found {len(new_results)} results"
-            )
-        else:
-            state["metadata"]["decisions"].append(
-                f"Research iteration {state['research_iterations'] + 1}: No results found, will use internal knowledge"
-            )
-
-        state["research_iterations"] += 1
+        logger.info(
+            f"Created outline with {len(initial_outline.headings)} sections, "
+            f"generated {len(research_queries)} research queries"
+        )
 
         return state
 
-    def _plan_outline_node(self, state: WriterState) -> WriterState:
-        """Plan outline node using research results."""
-        # Create context from search results
-        context = ""
+    def _targeted_research_node(self, state: WriterState) -> WriterState:
+        """Conduct targeted research using real search tools."""
+
+        state["research_iterations"] += 1
+        logger.info(
+            f"Starting research iteration {state['research_iterations']} "
+            f"with {len(state['research_queries'])} queries"
+        )
+
+        # Limit queries per iteration for efficiency
+        current_queries = state["research_queries"][
+            : self.max_research_queries_per_iteration
+        ]
+
+        new_results = []
+        for query in current_queries:
+            try:
+                # Use real tool for external information retrieval
+                search_result = self.toolkit.search_for_content(
+                    query=query, purpose="writing"
+                )
+
+                if search_result["results"]:
+                    new_results.extend(search_result["results"])
+                    state["metadata"]["tool_usage"].append(
+                        f"search_and_retrieve: '{query}' → {len(search_result['results'])} results"
+                    )
+
+            except Exception as e:
+                logger.warning(f"Search failed for query '{query}': {e}")
+                continue
+
+        # Add new results to existing ones
+        state["search_results"].extend(new_results)
+
+        # Use real tool to organize knowledge computationally
         if state["search_results"]:
-            context_parts = []
-            for i, result in enumerate(state["search_results"][:8]):
-                context_parts.append(f"[Source {i+1}]: {result.content}")
-            context = "\n\n".join(context_parts)[:1500]  # Limit context length
+            try:
+                organized = self.toolkit.organize_for_writing(
+                    topic=state["topic"], search_results=state["search_results"]
+                )
 
-        # Generate outline using tool
-        outline_result = generate_outline.invoke(
-            {"topic": state["topic"], "context": context}
+                state["organized_knowledge"] = organized
+                state["metadata"]["tool_usage"].append(
+                    f"organize_knowledge: {len(state['search_results'])} results → "
+                    f"{len(organized['categories'])} categories"
+                )
+
+            except Exception as e:
+                logger.warning(f"Knowledge organization failed: {e}")
+
+        logger.info(
+            f"Research iteration {state['research_iterations']} completed: "
+            f"{len(new_results)} new results, {len(state['search_results'])} total"
         )
 
-        # Convert to Outline object
-        outline = Outline(
-            title=outline_result["title"],
-            headings=outline_result["headings"],
-            subheadings=outline_result["subheadings"],
+        return state
+
+    def _refine_outline_node(self, state: WriterState) -> WriterState:
+        """Refine outline based on research findings using LLM reasoning."""
+
+        logger.info("Refining outline based on research findings")
+
+        if not state["organized_knowledge"]:
+            # No knowledge to work with, keep original outline
+            state["refined_outline"] = state["initial_outline"]
+            state["ready_to_write"] = True
+            return state
+
+        # Analyze knowledge coverage for each outline section
+        knowledge_coverage = self._analyze_knowledge_coverage(
+            state["initial_outline"], state["organized_knowledge"]
         )
-        state["outline"] = outline
+
+        # LLM refines outline based on research findings
+        refinement_prompt = f"""
+        Refine this outline for "{state['topic']}" based on research findings:
+
+        Current Outline:
+        {self._format_outline_for_prompt(state['initial_outline'])}
+
+        Available Knowledge Categories:
+        {state['organized_knowledge']['category_summary']}
+
+        Knowledge Coverage Analysis:
+        {knowledge_coverage}
+
+        Instructions:
+        1. Keep well-supported sections with sufficient information
+        2. Modify or merge sections with insufficient coverage
+        3. Add new sections for important topics discovered in research
+        4. Ensure logical flow and comprehensive coverage
+        5. Aim for 4-6 main sections maximum
+
+        Provide the refined outline in the same format as the original.
+        """
+
+        refined_response = self.api_client.call_api(refinement_prompt)
+        refined_outline = self._parse_outline_response(refined_response, state["topic"])
+
+        # Identify knowledge gaps for potential additional research
+        knowledge_gaps = self._identify_knowledge_gaps(
+            refined_outline, state["organized_knowledge"]
+        )
+
+        state["refined_outline"] = refined_outline
+        state["knowledge_gaps"] = knowledge_gaps
 
         state["metadata"]["decisions"].append(
-            f"Created outline with {len(outline.headings)} sections"
+            f"Refined outline: {len(state['initial_outline'].headings)} → "
+            f"{len(refined_outline.headings)} sections"
         )
+
+        if knowledge_gaps:
+            state["metadata"]["decisions"].append(
+                f"Identified {len(knowledge_gaps)} knowledge gaps"
+            )
+
+        logger.info(
+            f"Outline refined: {len(state['initial_outline'].headings)} → "
+            f"{len(refined_outline.headings)} sections, "
+            f"{len(knowledge_gaps)} gaps identified"
+        )
+
         return state
 
     def _write_content_node(self, state: WriterState) -> WriterState:
-        """Write content node with autonomous section generation."""
-        if not state["outline"]:
+        """Generate article content using LLM with organized knowledge."""
+
+        logger.info("Generating article content")
+
+        if not state["refined_outline"]:
+            # Fallback to initial outline
+            working_outline = state["initial_outline"]
+        else:
+            working_outline = state["refined_outline"]
+
+        if not working_outline:
             state["article_content"] = (
-                f"# {state['topic']}\n\nUnable to generate outline for comprehensive article."
+                f"# {state['topic']}\n\nUnable to create outline for article."
             )
             return state
 
-        # Initialize article
-        state["article_content"] = f"# {state['outline'].title}\n\n"
+        # Initialize article with title
+        article_parts = [f"# {working_outline.title}"]
 
-        # Create context from all search results
-        context = ""
-        if state["search_results"]:
-            context_parts = []
-            for i, result in enumerate(state["search_results"]):
-                context_parts.append(f"[Source {i+1}]: {result.content}")
-            context = "\n\n".join(context_parts)[:2000]  # Limit context length
+        # Generate each section using organized knowledge
+        for section_heading in working_outline.headings:
+            try:
+                section_content = self._generate_section_content(
+                    section_heading, state["topic"], state["organized_knowledge"]
+                )
 
-        # Write each section using tool
-        for section_heading in state["outline"].headings:
-            # Generate section content using tool
-            content_result = generate_section_content.invoke(
-                {
-                    "section_title": section_heading,
-                    "context": context,
-                    "article_topic": state["topic"],
-                    "target_length": "300-400",
-                }
+                article_parts.append(f"## {section_heading}")
+                article_parts.append(section_content)
+
+            except Exception as e:
+                logger.warning(f"Failed to generate section '{section_heading}': {e}")
+                article_parts.append(f"## {section_heading}")
+                article_parts.append("Content generation failed for this section.")
+
+        # Combine all parts
+        full_content = "\n\n".join(article_parts)
+
+        # Self-validate content using real NLP tool
+        try:
+            self_validation = self.toolkit.extract_content_claims(
+                content=full_content, focus_types=["factual", "statistical"]
             )
 
-            # Call LLM to generate actual content
-            section_content = self.api_client.call_api(
-                content_result["generation_prompt"]
+            state["self_validation"] = self_validation
+            state["metadata"]["tool_usage"].append(
+                f"extract_claims: {self_validation['claims_found']} claims extracted for validation"
             )
 
-            state[
-                "article_content"
-            ] += f"## {section_heading}\n\n{section_content.strip()}\n\n"
+        except Exception as e:
+            logger.warning(f"Self-validation failed: {e}")
 
+        state["article_content"] = full_content
         state["metadata"]["decisions"].append(
-            f"Generated {len(state['outline'].headings)} sections"
+            f"Generated article with {len(working_outline.headings)} sections"
         )
+
+        logger.info(
+            f"Article generation completed: {len(full_content)} characters, "
+            f"{len(working_outline.headings)} sections"
+        )
+
         return state
 
-    def _decide_after_research(self, state: WriterState) -> str:
-        """Conditional logic for research-more loop with topic validation."""
+    def _decide_after_outline_refinement(self, state: WriterState) -> str:
+        """Decide whether to research more or proceed to writing."""
+
         # Check iteration limit
         if state["research_iterations"] >= self.max_research_iterations:
-            return "plan_outline"
+            logger.info("Max research iterations reached, proceeding to writing")
+            state["ready_to_write"] = True
+            return "ready_to_write"
 
-        # Evaluate if we have enough information about the specific topic
-        content_sample = ""
-        if state["search_results"]:
-            content_sample = " ".join(
-                [r.content[:200] for r in state["search_results"][:3]]
-            )
+        # Check knowledge coverage
+        if state["organized_knowledge"]:
+            coverage_score = state["organized_knowledge"].get("coverage_score", 0)
 
-        # LLM decides if more research is needed
-        decision_prompt = f"""
-        I've researched "{state['topic']}" and found {len(state['search_results'])} results.
-        Research iteration: {state['research_iterations']}/{self.max_research_iterations}
+            if coverage_score >= self.knowledge_coverage_threshold:
+                logger.info(
+                    f"Knowledge coverage sufficient ({coverage_score:.2f}), proceeding to writing"
+                )
+                state["ready_to_write"] = True
+                return "ready_to_write"
 
-        Sample of found content:
-        {content_sample[:500]}...
+        # Check if we have significant knowledge gaps
+        if len(state["knowledge_gaps"]) > 2:
+            # Generate new research queries for gaps
+            gap_queries = [
+                f"detailed information about {gap} in context of {state['topic']}"
+                for gap in state["knowledge_gaps"][:3]  # Limit new queries
+            ]
 
-        Evaluate if I have sufficient information to write a comprehensive article about this specific topic:
-
-        Questions to consider:
-        1. Do the search results contain information specifically about "{state['topic']}"?
-        2. Is the information detailed enough to write a comprehensive article?
-        3. Are there key aspects of this topic that seem to be missing?
-        4. Would I benefit from additional targeted searches?
-
-        Respond with just: RESEARCH_MORE or PLAN_OUTLINE
-        """
-
-        response = self.api_client.call_api(decision_prompt).strip().upper()
-
-        if (
-            "RESEARCH_MORE" in response
-            and state["research_iterations"] < self.max_research_iterations
-        ):
-            state["metadata"]["decisions"].append(
-                "LLM decided: need more specific research"
+            state["research_queries"] = gap_queries
+            logger.info(
+                f"Knowledge gaps found, conducting additional research for {len(gap_queries)} topics"
             )
             return "research_more"
 
-        return "plan_outline"
+        # Default: proceed to writing
+        logger.info("Research appears sufficient, proceeding to writing")
+        state["ready_to_write"] = True
+        return "ready_to_write"
 
-    def _state_to_article(self, state: WriterState) -> Article:
-        """Convert final state to baseline-compatible Article format."""
-        # Extract sections from article content
+    # ========================================================================
+    # HELPER METHODS
+    # ========================================================================
+
+    def _parse_outline_response(self, response: str, topic: str) -> Outline:
+        """Parse LLM outline response into structured Outline object."""
+        lines = response.strip().split("\n")
+
+        title = topic  # Default fallback
+        headings = []
+        subheadings = {}
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith("Title:"):
+                title = line.replace("Title:", "").strip()
+            elif line and line[0].isdigit() and "." in line:
+                heading = line.split(".", 1)[1].strip()
+                headings.append(heading)
+                subheadings[heading] = []
+
+        # Fallback outline if parsing fails
+        if not headings:
+            headings = [
+                "Introduction",
+                "Background and Context",
+                "Key Concepts",
+                "Applications and Examples",
+                "Current Developments",
+                "Future Implications",
+            ]
+            subheadings = {heading: [] for heading in headings}
+
+        return Outline(title=title, headings=headings, subheadings=subheadings)
+
+    def _generate_research_queries_from_outline(
+        self, outline: Outline, topic: str
+    ) -> List[str]:
+        """Generate targeted research queries based on outline sections."""
+        queries = []
+
+        for heading in outline.headings:
+            # Main topic query for each section
+            queries.append(f"{heading} {topic}")
+
+            # Specific information queries
+            if "introduction" in heading.lower() or "background" in heading.lower():
+                queries.append(f"overview of {topic}")
+                queries.append(f"history of {topic}")
+            elif "concept" in heading.lower() or "definition" in heading.lower():
+                queries.append(f"definition {topic}")
+                queries.append(f"key principles {topic}")
+            elif "application" in heading.lower() or "example" in heading.lower():
+                queries.append(f"applications of {topic}")
+                queries.append(f"examples {topic}")
+            elif "current" in heading.lower() or "development" in heading.lower():
+                queries.append(f"recent developments {topic}")
+                queries.append(f"current state {topic}")
+            elif "future" in heading.lower() or "implication" in heading.lower():
+                queries.append(f"future of {topic}")
+                queries.append(f"implications {topic}")
+
+        return queries
+
+    def _format_outline_for_prompt(self, outline: Outline) -> str:
+        """Format outline for inclusion in prompts."""
+        formatted = f"Title: {outline.title}\n\n"
+        for i, heading in enumerate(outline.headings, 1):
+            formatted += f"{i}. {heading}\n"
+        return formatted
+
+    def _analyze_knowledge_coverage(
+        self, outline: Outline, organized_knowledge: Dict
+    ) -> Dict[str, float]:
+        """Analyze how well each outline section is covered by available knowledge."""
+        coverage = {}
+
+        if not organized_knowledge or not organized_knowledge.get("categories"):
+            return {heading: 0.0 for heading in outline.headings}
+
+        for heading in outline.headings:
+            # Simple heuristic: count relevant results for each section
+            relevant_count = 0
+            total_count = sum(
+                len(results) for results in organized_knowledge["categories"].values()
+            )
+
+            if total_count > 0:
+                # Look for heading keywords in organized content
+                heading_words = heading.lower().split()
+                for category, results in organized_knowledge["categories"].items():
+                    category_words = category.lower().split("_")
+
+                    # Check for keyword overlap
+                    overlap = set(heading_words) & set(category_words)
+                    if overlap:
+                        relevant_count += len(results)
+
+                coverage[heading] = min(
+                    1.0, relevant_count / max(1, total_count / len(outline.headings))
+                )
+            else:
+                coverage[heading] = 0.0
+
+        return coverage
+
+    def _identify_knowledge_gaps(
+        self, outline: Outline, organized_knowledge: Dict
+    ) -> List[str]:
+        """Identify sections with insufficient knowledge coverage."""
+        coverage = self._analyze_knowledge_coverage(outline, organized_knowledge)
+
+        gaps = []
+        for heading, score in coverage.items():
+            if score < self.knowledge_coverage_threshold:
+                gaps.append(heading)
+
+        return gaps
+
+    def _generate_section_content(
+        self, section_heading: str, topic: str, organized_knowledge: Dict
+    ) -> str:
+        """Generate content for a specific section using organized knowledge."""
+
+        # Find relevant information for this section
+        relevant_info = self._find_relevant_info_for_section(
+            section_heading, organized_knowledge
+        )
+
+        # LLM generates content (this is text generation, not external capability)
+        if relevant_info:
+            content_prompt = f"""
+            Write a comprehensive section titled "{section_heading}" for an article about "{topic}".
+
+            Use this relevant information from research:
+            {relevant_info}
+
+            Requirements:
+            - Write 2-3 well-structured paragraphs
+            - Ground your content in the provided research information
+            - Include specific details and examples from the sources
+            - Maintain an informative, engaging tone
+            - Ensure smooth transitions and logical flow
+            - Avoid repetition of information from other sections
+            """
+        else:
+            content_prompt = f"""
+            Write a comprehensive section titled "{section_heading}" for an article about "{topic}".
+
+            Requirements:
+            - Write 2-3 well-structured paragraphs
+            - Draw from your knowledge of {topic}
+            - Provide clear explanations and relevant examples
+            - Maintain an informative, engaging tone
+            - Ensure logical flow and organization
+            """
+
+        return self.api_client.call_api(content_prompt)
+
+    def _find_relevant_info_for_section(
+        self, section_heading: str, organized_knowledge: Dict
+    ) -> str:
+        """Find relevant organized information for a specific section."""
+        if not organized_knowledge or not organized_knowledge.get("categories"):
+            return ""
+
+        relevant_parts = []
+        section_words = set(section_heading.lower().split())
+
+        for category, results in organized_knowledge["categories"].items():
+            category_words = set(category.lower().split("_"))
+
+            # Check for keyword overlap
+            if section_words & category_words:
+                for result in results[:2]:  # Limit to top 2 results per category
+                    content = result.get("content", "")
+                    if content:
+                        # Truncate long content
+                        if len(content) > 300:
+                            content = content[:300] + "..."
+                        relevant_parts.append(f"- {content}")
+
+        return "\n".join(relevant_parts[:5])  # Limit total relevant information
+
+    def _create_article_from_state(self, state: WriterState) -> Article:
+        """Create Article object from final workflow state."""
+
+        # Use refined outline if available, otherwise initial outline
+        final_outline = state["refined_outline"] or state["initial_outline"]
+
+        # Extract sections from content
         sections = {}
-        if state["outline"]:
+        if final_outline and state["article_content"]:
             import re
 
             section_pattern = r"## (.+?)\n\n(.*?)(?=\n## |\Z)"
@@ -297,23 +640,46 @@ class WriterAgent(BaseAgent):
             for section_title, section_content in matches:
                 sections[section_title.strip()] = section_content.strip()
 
-        # Build metadata compatible with baseline format
+        # Build comprehensive metadata
         metadata = state["metadata"].copy()
         metadata.update(
             {
-                "method": "simplified_writer",
-                "word_count": len(state["article_content"].split()),
-                "total_sections": len(sections),
                 "research_iterations": state["research_iterations"],
                 "total_search_results": len(state["search_results"]),
-                "sources": [result.source for result in state["search_results"]],
+                "knowledge_coverage": (
+                    state["organized_knowledge"].get("coverage_score", 0)
+                    if state["organized_knowledge"]
+                    else 0
+                ),
+                "knowledge_gaps": len(state["knowledge_gaps"]),
+                "self_validation_claims": (
+                    state["self_validation"].get("claims_found", 0)
+                    if state["self_validation"]
+                    else 0
+                ),
+                "word_count": len(state["article_content"].split()),
+                "sections_generated": len(sections),
             }
         )
 
         return Article(
-            title=state["outline"].title if state["outline"] else state["topic"],
+            title=final_outline.title if final_outline else state["topic"],
             content=state["article_content"],
-            outline=state["outline"],
+            outline=final_outline,
             sections=sections,
             metadata=metadata,
+        )
+
+    def _create_error_article(self, topic: str, error_message: str) -> Article:
+        """Create error article when workflow fails."""
+        return Article(
+            title=topic,
+            content=f"# {topic}\n\nArticle generation failed: {error_message}",
+            outline=Outline(title=topic, headings=["Error"], subheadings={"Error": []}),
+            sections={"Error": error_message},
+            metadata={
+                "method": "sophisticated_writer",
+                "error": error_message,
+                "word_count": 0,
+            },
         )
