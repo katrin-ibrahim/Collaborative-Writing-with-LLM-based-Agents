@@ -8,7 +8,7 @@ from sentence_transformers import SentenceTransformer
 from typing import Dict, List, Optional
 
 from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
-from src.retrieval.base_retriever import BaseRetriever
+from src.retrieval.rms.base_retriever import BaseRetriever
 from src.utils.experiment import find_project_root
 
 logger = logging.getLogger(__name__)

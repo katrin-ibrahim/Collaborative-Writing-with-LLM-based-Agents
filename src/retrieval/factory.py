@@ -54,13 +54,13 @@ def create_retrieval_manager(
 
     # Create base retrieval manager
     if manager_type == "wiki":
-        from src.retrieval.wiki_rm import WikiRM
+        from src.retrieval.rms.wiki_rm import WikiRM
 
         base_rm = WikiRM(**default_args)
 
     elif manager_type == "supabase_faiss":
         try:
-            from src.retrieval.supabase_faiss_rm import FaissRM
+            from src.retrieval.rms.supabase_faiss_rm import FaissRM
 
             base_rm = FaissRM(**default_args)
         except ImportError as e:
