@@ -56,7 +56,9 @@ class BaseRetriever(ABC):
         if query is not None:
             # STORM-style call: search_rm(query, k=5)
             max_results = k if k is not None else kwargs.get("max_results", None)
-            return self.search(queries=query, max_results=max_results, **kwargs)
+            return self.search(
+                query_or_queries=query, max_results=max_results, **kwargs
+            )
         else:
             # Standard call: search_rm(queries=..., max_results=...)
             return self.search(*args, **kwargs)
@@ -233,6 +235,7 @@ class BaseRetriever(ABC):
 
         # 1. Get all candidate results for each query
         for i, query in enumerate(query_list):
+            logger.info(f"Searching for query {i + 1}/{len(query_list)}: {query}")
             if not self.content_filter.validate_query(query):
                 logger.warning(
                     f"{self.__class__.__name__}.search called with malformed query, skipping: '{query[:100]}...'"

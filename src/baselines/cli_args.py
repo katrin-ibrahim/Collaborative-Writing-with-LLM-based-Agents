@@ -94,8 +94,9 @@ Examples:
     retrieval_group.add_argument(
         "--semantic_filtering",
         "-sf",
-        action="store_true",
-        help="Enable semantic filtering for retrieval results",
+        choices=["true", "false"],
+        default="true",
+        help="Enable or disable semantic filtering for retrieval results (default: true)",
     )
 
     # =================== Output & Debugging ===================

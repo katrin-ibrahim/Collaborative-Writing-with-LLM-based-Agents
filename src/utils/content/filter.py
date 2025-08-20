@@ -211,7 +211,6 @@ class ContentFilter:
             "searches include:",
             "good searches:",
             "effective queries:",
-            "google",
         ]
 
         # Check if query starts with malformed patterns
@@ -234,6 +233,8 @@ class ContentFilter:
             "find information",
             "research about",
             "information on",
+            "google search",
+            "search",
         ]
 
         # If query contains mostly template language, it's likely malformed
@@ -246,7 +247,11 @@ class ContentFilter:
                 template_word_count += len(phrase.split())
 
         # If more than 40% of words are template language, consider it malformed
-        if total_words > 0 and (template_word_count / total_words) > 0.4:
+        template_word_ratio = template_word_count / total_words
+        logger.debug(
+            f"Template word ratio for query '{query}': {template_word_ratio:.2f}"
+        )
+        if total_words > 0 and template_word_ratio > 0.2:
             return False
 
         # Detect very long queries that are likely explanatory text rather than search queries

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 class SearchResult(BaseModel):
     """Represents a single search result passage."""
 
-    snippets: str
+    snippets: List[str]
     source: str
     url: Optional[str] = None
     relevance_score: float = 0.0
