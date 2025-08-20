@@ -1,0 +1,23 @@
+# Conservative collaboration configuration
+# Fewer iterations, faster convergence for quick testing
+
+# Core collaboration parameters
+max_iterations: 2
+convergence_threshold: 0.75
+min_improvement_threshold: 0.05
+
+# Writer agent configuration
+writer_max_research_iterations: 1
+writer_use_external_knowledge: true
+
+# Reviewer agent configuration
+reviewer_max_claims_per_article: 5
+reviewer_fact_check_timeout: 20
+
+# Theory of Mind configuration
+writer_tom_enabled: false
+reviewer_tom_enabled: false
+
+# Convergence detection configuration
+semantic_similarity_threshold: 0.90
+feedback_delta_threshold: 0.15
