@@ -21,6 +21,7 @@ from src.collaborative.agents.templates import (
 from src.collaborative.data_models import Outline, ReviewFeedback, WriterState
 from src.collaborative.tools.writer_toolkit import WriterToolkit
 from src.utils.data import Article
+from src.utils.io import create_error_article
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ class WriterAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"Writer workflow failed for '{topic}': {e}")
-            return self._create_error_article(topic, str(e))
+            return create_error_article(topic, str(e))
 
     def _improve_article(
         self, article: Article, feedback: ReviewFeedback, topic: str

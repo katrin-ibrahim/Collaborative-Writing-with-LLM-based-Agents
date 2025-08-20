@@ -27,7 +27,7 @@ def create_method(method_name: str, client, config: Dict[str, Any]) -> BaseMetho
         ValueError: If method_name is not supported
     """
 
-    if method_name == "writer":
+    if method_name == "writer_only":
         from src.methods.writer_only_method import WriterMethod
 
         return WriterMethod(client, config)
@@ -49,7 +49,7 @@ def create_method(method_name: str, client, config: Dict[str, Any]) -> BaseMetho
     #     return StormMethod(client, config)
 
     else:
-        supported_methods = ["writer", "writer_reviewer"]
+        supported_methods = ["writer_only", "writer_reviewer"]
         raise ValueError(
             f"Unknown method: '{method_name}'. "
             f"Supported methods: {supported_methods}"
@@ -63,4 +63,4 @@ def get_supported_methods() -> list[str]:
     Returns:
         List of supported method names
     """
-    return ["writer", "writer_reviewer"]
+    return ["writer_only", "writer_reviewer"]
