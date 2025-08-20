@@ -36,7 +36,7 @@ class RetrievalConfig:
     passage_min_length: int = 1500
 
     # Batch Processing Configuration
-    parallel_threshold: int = 3  # Threshold for parallel processing
+    parallel_threshold: int = 10  # Threshold for parallel processing
     max_workers_direct: int = 3
     max_workers_rag: int = 2
     max_workers_storm: int = 1

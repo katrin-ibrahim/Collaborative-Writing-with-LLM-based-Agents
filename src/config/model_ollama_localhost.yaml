@@ -5,10 +5,10 @@ ollama_host: 'http://localhost:11434'
 
 # Task-specific model assignments
 outline_model: 'qwen3:4b'
-writing_model: 'qwen3:4b'
-critique_model: 'qwen3:4b'
+writing_model: 'gemma3:1b'
+critique_model: 'gemma3:1b'
 polish_model: 'qwen3:4b'
-default_model: 'gemma3:1b'
+default_model: 'qwen3:4b'
 
 # Temperature settings per task
 temperatures:
