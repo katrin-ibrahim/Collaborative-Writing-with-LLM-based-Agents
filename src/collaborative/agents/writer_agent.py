@@ -11,8 +11,8 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
-from src.agents.base_agent import BaseAgent
-from src.agents.tools.agent_toolkit import AgentToolkit
+from src.collaborative.agents import BaseAgent
+from src.collaborative.tools.agent_toolkit import AgentToolkit
 from src.utils.data.models import Article, Outline
 
 logger = logging.getLogger(__name__)

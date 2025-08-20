@@ -1,5 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 import logging
 import wikipedia
 from sentence_transformers import SentenceTransformer
@@ -25,7 +23,10 @@ class WikiRM(BaseRetriever):
 
         # Initialize parent class with caching and config
         super().__init__(
-            cache_dir=cache_dir, cache_results=cache_results, config=retrieval_config
+            cache_dir=cache_dir,
+            cache_results=cache_results,
+            config=retrieval_config,
+            format_type=format_type,
         )
 
         self.retrieval_config = retrieval_config  # Store for use in methods
@@ -36,6 +37,7 @@ class WikiRM(BaseRetriever):
         # Add semantic filtering setup
         self.semantic_enabled = retrieval_config.semantic_filtering_enabled
         self.embedding_model = None
+        self._extracted_pages = set()
 
         if self.semantic_enabled:
             try:
@@ -70,27 +72,29 @@ class WikiRM(BaseRetriever):
 
         try:
             # Search Wikipedia
-            search_results = wikipedia.search(
-                query, results=max_results, suggestion=False
+            wiki_response = wikipedia.search(
+                query, results=max_results, suggestion=True
             )
+
+            if isinstance(wiki_response, tuple):
+                search_results, suggestion = wiki_response
+            else:
+                search_results = wiki_response
+
+            new_pages = [
+                title for title in search_results if title not in self._extracted_pages
+            ]
+            self._extracted_pages.update(new_pages)
 
             if not search_results:
                 logger.warning(f"No Wikipedia results found for query: '{query}'")
                 return []
 
             # Process pages in parallel for speed
-            with ThreadPoolExecutor(
-                max_workers=self.retrieval_config.max_workers_wiki
-            ) as executor:
-                future_to_title = {
-                    executor.submit(self._extract_page_content, title): title
-                    for title in search_results
-                }
-
-                for future in as_completed(future_to_title):
-                    page_results = future.result()
-                    if page_results:
-                        results.extend(page_results)
+            results = []
+            for title in new_pages:
+                content = self._extract_page_content(title)
+                results.extend(content)
 
         except Exception as e:
             logger.error(f"Wikipedia search failed for '{query}': {e}")

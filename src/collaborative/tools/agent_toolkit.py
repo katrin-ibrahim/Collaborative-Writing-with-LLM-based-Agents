@@ -6,7 +6,7 @@ Removes fake ContentToolkit and fixes search_toolkit to use factory pattern.
 
 from typing import Any, Dict
 
-from src.agents.tools.shared_tools import (
+from src.collaborative.tools.shared_tools import (
     extract_claims,
     organize_knowledge,
     search_and_retrieve,
@@ -126,100 +126,3 @@ class AgentToolkit:
             "extract_claims": "Extract factual claims from text content using NLP processing",
             "verify_claims_against_sources": "Cross-reference claims against source material for fact-checking",
         }
-
-
-# ============================================================================
-# REMOVED COMPONENTS
-# ============================================================================
-
-"""
-REMOVED: ContentToolkit - Was a fake tool that just created prompts
-
-The ContentToolkit provided no external capabilities and was just wrapper
-around LLM prompting. Its functions are now handled directly by agents:
-
-- generate_outline() -> Agent uses LLM reasoning directly
-- generate_section_content() -> Agent uses LLM with organized knowledge
-- OutlineGenerator -> Replaced with direct LLM calls
-
-This elimination follows the principle: Tools = External capabilities only
-"""
-
-# ============================================================================
-# USAGE EXAMPLES
-# ============================================================================
-
-
-def example_writer_usage():
-    """Example of how Writer agent uses the real tools"""
-
-    # Initialize toolkit
-    config = {"retrieval_manager_type": "wiki", "max_search_results": 5}
-    toolkit = AgentToolkit(config)
-
-    # 1. Search for content (external capability)
-    search_result = toolkit.search_for_content(
-        query="quantum computing applications", purpose="writing"
-    )
-
-    # 2. Organize knowledge (computational processing)
-    organized = toolkit.organize_for_writing(
-        topic="Quantum Computing", search_results=search_result["results"]
-    )
-
-    # 3. Generate outline (LLM reasoning - no tool needed)
-    # outline = llm.call("Create outline using: " + str(organized))
-
-    # 4. Write content (LLM generation - no tool needed)
-    # content = llm.call("Write section using: " + str(organized))
-
-    # 5. Self-validate content (NLP processing)
-    claims = toolkit.extract_content_claims(content="sample content")
-
-    return {
-        "search_results": len(search_result["results"]),
-        "organized_categories": len(organized["categories"]),
-        "extracted_claims": len(claims["claims"]),
-    }
-
-
-def example_reviewer_usage():
-    """Example of how Reviewer agent uses the real tools"""
-
-    # Initialize toolkit
-    config = {"retrieval_manager_type": "wiki", "verification_threshold": 0.7}
-    toolkit = AgentToolkit(config)
-
-    # 1. Extract claims from article (NLP processing)
-    article_content = (
-        "Quantum computers are 1000 times faster than classical computers."
-    )
-    claims = toolkit.extract_content_claims(
-        content=article_content, focus_types=["factual", "statistical", "causal"]
-    )
-
-    # 2. Search for verification evidence (external capability)
-    evidence_results = []
-    for claim in claims["claims"][:3]:  # Limit for efficiency
-        evidence = toolkit.search_for_verification(claim["text"])
-        evidence_results.extend(evidence["results"])
-
-    # 3. Organize evidence (computational processing)
-    organized_evidence = toolkit.organize_for_fact_checking(
-        topic="Quantum Computing Performance", evidence_results=evidence_results
-    )
-
-    # 4. Verify claims against sources (computational matching)
-    verification = toolkit.verify_claims(
-        claims=claims["claims"], sources=evidence_results
-    )
-
-    # 5. Generate review (LLM reasoning - no tool needed)
-    # review = llm.call("Create review based on: " + str(verification))
-
-    return {
-        "claims_extracted": len(claims["claims"]),
-        "evidence_pieces": len(evidence_results),
-        "verification_rate": verification["verification_rate"],
-        "verified_claims": len(verification["verified_claims"]),
-    }

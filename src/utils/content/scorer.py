@@ -28,21 +28,11 @@ class RelevanceScorer:
             similarity_threshold: Minimum similarity score to consider relevant
         """
         self.similarity_threshold = similarity_threshold
-        self._embedding_model = None
-
-    @property
-    def embedding_model(self):
-        """Lazy load embedding model."""
-        if self._embedding_model is None:
-            try:
-                if not SENTENCE_TRANSFORMERS_AVAILABLE:
-                    raise ImportError("sentence-transformers not available")
-                logger.info("Loading SentenceTransformer model for semantic filtering")
-                self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-            except Exception as e:
-                logger.warning(f"Failed to load embedding model: {e}")
-                self._embedding_model = None
-        return self._embedding_model
+        try:
+            self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        except Exception as e:
+            logger.error(f"Failed to load embedding model: {e}")
+            self.embedding_model = None
 
     def calculate_relevance(
         self,
@@ -99,10 +89,23 @@ class RelevanceScorer:
     ) -> List[Dict[str, Any]]:
         """Score and filter dictionary results."""
         # Extract content for scoring
+        contents = [result.get("snippets", "") for result in results]
+        # verify contents is a list of strings
         contents = [
-            result.get("snippets", "") or result.get("content", "")
+            (
+                result.get("snippets", "")
+                if isinstance(result.get("snippets"), str)
+                else (
+                    " ".join(result.get("snippets", []))
+                    if isinstance(result.get("snippets"), list)
+                    else str(result.get("snippets", ""))
+                )
+            )
             for result in results
         ]
+
+        # Filter out empty strings
+        contents = [content for content in contents if content and content.strip()]
 
         # Calculate similarities
         similarities = self._calculate_similarities(query, contents)
@@ -139,13 +142,15 @@ class RelevanceScorer:
         if not content_items or not query.strip():
             return []
 
+        # Debug: Check for problematic strings
+        print(f"DEBUG: content_items length: {len(content_items)}")
+
         try:
-            # Encode query
             query_embedding = self.embedding_model.encode([query])
             if len(query_embedding.shape) > 1:
                 query_embedding = query_embedding[0]
 
-            # Encode content items
+            # Try encoding with filtered items
             item_embeddings = self.embedding_model.encode(content_items)
         except Exception as e:
             logger.error(f"Failed to encode content items: {e}")

@@ -30,6 +30,7 @@ class BaseRetriever(ABC):
         cache_dir: str = "data/wiki_cache",
         cache_results: bool = True,
         config: RetrievalConfig = None,
+        format_type: str = "rag",
     ):
         """Initialize base retriever with caching functionality."""
         self.cache_dir = cache_dir
@@ -43,6 +44,8 @@ class BaseRetriever(ABC):
         # Initialize content processing utilities
         self.content_filter = ContentFilter(find_project_root())
         self.relevance_scorer = RelevanceScorer()
+        self.semantic_enabled = self.config.semantic_filtering_enabled
+        self.format_type = format_type
 
         # Create cache directory if it doesn't exist
         if cache_results:
@@ -158,7 +161,6 @@ class BaseRetriever(ABC):
         self,
         *args,
         max_results: int = None,
-        format_type: str = "rag",
         topic: str = None,
         deduplicate: bool = True,
         query_or_queries: Union[str, List[str]] = None,
@@ -171,7 +173,6 @@ class BaseRetriever(ABC):
         Args:
             query_or_queries: Single query string or list of query strings
             max_results: Maximum number of results to return
-            format_type: Output format ("rag" for passages, "storm" for structured data)
             topic: Optional topic to filter results
             deduplicate: Whether to remove duplicate results
             **kwargs: Additional retrieval parameters
@@ -210,9 +211,6 @@ class BaseRetriever(ABC):
         max_results = (
             max_results if max_results is not None else self.config.results_per_query
         )
-        format_type = (
-            format_type if format_type else getattr(self, "format_type", "rag")
-        )
 
         # Normalize input
         if isinstance(query_or_queries, str):
@@ -224,7 +222,7 @@ class BaseRetriever(ABC):
         cache_key = None
         if self.cache_results:
             cache_key = self._generate_result_cache_key(
-                query_list, max_results, format_type
+                query_list, max_results, self.format_type
             )
             if cache_key in self._result_cache:
                 logger.debug("Returning cached search results")
@@ -243,7 +241,7 @@ class BaseRetriever(ABC):
                 continue
 
             # Transform STORM queries if needed
-            if format_type == "storm":
+            if self.format_type == "storm":
                 query = self.content_filter.transform_storm_query(query)
 
             query_results = self._retrieve_article(
@@ -258,7 +256,8 @@ class BaseRetriever(ABC):
             )
 
         # 3. Apply semantic/topic relevance scoring
-        if topic and hasattr(self, "semantic_enabled") and self.semantic_enabled:
+        if topic and self.config.semantic_filtering_enabled:
+            # if len(search_results) > self.config.max_content_pieces:
             search_results = self.relevance_scorer.calculate_relevance(
                 topic, search_results
             )

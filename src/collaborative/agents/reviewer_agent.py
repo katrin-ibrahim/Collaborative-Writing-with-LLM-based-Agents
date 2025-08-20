@@ -1,8 +1,8 @@
 import logging
 from typing import Any, Dict
 
-from src.agents.base_agent import BaseAgent
-from src.agents.tools.agent_toolkit import AgentToolkit
+from src.collaborative.agents import BaseAgent
+from src.collaborative.tools.agent_toolkit import AgentToolkit
 from src.utils.data.models import Article
 
 logger = logging.getLogger(__name__)

@@ -7,9 +7,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from src.agents.reviewer import ReviewerAgent, ReviewFeedback
-from src.agents.reviewer.error_handling import validate_reviewer_config
-from src.agents.writer.writer_agent import WriterAgent
+from src.collaborative.agents.reviewer_agent import ReviewerAgent
+from src.collaborative.agents.writer_agent import WriterAgent
 from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
@@ -61,18 +60,18 @@ class WriterReviewerWorkflow:
             },
         )
 
-        reviewer_config = validate_reviewer_config(
-            config.get(
-                "reviewer",
-                {
-                    "reviewer.max_claims_per_article": 10,
-                    "reviewer.fact_check_timeout": 30,
-                    "reviewer.min_claim_confidence": 0.7,
-                    "reviewer.enable_structure_analysis": True,
-                    "reviewer.feedback_detail_level": "detailed",
-                },
-            )
-        )
+        # reviewer_config = validate_reviewer_config(
+        #     config.get(
+        #         "reviewer",
+        #         {
+        #             "reviewer.max_claims_per_article": 10,
+        #             "reviewer.fact_check_timeout": 30,
+        #             "reviewer.min_claim_confidence": 0.7,
+        #             "reviewer.enable_structure_analysis": True,
+        #             "reviewer.feedback_detail_level": "detailed",
+        #         },
+        #     )
+        # )
 
         self.writer_agent = WriterAgent(writer_config)
         self.reviewer_agent = ReviewerAgent(reviewer_config)
