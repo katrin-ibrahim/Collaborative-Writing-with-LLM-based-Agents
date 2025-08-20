@@ -10,7 +10,7 @@ from datetime import datetime
 # =================== Search Space ===================
 backends = ["ollama"]
 methods = [["storm", "rag"]]
-num_topics = [5]
+num_topics = [20]
 model_configs = ["ollama_localhost"]
 retrieval_managers = ["wiki", "supabase_faiss"]
 semantic_filtering = [True]

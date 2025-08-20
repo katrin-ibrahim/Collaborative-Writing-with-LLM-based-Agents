@@ -58,8 +58,8 @@ Examples:
         "-m",
         nargs="+",
         default=["direct"],
-        choices=["direct", "storm", "rag", "agentic", "collaborative"],
-        help="Methods to run (default: direct). Note: STORM only works with --backend ollama. 'collaborative' uses writer-reviewer collaboration.",
+        choices=["direct", "storm", "rag"],
+        help="Methods to run (default: direct). Note: STORM only works with --backend ollama.",
     )
 
     # =================== Common Configuration ===================

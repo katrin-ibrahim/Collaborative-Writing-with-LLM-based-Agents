@@ -96,7 +96,15 @@ class SlurmBaselineRunner(BaseRunner):
     Wikipedia search queries for "{topic}":"""
 
             try:
-                response = engine.complete(prompt, max_length=200, temperature=0.3)
+                # Use model config parameters instead of hardcoded values
+                outline_config = self.model_config.tasks.get(
+                    "outline", self.model_config.tasks["writing"]
+                )
+                response = engine.complete(
+                    prompt,
+                    max_length=outline_config.max_tokens,
+                    temperature=outline_config.temperature,
+                )
 
                 # Extract content
                 if hasattr(response, "content"):
