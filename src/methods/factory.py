@@ -1,0 +1,66 @@
+# src/methods/factory.py
+"""
+Factory for creating method instances.
+"""
+
+import logging
+from typing import Any, Dict
+
+from src.methods.base_method import BaseMethod
+
+logger = logging.getLogger(__name__)
+
+
+def create_method(method_name: str, client, config: Dict[str, Any]) -> BaseMethod:
+    """
+    Create a method instance based on method name.
+
+    Args:
+        method_name: Name of the method to create
+        client: API client (OllamaClient, SlurmClient, etc.)
+        config: Configuration dictionary
+
+    Returns:
+        Initialized method instance
+
+    Raises:
+        ValueError: If method_name is not supported
+    """
+
+    if method_name == "writer":
+        from src.methods.writer_only_method import WriterMethod
+
+        return WriterMethod(client, config)
+
+    elif method_name == "writer_reviewer":
+        from src.methods.writer_reviewer_method import WriterReviewerMethod
+
+        return WriterReviewerMethod(client, config)
+
+    # Future methods can be added here:
+    # elif method_name == "direct":
+    #     from src.methods.direct_method import DirectMethod
+    #     return DirectMethod(client, config)
+    # elif method_name == "rag":
+    #     from src.methods.rag_method import RagMethod
+    #     return RagMethod(client, config)
+    # elif method_name == "storm":
+    #     from src.methods.storm_method import StormMethod
+    #     return StormMethod(client, config)
+
+    else:
+        supported_methods = ["writer", "writer_reviewer"]
+        raise ValueError(
+            f"Unknown method: '{method_name}'. "
+            f"Supported methods: {supported_methods}"
+        )
+
+
+def get_supported_methods() -> list[str]:
+    """
+    Get list of supported method names.
+
+    Returns:
+        List of supported method names
+    """
+    return ["writer", "writer_reviewer"]

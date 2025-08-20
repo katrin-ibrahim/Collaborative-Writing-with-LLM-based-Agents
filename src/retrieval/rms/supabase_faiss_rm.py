@@ -57,8 +57,9 @@ class FaissRM(BaseRetriever):
         self.format_type = format_type
         self.results_per_query = retrieval_config.results_per_query
 
-        # Initialize encoder lazily
-        self.encoder = None
+        self.encoder = SentenceTransformer(
+            self.supabase_embedding_model_name, device="cpu"
+        )
 
         # Add semantic filtering setup
         self.semantic_enabled = retrieval_config.semantic_filtering_enabled
@@ -82,8 +83,7 @@ class FaissRM(BaseRetriever):
 
         try:
             # Encode query
-            encoder = self._get_encoder()
-            query_embedding = encoder.encode([query], convert_to_numpy=True)
+            query_embedding = self.encoder.encode([query], convert_to_numpy=True)
             query_embedding = query_embedding.astype(np.float32)
 
             # Normalize for cosine similarity
@@ -165,58 +165,58 @@ class FaissRM(BaseRetriever):
             logger.error(f"Error loading index: {e}")
             raise RuntimeError(f"Failed to load pre-built index: {e}")
 
-    def _get_encoder(self):
-        """Get or create SentenceTransformer encoder with better device handling."""
-        if self.encoder is None:
-            try:
-                logger.debug(
-                    f"🔤 Loading SentenceTransformer model: {self.supabase_embedding_model_name}"
-                )
+    # def _get_encoder(self):
+    #     """Get or create SentenceTransformer encoder with better device handling."""
+    #     if self.encoder is None:
+    #         try:
+    #             logger.debug(
+    #                 f"🔤 Loading SentenceTransformer model: {self.supabase_embedding_model_name}"
+    #             )
 
-                # Import torch for device management
-                import torch
+    #             # Import torch for device management
+    #             import torch
 
-                # Determine best device
-                if torch.cuda.is_available():
-                    device = "cuda"
-                elif (
-                    hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-                ):
-                    device = "mps"
-                else:
-                    device = "cpu"
+    #             # Determine best device
+    #             if torch.cuda.is_available():
+    #                 device = "cuda"
+    #             elif (
+    #                 hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    #             ):
+    #                 device = "mps"
+    #             else:
+    #                 device = "cpu"
 
-                logger.debug(f"🔤 Using device: {device}")
+    #             logger.debug(f"🔤 Using device: {device}")
 
-                # Load model with explicit device
-                self.encoder = SentenceTransformer(
-                    self.supabase_embedding_model_name, device=device
-                )
+    #             # Load model with explicit device
+    #             self.encoder = SentenceTransformer(
+    #                 self.supabase_embedding_model_name, device=device
+    #             )
 
-                # Test encoding to make sure it works
-                test_embedding = self.encoder.encode(
-                    ["test query"], convert_to_numpy=True
-                )
-                logger.debug(
-                    f"🔤 Encoder initialized successfully with output shape: {test_embedding.shape}"
-                )
+    #             # Test encoding to make sure it works
+    #             test_embedding = self.encoder.encode(
+    #                 ["test query"], convert_to_numpy=True
+    #             )
+    #             logger.debug(
+    #                 f"🔤 Encoder initialized successfully with output shape: {test_embedding.shape}"
+    #             )
 
-            except Exception as e:
-                logger.error(f"Failed to initialize SentenceTransformer encoder: {e}")
-                # Try CPU fallback
-                try:
-                    logger.debug(f"🔤 Trying CPU fallback...")
-                    self.encoder = SentenceTransformer(
-                        self.supabase_embedding_model_name, device="cpu"
-                    )
-                    test_embedding = self.encoder.encode(
-                        ["test query"], convert_to_numpy=True
-                    )
-                    logger.debug(
-                        f"🔤 CPU fallback successful with output shape: {test_embedding.shape}"
-                    )
-                except Exception as fallback_error:
-                    logger.error(f"CPU fallback also failed: {fallback_error}")
-                    raise RuntimeError(f"Could not load embedding model: {e}")
+    #         except Exception as e:
+    #             logger.error(f"Failed to initialize SentenceTransformer encoder: {e}")
+    #             # Try CPU fallback
+    #             try:
+    #                 logger.debug(f"🔤 Trying CPU fallback...")
+    #                 self.encoder = SentenceTransformer(
+    #                     self.supabase_embedding_model_name, device="cpu"
+    #                 )
+    #                 test_embedding = self.encoder.encode(
+    #                     ["test query"], convert_to_numpy=True
+    #                 )
+    #                 logger.debug(
+    #                     f"🔤 CPU fallback successful with output shape: {test_embedding.shape}"
+    #                 )
+    #             except Exception as fallback_error:
+    #                 logger.error(f"CPU fallback also failed: {fallback_error}")
+    #                 raise RuntimeError(f"Could not load embedding model: {e}")
 
-        return self.encoder
+    #     return self.encoder
