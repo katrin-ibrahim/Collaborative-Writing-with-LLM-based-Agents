@@ -2,29 +2,39 @@
 Factory for creating the appropriate runner implementation.
 """
 
-from typing import Tuple, Type
+from src.runners import BaseRunner
 
 
-def create_runner(backend: str) -> Tuple[Type, str]:
+def create_runner(
+    backend: str,
+    model_config=None,
+    output_manager=None,
+    retrieval_config=None,
+    collaboration_config=None,
+    **backend_kwargs,
+) -> BaseRunner:
     """
-    Create the appropriate runner class for the specified backend.
-
-    Args:
-        backend: The backend type ('ollama' or 'slurm')
-
-    Returns:
-        Tuple of (RunnerClass, runner_name)
-
-    Raises:
-        ValueError: If an invalid backend is specified
+    Create and return a fully initialized runner instance.
     """
     if backend == "ollama":
         from src.runners.ollama_runner import OllamaRunner
 
-        return OllamaRunner, "Ollama"
+        return OllamaRunner(
+            model_config=model_config,
+            output_manager=output_manager,
+            retrieval_config=retrieval_config,
+            collaboration_config=collaboration_config,
+            **backend_kwargs,  # ollama_host, etc.
+        )
     elif backend == "slurm":
         from src.runners.slurm_runner import SlurmRunner
 
-        return SlurmRunner, "SLURM"
+        return SlurmRunner(
+            model_config=model_config,
+            output_manager=output_manager,
+            retrieval_config=retrieval_config,
+            collaboration_config=collaboration_config,
+            **backend_kwargs,  # device, model_path, etc.
+        )
     else:
-        raise ValueError(f"Invalid backend: {backend}. Must be 'ollama' or 'slurm'.")
+        raise ValueError(f"Invalid backend: {backend}")

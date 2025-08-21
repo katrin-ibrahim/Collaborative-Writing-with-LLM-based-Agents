@@ -13,124 +13,116 @@ def parse_arguments() -> argparse.Namespace:
         description="Collaborative Writing with LLM-based Agents",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
-    # Core experiment arguments
-    parser.add_argument(
-        "--methods",
-        "-m",
-        nargs="+",
-        choices=["writer_only", "writer_reviewer"],
-        default=["writer_only"],
-        help="Methods to run",
-    )
-
-    parser.add_argument(
-        "--num-topics",
-        "-n",
-        type=int,
-        default=5,
-        help="Number of topics to process",
-    )
-
+    # =================== Core Arguments ===================
     parser.add_argument(
         "--backend",
         "-b",
         choices=["ollama", "slurm"],
         default="ollama",
-        help="Backend to use for model inference",
+        help="Model execution backend: 'ollama' for API-based (localhost/remote), 'slurm' for direct model execution",
     )
 
-    # Configuration files
     parser.add_argument(
-        "--model-config",
-        "-mc",
-        type=str,
-        choices=["ollama_localhost", "ollama_ukp", "slurm", "slurm_thinking"],
+        "--num_topics",
+        "-n",
+        type=int,
+        default=5,
+        help="Number of topics to evaluate (default: 5)",
+    )
+
+    parser.add_argument(
+        "--methods",
+        "-m",
+        nargs="+",
+        choices=["writer_only", "writer_reviewer"],
+        help="Methods to run (default: direct). Note: STORM only works with --backend ollama.",
+    )
+
+    # =================== Common Configuration ===================
+    config_group = parser.add_argument_group("Configuration Options")
+    config_group.add_argument(
+        "--model_config",
+        "-c",
         default="ollama_localhost",
-        help="Model configuration preset to use",
+        choices=["ollama_localhost", "ollama_ukp", "slurm", "slurm_thinking"],
+        help="Model configuration preset (default: ollama_localhost)",
     )
 
-    parser.add_argument(
-        "--collaboration-config",
-        "-cc",
-        type=str,
-        default="default",
-        choices=["default", "aggressive", "conservative"],
-        help="Collaboration configuration preset to use",
-    )
-
-    parser.add_argument(
-        "--retrieval-manager",
-        "-rm",
-        type=str,
-        choices=["wiki", "supabase_faiss"],
-        help="Retrieval manager to use for knowledge access",
-    )
-
-    # Model override
-    parser.add_argument(
-        "--override-model",
+    config_group.add_argument(
+        "--override_model",
         "-om",
-        type=str,
-        help="Override model to use for all tasks",
+        help="Override model to use for all tasks instead of task-specific models (e.g., qwen2.5:7b, qwen2.5:14b, qwen2.5:32b, gpt-oss:20b)",
     )
 
-    # Output and logging
-    parser.add_argument(
-        "--output-dir",
-        "-o",
-        type=str,
-        help="Output directory for results (default: auto-generated)",
+    # =================== Granular Retrieval Parameters ===================
+    retrieval_group = parser.add_argument_group("Retrieval Configuration Override")
+
+    retrieval_group.add_argument(
+        "--retrieval_manager",
+        "-rm",
+        choices=[
+            "wiki",
+            "supabase_faiss",
+        ],
+        help="Retrieval manager type (overrides config file)",
     )
 
-    parser.add_argument(
-        "--log-level",
+    retrieval_group.add_argument(
+        "--semantic_filtering",
+        "-sf",
+        choices=["true", "false"],
+        default="true",
+        help="Enable or disable semantic filtering for retrieval results (default: true)",
+    )
+
+    # =================== Output & Debugging ===================
+    output_group = parser.add_argument_group("Output & Debugging Options")
+    output_group.add_argument(
+        "--log_level",
         "-l",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
-        help="Logging level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level (default: INFO)",
     )
 
-    parser.add_argument(
+    output_group.add_argument(
         "--debug",
         "-d",
         action="store_true",
-        help="Enable debug mode with detailed output",
+        help="Enable debug mode (saves intermediate files)",
     )
 
-    # Retrieval options
-    parser.add_argument(
-        "--semantic-filtering",
-        "-sf",
-        action="store_true",
-        help="Enable semantic filtering for retrieved passages",
+    output_group.add_argument(
+        "--resume_dir", "-r", type=str, help="Resume from specific experiment directory"
     )
 
-    # Experiment management
-    parser.add_argument(
-        "--resume",
-        "-r",
-        action="store_true",
-        help="Resume experiment from previous checkpoint",
+    output_group.add_argument(
+        "--output_dir", "-o", type=str, help="Custom output directory for results"
     )
-    # Experiment management
-    parser.add_argument(
-        "--resume_dir",
-        "-rd",
+
+    output_group.add_argument(
+        "--experiment_name",
+        "-en",
         type=str,
-        help="Directory to resume experiment from",
+        help="Experiment name for auto-generated output directory (e.g., 'semantic_filtering_test')",
+    )
+
+    output_group.add_argument(
+        "--auto_name",
+        "-an",
+        action="store_true",
+        help="Auto-generate output directory name based on experiment parameters",
     )
 
     parser.add_argument(
-        "--dry-run",
+        "--dry_run",
         "-dry",
         action="store_true",
         help="Print configuration and exit without running",
     )
-
     # Advanced options
     parser.add_argument(
-        "--max-workers",
+        "--max_workers",
         "-mw",
         type=int,
         help="Maximum number of parallel workers (default: auto)",
@@ -144,72 +136,74 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     # Collaboration-specific options (for future use)
+
     parser.add_argument(
-        "--max-iterations",
+        "--collaboration_config",
+        "-cc",
+        type=str,
+        default="default",
+        choices=["default", "aggressive", "conservative"],
+        help="Collaboration configuration preset to use",
+    )
+
+    parser.add_argument(
+        "--max_iterations",
         "-i",
         type=int,
         help="Override max collaboration iterations",
     )
 
     parser.add_argument(
-        "--convergence-threshold",
+        "--convergence_threshold",
         "-ct",
         type=float,
         help="Override convergence threshold",
     )
 
-    return parser.parse_args()
+    # Parse arguments
+    args = parser.parse_args()
+    # =================== Post-Processing & Validation ===================
+
+    # Convert resume_dir to resume flag
+    if args.resume_dir:
+        args.resume = True
+
+    return args
 
 
-def validate_arguments(args: argparse.Namespace) -> None:
-    """Validate argument combinations and constraints."""
+def validate_args(args) -> bool:
+    """
+    Additional validation after parsing.
 
-    # Validate backend-specific requirements
-    if args.backend == "slurm" and not args.model_config:
-        raise ValueError("SLURM backend requires --model-config to be specified")
+    Args:
+        args: Parsed arguments
 
-    # Validate method-specific requirements
-    if (
-        "writer_reviewer" in args.methods
-        and args.collaboration_config == "conservative"
-    ):
-        print(
-            "Warning: Using conservative config with writer_reviewer may result in minimal collaboration"
-        )
+    Returns:
+        True if valid, False otherwise
+    """
+    # Check if resume directory exists
+    if hasattr(args, "resume_dir") and args.resume_dir:
+        from pathlib import Path
 
-    # Validate override options
-    if args.max_iterations and args.max_iterations < 1:
-        raise ValueError("--max-iterations must be >= 1")
+        resume_path = Path(args.resume_dir)
+        if not resume_path.exists():
+            print(f"Error: Resume directory does not exist: {resume_path}")
+            return False
+        if not (resume_path / "results.json").exists():
+            print(f"Error: No results.json found in resume directory: {resume_path}")
+            return False
 
-    if args.convergence_threshold and not (0.0 <= args.convergence_threshold <= 1.0):
-        raise ValueError("--convergence-threshold must be between 0.0 and 1.0")
-
-
-def print_configuration(args: argparse.Namespace) -> None:
-    """Print experiment configuration for verification."""
-    print("\n🔧 Experiment Configuration:")
-    print(f"  Methods: {', '.join(args.methods)}")
-    print(f"  Backend: {args.backend}")
-    print(f"  Topics: {args.num_topics}")
-    print(f"  Model config: {args.model_config or 'default'}")
-    print(f"  Collaboration config: {args.collaboration_config}")
-
-    if args.retrieval_manager:
-        print(f"  Retrieval manager: {args.retrieval_manager}")
-
-    if args.override_model:
-        print(f"  Model override: {args.override_model}")
-
-    if args.output_dir:
-        print(f"  Output directory: {args.output_dir}")
-
-    print(f"  Debug mode: {args.debug}")
-    print(f"  Log level: {args.log_level}")
-    print()
+    return True
 
 
 if __name__ == "__main__":
     # For testing CLI parsing
     args = parse_arguments()
-    validate_arguments(args)
-    print_configuration(args)
+    if validate_args(args):
+        print("✅ Arguments parsed successfully:")
+        print(f"  Backend: {args.backend}")
+        print(f"  Methods: {args.methods}")
+        print(f"  Topics: {args.num_topics}")
+    else:
+        print("❌ Argument validation failed")
+        exit(1)

@@ -63,7 +63,7 @@ class BaseRunner(ABC):
             if not self.state_manager.is_complete(topic, method)
         ]
 
-    def run_method(self, topic: str, method: str) -> Article:
+    def run_single_topic(self, topic: str, method: str) -> Article:
         """Run a single method on a topic using factory pattern."""
         logger.info(f"Running {method} for topic: {topic}")
 
@@ -104,7 +104,7 @@ class BaseRunner(ABC):
             )
             return error_article(topic, str(e), method)
 
-    def run_method_batch(
+    def run_topics(
         self, topics: List[str], method: str, max_workers: int = None
     ) -> List[Article]:
         """Run a method on multiple topics in parallel."""
@@ -113,7 +113,7 @@ class BaseRunner(ABC):
 
         if max_workers == 1:
             # Sequential execution
-            return [self.run_method(topic, method) for topic in topics]
+            return [self.run_single_topic(topic, method) for topic in topics]
 
         # Parallel execution
         logger.info(
@@ -141,7 +141,7 @@ class BaseRunner(ABC):
 
         return results
 
-    def run_batch(self, topics: List[str], methods: List[str]) -> List[Article]:
+    def run(self, topics: List[str], methods: List[str]) -> List[Article]:
         """Run multiple topics and methods - main orchestration."""
         results = []
         supported_methods = self.get_supported_methods()
@@ -164,7 +164,7 @@ class BaseRunner(ABC):
             logger.info(f"Running {method} on {len(method_topics)} topics")
 
             # Run method on all topics
-            method_results = self.run_method_batch(method_topics, method)
+            method_results = self.run_topics(method_topics, method)
             results.extend(method_results)
 
             # Save progress if state manager available
