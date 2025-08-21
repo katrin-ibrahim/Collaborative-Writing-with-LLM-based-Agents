@@ -26,16 +26,25 @@ class ReviewerAgent(BaseAgent):
     Uses tools for objective analysis and LLM for qualitative assessment.
     """
 
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(
+        self,
+        collaboration_config: Dict[str, Any],
+        retrieval_config: Dict[str, Any],
+        model_config=None,
+    ):
+        super().__init__(collaboration_config, model_config)
 
         # Configuration
-        self.max_claims_to_check = config.get("reviewer.max_claims_to_check", 5)
-        self.max_search_results = config.get("reviewer.max_search_results", 3)
-        self.rm_type = config.get("retrieval_manager_type", "wiki")
+        self.max_claims_to_check = collaboration_config.get(
+            "reviewer.max_claims_to_check", 5
+        )
+        self.max_search_results = collaboration_config.get(
+            "reviewer.max_search_results", 3
+        )
+        self.rm_type = retrieval_config.get("retrieval_manager_type", "wiki")
 
         # Initialize reviewer toolkit
-        self.toolkit = ReviewerToolkit(config)
+        self.toolkit = ReviewerToolkit(retrieval_config)
 
         # Get available tools
         self.search_tool = None

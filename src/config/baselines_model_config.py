@@ -1,11 +1,11 @@
-import os
-import yaml
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from src.config.base_config import BaseConfig
+
 
 @dataclass
-class ModelConfig:
+class ModelConfig(BaseConfig):
     """Configuration for model selection based on task complexity."""
 
     # Mode of operation: "local" or "ollama"
@@ -124,22 +124,12 @@ class ModelConfig:
         return cls(**{k: v for k, v in config_dict.items() if hasattr(cls, k)})
 
     @classmethod
-    def from_yaml(cls, config_name: str) -> "ModelConfig":
-        """Load model config from YAML file or preset name."""
-        # If it's a preset name, convert to file path
-        if config_name in ["ollama_localhost", "ollama_ukp", "slurm", "slurm_thinking"]:
-            #  go to base directory and load the config
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            config_path = os.path.join(base_dir, f"model_{config_name}.yaml")
-        else:
-            config_path = config_name
+    def get_default(cls) -> "ModelConfig":
+        """Get default configuration."""
+        return cls()
 
-        # Check if file exists
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Model config file not found: {config_path}")
+    def get_file_pattern(self):
+        return f"model_ollama_localhost.yaml"
 
-        # Load YAML file
-        with open(config_path, "r") as f:
-            config_data = yaml.safe_load(f)
 
-        return cls.from_dict(config_data)
+DEFAULT_MODEL_CONFIG = ModelConfig.get_default()

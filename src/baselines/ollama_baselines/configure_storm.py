@@ -51,9 +51,7 @@ def setup_storm_runner(
         used_retrieval_config = retrieval_config
     else:
         # Fallback: create config for wiki RM that respects base configuration
-        used_retrieval_config = RetrievalConfig.from_base_config_with_overrides(
-            rm_type="wiki"
-        )
+        used_retrieval_config = RetrievalConfig.from_yaml_with_overrides(rm_type="wiki")
 
     # Default Storm configuration using retrieval config values
     default_config = {

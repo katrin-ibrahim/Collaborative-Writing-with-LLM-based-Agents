@@ -6,7 +6,6 @@ Collaborative writer-reviewer method with iterative improvement.
 import time
 
 import logging
-from typing import Any, Dict
 
 from src.collaborative.agents.reviewer_agent import ReviewerAgent
 from src.collaborative.agents.writer_agent import WriterAgent
@@ -28,42 +27,16 @@ class WriterReviewerMethod(BaseMethod):
     4. Repeat until convergence or max iterations
     """
 
-    def __init__(self, client, config: Dict[str, Any]):
-        super().__init__(client, config)
+    def __init__(self, client, retrieval_config, collaboration_config):
+        super().__init__(client, retrieval_config, collaboration_config)
 
         # Collaboration parameters
-        self.max_iterations = config.get("collaboration.max_iterations", 3)
-        self.convergence_threshold = config.get(
-            "collaboration.convergence_threshold", 0.85
+        self.max_iterations = collaboration_config.get("max_iterations", 3)
+        self.convergence_threshold = collaboration_config.get(
+            "convergence_threshold", 0.85
         )
-        self.min_improvement_threshold = config.get(
-            "collaboration.min_improvement_threshold", 0.02
-        )
-
-        # Agent configurations
-        self.writer_config = {
-            **config,
-            "writer.max_research_iterations": config.get(
-                "writer.max_research_iterations", 2
-            ),
-            "writer.use_external_knowledge": config.get(
-                "writer.use_external_knowledge", True
-            ),
-        }
-
-        self.reviewer_config = {
-            **config,
-            "reviewer.max_claims_per_article": config.get(
-                "reviewer.max_claims_per_article", 10
-            ),
-            "reviewer.fact_check_timeout": config.get(
-                "reviewer.fact_check_timeout", 30
-            ),
-        }
-
-        logger.info(
-            f"WriterReviewerMethod initialized: max_iterations={self.max_iterations}, "
-            f"convergence_threshold={self.convergence_threshold}"
+        self.min_improvement_threshold = collaboration_config.get(
+            "min_improvement_threshold", 0.02
         )
 
     def run(self, topic: str) -> Article:
@@ -84,8 +57,12 @@ class WriterReviewerMethod(BaseMethod):
 
         try:
             # Initialize agents
-            writer = WriterAgent(self.writer_config)
-            reviewer = ReviewerAgent(self.reviewer_config)
+            writer = WriterAgent(
+                self.retrieval_config, self.collaboration_config, self.model_config
+            )
+            reviewer = ReviewerAgent(
+                self.retrieval_config, self.collaboration_config, self.model_config
+            )
 
             # Initial draft
             logger.info(f"Writer creating initial draft for: {topic}")

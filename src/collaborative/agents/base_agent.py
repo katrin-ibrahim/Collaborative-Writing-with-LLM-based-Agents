@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
     """Abstract base class for all agents in the system."""
 
-    def __init__(self, config: Dict[str, Any], model_config=None):
-        self.config = config
+    def __init__(self, retrieval_config: Dict[str, Any], model_config=None):
+        self.retrieval_config = retrieval_config
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Use OllamaClient with model config if provided

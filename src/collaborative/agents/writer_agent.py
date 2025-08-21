@@ -34,22 +34,31 @@ class WriterAgent(BaseAgent):
     Uses only real tools (search_and_retrieve) and LLM reasoning.
     """
 
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(
+        self,
+        retrieval_config: Dict[str, Any],
+        collaboration_config: Dict[str, Any],
+        model_config=None,
+    ):
+        super().__init__(retrieval_config, model_config)
 
         # Get configuration values with proper defaults
-        self.max_research_iterations = config.get("writer.max_research_iterations", 3)
-        self.knowledge_coverage_threshold = config.get(
+        self.max_research_iterations = collaboration_config.get(
+            "writer.max_research_iterations", 3
+        )
+        self.knowledge_coverage_threshold = collaboration_config.get(
             "writer.knowledge_coverage_threshold", 0.7
         )
-        self.max_research_queries_per_iteration = config.get(
+        self.max_research_queries_per_iteration = collaboration_config.get(
             "writer.max_queries_per_iteration", 6
         )
-        self.max_search_results = config.get("writer.max_search_results", 5)
-        self.rm_type = config.get("retrieval_manager_type", "wiki")
+        self.max_search_results = collaboration_config.get(
+            "writer.max_search_results", 5
+        )
+        self.rm_type = collaboration_config.get("retrieval_manager_type", "wiki")
 
         # Initialize writer toolkit (only search_and_retrieve tool)
-        self.toolkit = WriterToolkit(config)
+        self.toolkit = WriterToolkit(retrieval_config)
 
         # Get the search tool
         self.search_tool = None

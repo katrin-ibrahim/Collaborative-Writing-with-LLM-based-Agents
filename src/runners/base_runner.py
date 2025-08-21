@@ -71,16 +71,18 @@ class BaseRunner(ABC):
 
         try:
             # Create method configuration by merging all configs
-            method_config = {
-                **self.retrieval_config.__dict__,
-                **self.collaboration_config.to_dict(),
-            }
 
             # Get client for this method
             client = self.get_client()
 
             # Create method instance using factory
-            method_instance = create_method(method, client, method_config)
+            method_instance = create_method(
+                method,
+                client,
+                self.model_config,
+                self.retrieval_config,
+                self.collaboration_config,
+            )
 
             # Run the method
             article = method_instance.run(topic)

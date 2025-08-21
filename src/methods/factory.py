@@ -4,14 +4,15 @@ Factory for creating method instances.
 """
 
 import logging
-from typing import Any, Dict
 
 from src.methods.base_method import BaseMethod
 
 logger = logging.getLogger(__name__)
 
 
-def create_method(method_name: str, client, config: Dict[str, Any]) -> BaseMethod:
+def create_method(
+    method_name: str, client, model_config, retrieval_config, collaboration_config
+) -> BaseMethod:
     """
     Create a method instance based on method name.
 
@@ -30,12 +31,16 @@ def create_method(method_name: str, client, config: Dict[str, Any]) -> BaseMetho
     if method_name == "writer_only":
         from src.methods.writer_only_method import WriterMethod
 
-        return WriterMethod(client, config)
+        return WriterMethod(
+            client, model_config, retrieval_config, collaboration_config
+        )
 
     elif method_name == "writer_reviewer":
         from src.methods.writer_reviewer_method import WriterReviewerMethod
 
-        return WriterReviewerMethod(client, config)
+        return WriterReviewerMethod(
+            client, model_config, retrieval_config, collaboration_config
+        )
 
     # Future methods can be added here:
     # elif method_name == "direct":

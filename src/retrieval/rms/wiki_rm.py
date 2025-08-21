@@ -42,7 +42,8 @@ class WikiRM(BaseRetriever):
         if self.semantic_enabled:
             try:
                 self.embedding_model = SentenceTransformer(
-                    retrieval_config.embedding_model
+                    retrieval_config.embedding_model,
+                    device="cpu",  # Use "cuda" if available
                 )
             except Exception as e:
                 logger.warning(

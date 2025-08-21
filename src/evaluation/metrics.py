@@ -73,7 +73,9 @@ def _get_sentence_model():
         return _SENTENCE_MODEL
 
     try:
-        _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+        _SENTENCE_MODEL = SentenceTransformer(
+            "all-MiniLM-L6-v2", device="cpu"
+        )  # Use "cuda" if available
         logger.info("Sentence transformer model loaded successfully")
     except Exception as e:
         logger.warning(f"Failed to load sentence transformer: {e}")

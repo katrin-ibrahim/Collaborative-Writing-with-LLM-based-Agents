@@ -408,9 +408,11 @@ def run_baseline_experiment(args, runner_class, runner_name):
                     overrides["semantic_filtering_enabled"] = (
                         args.semantic_filtering.lower() == "true"
                     )
+                if hasattr(args, "retrieval_manager") and args.retrieval_manager:
+                    overrides["retrieval_manager_type"] = args.retrieval_manager
 
-                retrieval_config = RetrievalConfig.from_base_config_with_overrides(
-                    rm_type=args.retrieval_manager, **overrides
+                retrieval_config = RetrievalConfig.from_yaml_with_overrides(
+                    None, **overrides
                 )
 
             except Exception as e:
@@ -448,7 +450,7 @@ def run_baseline_experiment(args, runner_class, runner_name):
             "slurm_thinking",
         ]:
             try:
-                model_config = ModelConfig.from_yaml(args.model_config)
+                model_config = ModelConfig.from_yaml_with_overrides(args.model_config)
                 if args.override_model:
                     model_config.override_model = args.override_model
                 logger.info(f"📋 Loaded model config: {args.model_config}")

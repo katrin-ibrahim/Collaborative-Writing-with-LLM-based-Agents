@@ -4,7 +4,6 @@ Writer-only method using sophisticated 3-node WriterAgent workflow.
 """
 
 import logging
-from typing import Any, Dict
 
 from src.collaborative.agents.writer_agent import WriterAgent
 from src.methods.base_method import BaseMethod
@@ -21,21 +20,12 @@ class WriterMethod(BaseMethod):
     plan_outline → targeted_research → refine_outline → write_content
     """
 
-    def __init__(self, client, config: Dict[str, Any]):
-        super().__init__(client, config)
+    def __init__(self, client, retrieval_config, collaboration_config):
+        super().__init__(client, retrieval_config, collaboration_config)
 
         # Writer configuration
-        self.writer_config = {
-            **config,
-            "writer.max_research_iterations": config.get(
-                "writer.max_research_iterations", 2
-            ),
-            "writer.use_external_knowledge": config.get(
-                "writer.use_external_knowledge", True
-            ),
-        }
-
-        logger.info("WriterMethod initialized with 3-node workflow")
+        self.retrieval_config = retrieval_config
+        self.collaboration_config = collaboration_config
 
     def run(self, topic: str) -> Article:
         """
@@ -51,7 +41,7 @@ class WriterMethod(BaseMethod):
 
         try:
             # Initialize writer agent
-            writer = WriterAgent(self.writer_config)
+            writer = WriterAgent(self.retrieval_config, self.collaboration_config)
 
             # Generate article using 3-node workflow
             article = writer.process(topic)

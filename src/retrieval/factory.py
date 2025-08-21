@@ -33,7 +33,7 @@ def create_retrieval_manager(
     """
     # Load from YAML if config name provided
     if config_name and retrieval_config is None:
-        retrieval_config = RetrievalConfig.from_yaml(config_name)
+        retrieval_config = RetrievalConfig.from_yaml_with_overrides(config_name)
         logger.info(f"Loaded retrieval config from: {config_name}")
 
     # Use default config if none provided

@@ -8,6 +8,11 @@ Supports both Ollama and SLURM backends with factory pattern.
 import logging
 import os
 
+from src.config import (
+    CollaborationConfig,
+    ModelConfig,
+    RetrievalConfig,
+)
 from src.runners.cli_args import parse_arguments
 from src.runners.factory import create_runner
 from src.utils.data import FreshWikiLoader
@@ -38,6 +43,63 @@ def setup_hf_cache_for_backend(backend: str):
     # Set environment variables that all HF libraries will use
     os.environ["HF_HOME"] = cache_dir
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
+
+
+def load_configurations(args):
+    """Load all configuration objects from arguments using consistent abstract base."""
+
+    # Collaboration configuration - always has default
+    try:
+        collaboration_config = CollaborationConfig.from_yaml_with_overrides(
+            args.collaboration_config,
+            max_iterations=args.max_iterations,
+            convergence_threshold=args.convergence_threshold,
+        )
+        logger.info(f"Loaded collaboration config: {args.collaboration_config}")
+
+    except Exception as e:
+        logger.error(
+            f"Failed to load collaboration config '{args.collaboration_config}': {e}, Falling back to default configuration"
+        )
+        collaboration_config = CollaborationConfig.get_default()
+
+    # Model configuration - may be None
+    try:
+        model_config = ModelConfig.from_yaml_with_overrides(
+            args.model_config,  # Could be None
+            override_model=args.override_model,
+            mode=args.backend,  # Pass backend as override
+        )
+        if args.model_config:
+            logger.info(f"Loaded model config: {args.model_config}")
+        else:
+            logger.info(f"Using default model config with backend: {args.backend}")
+
+    except Exception as e:
+        logger.error(f"Failed to load model config '{args.model_config}': {e}")
+        logger.info("Falling back to default model configuration")
+        model_config = ModelConfig.get_default()
+        model_config.mode = args.backend
+        if args.override_model:
+            model_config.override_model = args.override_model
+
+    # Retrieval configuration - may be None
+    try:
+        retrieval_config = RetrievalConfig.from_yaml_with_overrides(
+            args.retrieval_manager,  # Could be None
+            semantic_filtering_enabled=args.semantic_filtering,
+        )
+        if args.retrieval_manager:
+            logger.info(f"Loaded retrieval config: {args.retrieval_manager}")
+        else:
+            logger.info("Using default retrieval configuration")
+
+    except Exception as e:
+        logger.error(f"Failed to load retrieval config '{args.retrieval_manager}': {e}")
+        logger.info("Falling back to default retrieval configuration")
+        retrieval_config = RetrievalConfig.get_default()
+
+    return model_config, retrieval_config, collaboration_config
 
 
 def main():
