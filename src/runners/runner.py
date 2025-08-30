@@ -1,52 +1,21 @@
-"""
-BaseRunner with factory-based orchestration for collaborative methods.
-Removes direct method implementations, uses method factory pattern.
-"""
-
 import time
-from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import logging
-from typing import List, Optional
+from typing import List
 
-from src.config.baselines_model_config import ModelConfig
-from src.config.collaboration_config import CollaborationConfig
-from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
-from src.methods.factory import create_method, get_supported_methods
+from src.config.config_context import ConfigContext
+from src.methods.factory import create_method
 from src.utils.article import error_article
 from src.utils.data import Article
-from src.utils.io import OutputManager
 
 logger = logging.getLogger(__name__)
 
 
-class BaseRunner(ABC):
-    """
-    Base runner using factory pattern for all methods.
-    Concrete runners only handle client/engine initialization.
-    """
-
-    def __init__(
-        self,
-        model_config: Optional[ModelConfig] = None,
-        output_manager: Optional[OutputManager] = None,
-        retrieval_config: Optional[RetrievalConfig] = None,
-        collaboration_config: Optional[CollaborationConfig] = None,
-    ):
-        self.model_config = model_config or ModelConfig()
+class Runner:
+    def __init__(self, output_manager=None):
         self.output_manager = output_manager
-        self.retrieval_config = retrieval_config or DEFAULT_RETRIEVAL_CONFIG
-        self.collaboration_config = collaboration_config or CollaborationConfig()
         self.state_manager = None
-
-    @abstractmethod
-    def get_client(self):
-        """Get the appropriate client for method initialization."""
-
-    def get_supported_methods(self) -> List[str]:
-        """Return list of methods supported by this runner."""
-        return get_supported_methods()
 
     def set_state_manager(self, state_manager):
         """Set the state manager for checkpoint handling."""
@@ -72,17 +41,8 @@ class BaseRunner(ABC):
         try:
             # Create method configuration by merging all configs
 
-            # Get client for this method
-            client = self.get_client()
-
             # Create method instance using factory
-            method_instance = create_method(
-                method,
-                client,
-                self.model_config,
-                self.retrieval_config,
-                self.collaboration_config,
-            )
+            method_instance = create_method(method)
 
             # Run the method
             article = method_instance.run(topic)
@@ -92,7 +52,7 @@ class BaseRunner(ABC):
             article.metadata.update(
                 {
                     "execution_time": execution_time,
-                    "runner": self.__class__.__name__,
+                    "runner": ConfigContext.get_backend(),
                 }
             )
 
@@ -127,7 +87,7 @@ class BaseRunner(ABC):
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
             future_to_index = {
-                executor.submit(self.run_method, topic, method): i
+                executor.submit(self.run_single_topic, topic, method): i
                 for i, topic in enumerate(topics)
             }
 
@@ -146,16 +106,8 @@ class BaseRunner(ABC):
     def run(self, topics: List[str], methods: List[str]) -> List[Article]:
         """Run multiple topics and methods - main orchestration."""
         results = []
-        supported_methods = self.get_supported_methods()
 
         for method in methods:
-            if method not in supported_methods:
-                logger.warning(
-                    f"Method '{method}' not supported by this runner. "
-                    f"Supported: {supported_methods}"
-                )
-                continue
-
             # Filter completed topics if state manager available
             method_topics = self.filter_completed_topics(topics, method)
 

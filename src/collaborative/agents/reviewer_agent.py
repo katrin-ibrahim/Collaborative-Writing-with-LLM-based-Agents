@@ -14,6 +14,7 @@ from src.collaborative.agents.templates import (
 )
 from src.collaborative.data_models import ReviewFeedback
 from src.collaborative.tools.reviewer_toolkit import ReviewerToolkit
+from src.config.config_context import ConfigContext
 from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
@@ -26,14 +27,16 @@ class ReviewerAgent(BaseAgent):
     Uses tools for objective analysis and LLM for qualitative assessment.
     """
 
-    def __init__(self, retrieval_config, collaboration_config, model_config=None):
-        super().__init__(retrieval_config, collaboration_config, model_config)
+    def __init__(self):
+        super().__init__()
+        self.collaboration_config = ConfigContext.get_collaboration_config()
+        self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Configuration
-        self.max_claims_to_check = collaboration_config.get(
+        self.max_claims_to_check = self.collaboration_config.get(
             "reviewer.max_claims_to_check", 5
         )
-        self.max_search_results = collaboration_config.get(
+        self.max_search_results = self.collaboration_config.get(
             "reviewer.max_search_results", 3
         )
         self.rm_type = self.retrieval_config.get("retrieval_manager_type", "wiki")

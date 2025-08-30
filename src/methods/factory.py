@@ -10,16 +10,12 @@ from src.methods.base_method import BaseMethod
 logger = logging.getLogger(__name__)
 
 
-def create_method(
-    method_name: str, client, model_config, retrieval_config, collaboration_config
-) -> BaseMethod:
+def create_method(method_name: str) -> BaseMethod:
     """
     Create a method instance based on method name.
 
     Args:
         method_name: Name of the method to create
-        client: API client (OllamaClient, SlurmClient, etc.)
-        config: Configuration dictionary
 
     Returns:
         Initialized method instance
@@ -31,16 +27,12 @@ def create_method(
     if method_name == "writer_only":
         from src.methods.writer_only_method import WriterMethod
 
-        return WriterMethod(
-            client, model_config, retrieval_config, collaboration_config
-        )
+        return WriterMethod()
 
     elif method_name == "writer_reviewer":
         from src.methods.writer_reviewer_method import WriterReviewerMethod
 
-        return WriterReviewerMethod(
-            client, model_config, retrieval_config, collaboration_config
-        )
+        return WriterReviewerMethod()
 
     # Future methods can be added here:
     # elif method_name == "direct":

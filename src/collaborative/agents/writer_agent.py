@@ -20,8 +20,8 @@ from src.collaborative.agents.templates import (
 )
 from src.collaborative.data_models import Outline, ReviewFeedback, WriterState
 from src.collaborative.tools.writer_toolkit import WriterToolkit
+from src.config.config_context import ConfigContext
 from src.utils.data import Article
-from src.utils.io import create_error_article
 
 logger = logging.getLogger(__name__)
 
@@ -34,31 +34,28 @@ class WriterAgent(BaseAgent):
     Uses only real tools (search_and_retrieve) and LLM reasoning.
     """
 
-    def __init__(
-        self,
-        retrieval_config: Dict[str, Any],
-        collaboration_config: Dict[str, Any],
-        model_config=None,
-    ):
-        super().__init__(retrieval_config, collaboration_config, model_config)
+    def __init__(self):
+        super().__init__()
+        self.collaboration_config = ConfigContext.get_collaboration_config()
+        self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Get configuration values with proper defaults
-        self.max_research_iterations = collaboration_config.get(
+        self.max_research_iterations = self.collaboration_config.get(
             "writer.max_research_iterations", 3
         )
-        self.knowledge_coverage_threshold = collaboration_config.get(
+        self.knowledge_coverage_threshold = self.collaboration_config.get(
             "writer.knowledge_coverage_threshold", 0.7
         )
-        self.max_research_queries_per_iteration = collaboration_config.get(
+        self.max_research_queries_per_iteration = self.collaboration_config.get(
             "writer.max_queries_per_iteration", 6
         )
-        self.max_search_results = collaboration_config.get(
+        self.max_search_results = self.collaboration_config.get(
             "writer.max_search_results", 5
         )
-        self.rm_type = collaboration_config.get("retrieval_manager_type", "wiki")
+        self.rm_type = self.collaboration_config.get("retrieval_manager_type", "wiki")
 
         # Initialize writer toolkit (only search_and_retrieve tool)
-        self.toolkit = WriterToolkit(retrieval_config)
+        self.toolkit = WriterToolkit(self.retrieval_config)
 
         # Get the search tool
         self.search_tool = None
@@ -157,7 +154,6 @@ class WriterAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"Writer workflow failed for '{topic}': {e}")
-            return create_error_article(topic, str(e))
 
     def _improve_article(
         self, article: Article, feedback: ReviewFeedback, topic: str

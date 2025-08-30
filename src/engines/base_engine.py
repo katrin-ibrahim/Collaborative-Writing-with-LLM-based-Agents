@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from typing import List
 
 
-class BaseModelEngine(ABC):
+class BaseEngine(ABC):
     """
     Abstract base class defining the interface for model engines.
 

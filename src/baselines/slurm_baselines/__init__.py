@@ -1,5 +1,7 @@
-"""SLURM baselines module."""
+import warnings
 
-from .slurm_runner import SlurmBaselineRunner
-
-__all__ = ["SlurmBaselineRunner"]
+warnings.warn(
+    "This module is deprecated and will be removed in future versions.",
+    DeprecationWarning,
+    stacklevel=2,
+)

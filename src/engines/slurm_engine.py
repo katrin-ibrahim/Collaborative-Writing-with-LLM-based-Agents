@@ -13,8 +13,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from transformers.utils import logging as transformers_logging
 from typing import Any, Dict, List, Optional
 
-from src.baselines.base_engine import BaseModelEngine
 from src.config.baselines_model_config import ModelConfig
+from src.engines import BaseEngine
 
 # Suppress unnecessary warnings for performance
 transformers_logging.set_verbosity_error()
@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 logger = logging.getLogger(__name__)
 
 
-class SlurmModelEngine(BaseModelEngine):
+class SlurmEngine(BaseEngine):
     """
     High-performance local model engine with LiteLLM compatibility.
 

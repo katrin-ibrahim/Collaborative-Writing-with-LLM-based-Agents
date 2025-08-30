@@ -18,19 +18,6 @@ class BaseMethod(ABC):
     Each method implements its own approach to generating articles.
     """
 
-    def __init__(self, client, model_config, retrieval_config, collaboration_config):
-        """
-        Initialize method with client and configuration.
-
-        Args:
-            client: API client (OllamaClient, SlurmClient, etc.)
-            config: Configuration dictionary for the method
-        """
-        self.client = client
-        self.model_config = model_config
-        self.retrieval_config = retrieval_config
-        self.collaboration_config = collaboration_config
-
     @abstractmethod
     def run(self, topic: str) -> Article:
         """

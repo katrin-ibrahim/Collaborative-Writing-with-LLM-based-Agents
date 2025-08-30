@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Union
 logger = logging.getLogger(__name__)
 
 
-class OllamaClient:
+class OllamaEngine:
     """
     Ollama client that provides both simple and LiteLLM-compatible interfaces.
     Can be used directly for simple calls or as a LiteLLM-compatible wrapper for STORM.

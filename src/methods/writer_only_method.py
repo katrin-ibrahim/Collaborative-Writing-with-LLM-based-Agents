@@ -20,9 +20,6 @@ class WriterMethod(BaseMethod):
     plan_outline → targeted_research → refine_outline → write_content
     """
 
-    def __init__(self, client, model_config, retrieval_config, collaboration_config):
-        super().__init__(client, model_config, retrieval_config, collaboration_config)
-
     def run(self, topic: str) -> Article:
         """
         Generate article using sophisticated writer agent.
@@ -37,9 +34,7 @@ class WriterMethod(BaseMethod):
 
         try:
             # Initialize writer agent
-            writer = WriterAgent(
-                self.retrieval_config, self.collaboration_config, self.model_config
-            )
+            writer = WriterAgent()
 
             # Generate article using 3-node workflow
             article = writer.process(topic)

@@ -10,6 +10,7 @@ import logging
 from src.collaborative.agents.reviewer_agent import ReviewerAgent
 from src.collaborative.agents.writer_agent import WriterAgent
 from src.collaborative.data_models import CollaborationMetrics
+from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
 from src.utils.data import Article
 
@@ -27,15 +28,15 @@ class WriterReviewerMethod(BaseMethod):
     4. Repeat until convergence or max iterations
     """
 
-    def __init__(self, client, model_config, retrieval_config, collaboration_config):
-        super().__init__(client, model_config, retrieval_config, collaboration_config)
+    def __init__(self):
+        self.collaboration_config = ConfigContext.get_collaboration_config()
 
         # Collaboration parameters
-        self.max_iterations = collaboration_config.get("max_iterations", 3)
-        self.convergence_threshold = collaboration_config.get(
+        self.max_iterations = self.collaboration_config.get("max_iterations", 3)
+        self.convergence_threshold = self.collaboration_config.get(
             "convergence_threshold", 0.85
         )
-        self.min_improvement_threshold = collaboration_config.get(
+        self.min_improvement_threshold = self.collaboration_config.get(
             "min_improvement_threshold", 0.02
         )
 
@@ -57,12 +58,8 @@ class WriterReviewerMethod(BaseMethod):
 
         try:
             # Initialize agents
-            writer = WriterAgent(
-                self.retrieval_config, self.collaboration_config, self.model_config
-            )
-            reviewer = ReviewerAgent(
-                self.retrieval_config, self.collaboration_config, self.model_config
-            )
+            writer = WriterAgent()
+            reviewer = ReviewerAgent()
 
             # Initial draft
             logger.info(f"Writer creating initial draft for: {topic}")
