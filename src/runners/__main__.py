@@ -13,8 +13,9 @@ from src.config import (
     ModelConfig,
     RetrievalConfig,
 )
+from src.config.config_context import ConfigContext
 from src.runners.cli_args import parse_arguments
-from src.runners.factory import create_runner
+from src.runners.runner import Runner
 from src.utils.data import FreshWikiLoader
 from src.utils.experiment import setup_output_directory
 from src.utils.io import OutputManager
@@ -112,18 +113,24 @@ def main():
 
     # Create runner instance
     model_config, retrieval_config, collaboration_config = load_configurations(args)
+    backend_kwargs = {}
+    if hasattr(args, "ollama_host") and args.ollama_host:
+        backend_kwargs["ollama_host"] = args.ollama_host
+    if hasattr(args, "device") and args.device:
+        backend_kwargs["device"] = args.device
+    ConfigContext.initialize(
+        model_config=model_config,
+        retrieval_config=retrieval_config,
+        collaboration_config=collaboration_config,
+        backend=args.backend,
+    )
 
     # Setup output directory
     output_dir = setup_output_directory(args)
     output_manager = OutputManager(str(output_dir), debug_mode=args.debug)
 
-    # ONE LINE - Factory handles everything
-    runner = create_runner(
-        backend=args.backend,
-        model_config=model_config,
+    runner = Runner(
         output_manager=output_manager,
-        retrieval_config=retrieval_config,
-        collaboration_config=collaboration_config,
     )
 
     # Load topics
