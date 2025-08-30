@@ -14,8 +14,8 @@ from src.config import (
     RetrievalConfig,
 )
 from src.config.config_context import ConfigContext
-from src.runners.cli_args import parse_arguments
-from src.runners.runner import Runner
+from src.main.cli_args import parse_arguments
+from src.main.runner import Runner
 from src.utils.data import FreshWikiLoader
 from src.utils.experiment import setup_output_directory
 from src.utils.io import OutputManager

@@ -1,6 +1,6 @@
 """
 BaseRunner with all shared logic - ultra-clean architecture.
-Concrete runners only handle engine/client initialization.
+Concrete main only handle engine/client initialization.
 """
 
 import time
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class BaseRunner(ABC):
     """
     Base runner containing ALL shared logic for baseline implementations.
-    Concrete runners only handle engine/client initialization and STORM.
+    Concrete main only handle engine/client initialization and STORM.
     """
 
     def __init__(

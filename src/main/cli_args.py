@@ -1,5 +1,5 @@
 """
-CLI argument parsing for collaborative writing runners.
+CLI argument parsing for collaborative writing main.
 Based on baselines CLI but focused on collaborative methods.
 """
 

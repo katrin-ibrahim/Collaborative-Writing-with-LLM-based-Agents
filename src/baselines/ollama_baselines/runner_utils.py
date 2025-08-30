@@ -1,4 +1,4 @@
-# FILE: runners/runner_utils.py
+# FILE: main/runner_utils.py
 import sys
 from pathlib import Path
 
@@ -9,8 +9,9 @@ src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from src.config.baselines_model_config import ModelConfig
 from src.utils.clients import OllamaClient
+
+from src.config.baselines_model_config import ModelConfig
 from src.utils.data import Article
 
 logger = logging.getLogger(__name__)
