@@ -25,10 +25,12 @@ class CrossExperimentVisualizer:
         self,
         experiment_paths: List[str],
         output_dir: str = "results/cross_experiment_analysis",
+        custom_labels: List[str] = None,
     ):
         self.experiment_paths = [Path(p) for p in experiment_paths]
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True, parents=True)
+        self.custom_labels = custom_labels
 
         # Standard method ordering
         self.method_order = ["direct", "rag", "storm"]
@@ -56,15 +58,19 @@ class CrossExperimentVisualizer:
 
     def _load_experiments(self):
         """Load data from all experiment directories."""
-        for exp_path in self.experiment_paths:
+        for i, exp_path in enumerate(self.experiment_paths):
             results_file = exp_path / "results.json"
             if results_file.exists():
                 try:
                     loader = ResultsLoader(str(results_file))
                     data = loader.load_and_validate()
 
-                    # Use directory name as experiment identifier
-                    exp_name = exp_path.name
+                    # Use custom label if provided, otherwise use directory name
+                    if self.custom_labels and i < len(self.custom_labels):
+                        exp_name = self.custom_labels[i]
+                    else:
+                        exp_name = exp_path.name
+
                     self.experiments[exp_name] = {
                         "data": data,
                         "metadata": loader.metadata,

@@ -40,7 +40,7 @@ class WriterAgent(BaseAgent):
         collaboration_config: Dict[str, Any],
         model_config=None,
     ):
-        super().__init__(retrieval_config, model_config)
+        super().__init__(retrieval_config, collaboration_config, model_config)
 
         # Get configuration values with proper defaults
         self.max_research_iterations = collaboration_config.get(

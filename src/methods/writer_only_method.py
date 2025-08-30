@@ -20,12 +20,8 @@ class WriterMethod(BaseMethod):
     plan_outline → targeted_research → refine_outline → write_content
     """
 
-    def __init__(self, client, retrieval_config, collaboration_config):
-        super().__init__(client, retrieval_config, collaboration_config)
-
-        # Writer configuration
-        self.retrieval_config = retrieval_config
-        self.collaboration_config = collaboration_config
+    def __init__(self, client, model_config, retrieval_config, collaboration_config):
+        super().__init__(client, model_config, retrieval_config, collaboration_config)
 
     def run(self, topic: str) -> Article:
         """
@@ -41,7 +37,9 @@ class WriterMethod(BaseMethod):
 
         try:
             # Initialize writer agent
-            writer = WriterAgent(self.retrieval_config, self.collaboration_config)
+            writer = WriterAgent(
+                self.retrieval_config, self.collaboration_config, self.model_config
+            )
 
             # Generate article using 3-node workflow
             article = writer.process(topic)
@@ -50,7 +48,7 @@ class WriterMethod(BaseMethod):
             article.metadata.update(
                 {
                     "method": self.get_method_name(),
-                    "agent_type": "sophisticated_writer",
+                    "agent_type": "writer_only",
                     "workflow_nodes": 3,
                 }
             )

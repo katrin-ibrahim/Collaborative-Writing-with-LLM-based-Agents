@@ -27,8 +27,8 @@ class WriterReviewerMethod(BaseMethod):
     4. Repeat until convergence or max iterations
     """
 
-    def __init__(self, client, retrieval_config, collaboration_config):
-        super().__init__(client, retrieval_config, collaboration_config)
+    def __init__(self, client, model_config, retrieval_config, collaboration_config):
+        super().__init__(client, model_config, retrieval_config, collaboration_config)
 
         # Collaboration parameters
         self.max_iterations = collaboration_config.get("max_iterations", 3)

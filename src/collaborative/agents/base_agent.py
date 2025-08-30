@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from src.utils.clients import OllamaClient
 
@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
     """Abstract base class for all agents in the system."""
 
-    def __init__(self, retrieval_config: Dict[str, Any], model_config=None):
+    def __init__(self, retrieval_config, collaboration_config, model_config=None):
         self.retrieval_config = retrieval_config
+        self.collaboration_config = collaboration_config
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Use OllamaClient with model config if provided

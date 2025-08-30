@@ -18,7 +18,7 @@ class BaseMethod(ABC):
     Each method implements its own approach to generating articles.
     """
 
-    def __init__(self, client, config):
+    def __init__(self, client, model_config, retrieval_config, collaboration_config):
         """
         Initialize method with client and configuration.
 
@@ -27,7 +27,9 @@ class BaseMethod(ABC):
             config: Configuration dictionary for the method
         """
         self.client = client
-        self.config = config
+        self.model_config = model_config
+        self.retrieval_config = retrieval_config
+        self.collaboration_config = collaboration_config
 
     @abstractmethod
     def run(self, topic: str) -> Article:

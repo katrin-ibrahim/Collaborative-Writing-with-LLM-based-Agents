@@ -52,6 +52,12 @@ def main():
         nargs="+",
         help="Paths to experiment directories (or parent directory to auto-discover)",
     )
+    parser.add_argument(
+        "--labels",
+        "-l",
+        nargs="*",
+        help="Custom labels for experiments (must match number of experiment paths)",
+    )
 
     parser.add_argument(
         "--output-dir",
@@ -83,6 +89,13 @@ def main():
     args = parser.parse_args()
 
     setup_logging(args.log_level)
+    # Validate labels if provided
+    if args.labels:
+        if len(args.labels) != len(args.experiments):
+            print(
+                f"Error: Number of labels ({len(args.labels)}) must match number of experiments ({len(args.experiments)})"
+            )
+            return 1
     logger = logging.getLogger(__name__)
 
     # Handle experiment paths
@@ -109,7 +122,9 @@ def main():
     # Create visualizer
     try:
         visualizer = CrossExperimentVisualizer(
-            experiment_paths=experiment_paths, output_dir=args.output_dir
+            experiment_paths=experiment_paths,
+            output_dir=args.output_dir,
+            custom_labels=args.labels,
         )
 
         # Show experiment info
