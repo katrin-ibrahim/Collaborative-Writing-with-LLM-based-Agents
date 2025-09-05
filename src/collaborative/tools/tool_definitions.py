@@ -8,35 +8,9 @@ import re
 from langchain_core.tools import tool
 from typing import Any, Dict
 
-from src.config.retrieval_config import RetrievalConfig
 from src.retrieval.factory import create_retrieval_manager
 
 logger = logging.getLogger(__name__)
-
-# Global retrieval manager cache
-_retrieval_managers = {}
-
-
-def _get_retrieval_manager(rm_type: str = "wiki"):
-    """Get or create retrieval manager using factory pattern."""
-    global _retrieval_managers
-
-    if rm_type not in _retrieval_managers:
-        try:
-            config = RetrievalConfig()
-            config.retrieval_manager_type = rm_type
-            _retrieval_managers[rm_type] = create_retrieval_manager(
-                retrieval_config=config
-            )
-            logger.info(f"Created {rm_type} retrieval manager")
-        except Exception as e:
-            logger.error(f"Failed to create {rm_type} retrieval manager: {e}")
-            # Fallback to wiki if other types fail
-            if rm_type != "wiki":
-                return _get_retrieval_manager("wiki")
-            raise
-
-    return _retrieval_managers[rm_type]
 
 
 @tool
@@ -66,18 +40,17 @@ def search_and_retrieve(
             }
 
         # Get retrieval manager
-        retrieval_manager = _get_retrieval_manager(rm_type)
+        retrieval_manager = create_retrieval_manager(rm_type)
 
         # Perform search - RM returns List[Dict] or List[str]
         raw_results = retrieval_manager.search(
             query_or_queries=query.strip(),
-            max_results=max_results,
             topic=query,  # Use query as topic for context
         )
 
         # Format results consistently
         formatted_results = []
-        for i, result in enumerate(raw_results[:max_results]):
+        for i, result in enumerate(raw_results):
             if isinstance(result, dict):
                 # Result is already a dictionary
                 formatted_result = {

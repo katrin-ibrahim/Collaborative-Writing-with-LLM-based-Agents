@@ -7,12 +7,11 @@ import logging
 import re
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
     improvement_prompt,
-    knowledge_organization_prompt,
     planning_prompt,
     refinement_prompt,
     section_content_prompt_with_research,
@@ -40,19 +39,19 @@ class WriterAgent(BaseAgent):
         self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Get configuration values with proper defaults
-        self.max_research_iterations = self.collaboration_config.get(
-            "writer.max_research_iterations", 3
+        self.max_research_iterations = getattr(
+            self.collaboration_config, "writer.max_research_iterations", 3
         )
-        self.knowledge_coverage_threshold = self.collaboration_config.get(
-            "writer.knowledge_coverage_threshold", 0.7
+        self.knowledge_coverage_threshold = getattr(
+            self.collaboration_config, "writer.knowledge_coverage_threshold", 0.7
         )
-        self.max_research_queries_per_iteration = self.collaboration_config.get(
-            "writer.max_queries_per_iteration", 6
+        self.max_research_queries_per_iteration = getattr(
+            self.collaboration_config, "writer.max_queries_per_iteration", 6
         )
-        self.max_search_results = self.collaboration_config.get(
-            "writer.max_search_results", 5
+        self.max_search_results = getattr(
+            self.collaboration_config, "writer.max_search_results", 5
         )
-        self.rm_type = self.collaboration_config.get("retrieval_manager_type", "wiki")
+        self.rm_type = getattr(self.retrieval_config, "retrieval_manager", "wiki")
 
         # Initialize writer toolkit (only search_and_retrieve tool)
         self.toolkit = WriterToolkit(self.retrieval_config)
@@ -214,7 +213,7 @@ class WriterAgent(BaseAgent):
         # Use template prompt
         prompt = planning_prompt(state.topic)
         outline_response = self.api_client.call_api(prompt)
-        initial_outline = self._parse_outline_response(outline_response, state.topic)
+        initial_outline = self.parse_outline(outline_response, state.topic)
 
         # Generate targeted research queries based on outline
         research_queries = self._generate_research_queries_from_outline(
@@ -246,7 +245,7 @@ class WriterAgent(BaseAgent):
             f"with {len(state.research_queries)} queries"
         )
 
-        # Limit queries per iteration for efficiency
+        # # Limit queries per iteration for efficiency
         current_queries = state.research_queries[
             : self.max_research_queries_per_iteration
         ]
@@ -277,25 +276,6 @@ class WriterAgent(BaseAgent):
         # Add new results to existing ones
         state.search_results.extend(new_results)
 
-        # Organize knowledge using LLM
-        if state.search_results:
-            try:
-                organized = self._organize_search_results_with_llm(
-                    state.topic, state.search_results
-                )
-                state.organized_knowledge = organized
-                state.metadata["tool_usage"].append(
-                    f"organize_knowledge_llm: {len(state.search_results)} results organized"
-                )
-
-            except Exception as e:
-                logger.warning(f"Knowledge organization failed: {e}")
-
-        logger.info(
-            f"Research iteration {state.research_iterations} completed: "
-            f"{len(new_results)} new results, {len(state.search_results)} total"
-        )
-
         return state
 
     def _refine_outline_node(self, state: WriterState) -> WriterState:
@@ -325,7 +305,7 @@ class WriterAgent(BaseAgent):
         )
 
         refined_response = self.api_client.call_api(prompt)
-        refined_outline = self._parse_outline_response(refined_response, state.topic)
+        refined_outline = self.parse_outline(refined_response, state.topic)
 
         # Identify knowledge gaps for potential additional research
         knowledge_gaps = self._identify_knowledge_gaps(
@@ -442,85 +422,19 @@ class WriterAgent(BaseAgent):
     # HELPER METHODS - LLM-based, no external tools
     # ========================================================================
 
-    def _organize_search_results_with_llm(
-        self, topic: str, search_results: List[Dict]
-    ) -> Dict[str, Any]:
-        """Organize search results using LLM reasoning instead of external tool."""
-
-        if not search_results:
-            return {
-                "categories": {},
-                "summary": "No search results to organize",
-                "coverage_score": 0.0,
-            }
-
-        # Prepare search results for LLM
-        results_text = ""
-        for i, result in enumerate(search_results[:10]):  # Limit for prompt length
-            content = result.get("content", "")[:200]  # Truncate content
-            results_text += f"Result {i+1}: {content}...\n"
-
-        # Use template prompt
-        prompt = knowledge_organization_prompt(topic=topic, search_results=results_text)
-
-        try:
-            organization_response = self.api_client.call_api(prompt)
-
-            # Simple parsing of categories (basic implementation)
-            categories = self._parse_organization_response(organization_response)
-
-            return {
-                "categories": categories,
-                "summary": f"Organized {len(search_results)} search results into {len(categories)} categories",
-                "coverage_score": min(
-                    1.0, len(search_results) / 10
-                ),  # Simple heuristic
-            }
-
-        except Exception as e:
-            logger.warning(f"LLM knowledge organization failed: {e}")
-            return {
-                "categories": {"general": search_results},
-                "summary": "Organization failed, using general category",
-                "coverage_score": 0.5,
-            }
-
-    def _parse_organization_response(self, response: str) -> Dict[str, List]:
-        """Parse LLM organization response into categories."""
-        categories = {}
-        current_category = None
-
-        for line in response.split("\n"):
-            line = line.strip()
-            if line and ":" in line and not line.startswith("-"):
-                # This looks like a category header
-                category_name = line.split(":")[0].strip()
-                current_category = category_name
-                categories[current_category] = []
-            elif line.startswith("-") and current_category:
-                # This is a point under the current category
-                point = line[1:].strip()
-                if point:
-                    categories[current_category].append(
-                        {"content": point, "source": "organized"}
-                    )
-
-        return categories
-
-    def _parse_outline_response(self, response: str, topic: str) -> Outline:
-        """Parse LLM outline response into structured Outline object."""
+    def parse_outline(self, response: str, topic: str):
         lines = response.strip().split("\n")
 
-        title = topic  # Default fallback
+        title = topic  # fallback
         headings = []
         subheadings = {}
 
         for line in lines:
             line = line.strip()
-            if line.startswith("Title:"):
-                title = line.replace("Title:", "").strip()
-            elif line and line[0].isdigit() and "." in line:
-                heading = line.split(".", 1)[1].strip()
+            if line.startswith("# ") and not line.startswith("## "):  # H1 title
+                title = line.replace("#", "").strip()
+            elif line.startswith("## "):  # H2 headings
+                heading = line.replace("##", "").strip()
                 headings.append(heading)
                 subheadings[heading] = []
 
@@ -547,20 +461,7 @@ class WriterAgent(BaseAgent):
         for heading in outline.headings:
             # Main topic query for each section
             queries.append(f"{heading} {topic}")
-
-            # Specific information queries based on heading content
-            heading_lower = heading.lower()
-            if "introduction" in heading_lower or "background" in heading_lower:
-                queries.append(f"overview of {topic}")
-            elif "concept" in heading_lower or "definition" in heading_lower:
-                queries.append(f"definition {topic}")
-            elif "application" in heading_lower or "example" in heading_lower:
-                queries.append(f"applications of {topic}")
-            elif "current" in heading_lower or "development" in heading_lower:
-                queries.append(f"recent developments {topic}")
-            elif "future" in heading_lower or "implication" in heading_lower:
-                queries.append(f"future of {topic}")
-
+            # TODO: LLM could be used here for more sophisticated query generation
         return queries
 
     def _format_outline_for_prompt(self, outline: Outline) -> str:

@@ -5,9 +5,9 @@ import json
 import logging
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
+from src.config.config_context import ConfigContext
 from src.retrieval.rms.base_retriever import BaseRetriever
 from src.utils.experiment import find_project_root
 
@@ -25,10 +25,9 @@ class FaissRM(BaseRetriever):
         format_type: str = "rag",
         cache_dir: str = "data/supabase_cache",
         cache_results: bool = True,
-        config: Optional["RetrievalConfig"] = None,
     ):
         # Use passed config or default
-        retrieval_config = config or DEFAULT_RETRIEVAL_CONFIG
+        self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Automatically resolve cache_dir to absolute path from project root
         project_root_path = Path(find_project_root())
@@ -39,7 +38,7 @@ class FaissRM(BaseRetriever):
 
         # Set embedding model name before loading index (needed by _load_index)
         self.supabase_embedding_model_name = (
-            retrieval_config.supabase_embedding_model_name
+            self.retrieval_config.supabase_embedding_model_name
         )
 
         # Store cache_dir for _load_index method
@@ -50,19 +49,20 @@ class FaissRM(BaseRetriever):
 
         # Initialize parent class with absolute cache path
         super().__init__(
-            cache_dir=cache_dir, cache_results=cache_results, config=retrieval_config
+            cache_dir=cache_dir,
+            cache_results=cache_results,
+            config=self.retrieval_config,
         )
 
-        self.retrieval_config = retrieval_config  # Store for use in methods
         self.format_type = format_type
-        self.results_per_query = retrieval_config.results_per_query
+        self.results_per_query = self.retrieval_config.results_per_query
 
         self.encoder = SentenceTransformer(
             self.supabase_embedding_model_name, device="cpu"
         )
 
         # Add semantic filtering setup
-        self.semantic_enabled = retrieval_config.semantic_filtering_enabled
+        self.semantic_enabled = self.retrieval_config.semantic_filtering_enabled
 
     def _retrieve_article(
         self, query: str, topic: str = None, max_results: int = None

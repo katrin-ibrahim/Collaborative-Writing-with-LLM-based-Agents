@@ -1,9 +1,9 @@
 import logging
 import wikipedia
 from sentence_transformers import SentenceTransformer
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from src.config.retrieval_config import DEFAULT_RETRIEVAL_CONFIG, RetrievalConfig
+from src.config.config_context import ConfigContext
 from src.retrieval.rms.base_retriever import BaseRetriever
 
 logger = logging.getLogger(__name__)
@@ -16,33 +16,30 @@ class WikiRM(BaseRetriever):
         format_type: str = "rag",
         cache_dir: str = "data/wiki_cache",
         cache_results: bool = True,
-        config: Optional["RetrievalConfig"] = None,
     ):
         # Use passed config or default
-        retrieval_config = config or DEFAULT_RETRIEVAL_CONFIG
+        self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Initialize parent class with caching and config
         super().__init__(
             cache_dir=cache_dir,
             cache_results=cache_results,
-            config=retrieval_config,
+            config=self.retrieval_config,
             format_type=format_type,
         )
 
-        self.retrieval_config = retrieval_config  # Store for use in methods
-
         self.format_type = format_type
-        self.results_per_query = retrieval_config.results_per_query
+        self.results_per_query = self.retrieval_config.results_per_query
 
         # Add semantic filtering setup
-        self.semantic_enabled = retrieval_config.semantic_filtering_enabled
+        self.semantic_enabled = self.retrieval_config.semantic_filtering_enabled
         self.embedding_model = None
         self._extracted_pages = set()
 
         if self.semantic_enabled:
             try:
                 self.embedding_model = SentenceTransformer(
-                    retrieval_config.embedding_model,
+                    self.retrieval_config.embedding_model,
                     device="cpu",  # Use "cuda" if available
                 )
             except Exception as e:

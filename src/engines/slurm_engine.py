@@ -1,6 +1,6 @@
 """
-High-performance LocalModelEngine following a standardized interface.
-LiteLLM-compatible interface for local models with aggressive optimizations.
+Simplified SLURM engine that focuses purely on local model inference.
+Configuration is handled by ConfigContext.
 """
 
 import time
@@ -11,10 +11,9 @@ import logging
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from transformers.utils import logging as transformers_logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from src.config.baselines_model_config import ModelConfig
-from src.engines import BaseEngine
+from src.engines.base_engine import BaseEngine
 
 # Suppress unnecessary warnings for performance
 transformers_logging.set_verbosity_error()
@@ -26,45 +25,36 @@ logger = logging.getLogger(__name__)
 class SlurmEngine(BaseEngine):
     """
     High-performance local model engine with LiteLLM compatibility.
-
-    Key optimizations:
-    - Persistent model loading with compiled inference
-    - Advanced KV-cache management
-    - Streamlined tokenization with prompt caching
-    - Memory-efficient generation pipeline
+    Simplified to focus only on model inference - no configuration parsing.
     """
 
     def __init__(
         self,
-        model_path: Optional[str] = None,
+        model_path: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1000,
         device: str = "auto",
-        config: Optional[ModelConfig] = None,
-        task: str = "writing",
-        temperature: float = 0.3,
-        max_tokens: int = 1024,
+        **kwargs,
     ):
-        # Initialize base class
-        super().__init__(model_path=model_path, config=config, task=task)
+        """
+        Initialize SLURM engine with parameters from ConfigContext.
 
-        logger.info(f"DEBUG: LocalModelEngine init - model_path param: {model_path}")
-        logger.info(f"DEBUG: After base init - self.model_path: {self.model_path}")
-        logger.info(f"DEBUG: Task: {task}")
-        logger.info(f"DEBUG: Config mode: {self.config.mode}")
-        # Ensure we're using local mode
-        if self.config.mode != "local":
-            self.config.mode = "local"
-            logger.info("Switched to local mode for model configuration")
+        Args:
+            model_path: Path to local model
+            temperature: Generation temperature
+            max_tokens: Maximum tokens to generate
+            device: Device for model placement
+            **kwargs: Additional parameters
+        """
+        super().__init__(
+            model=model_path, temperature=temperature, max_tokens=max_tokens, **kwargs
+        )
 
+        self.model_path = model_path
         self.device = device
-        self.model_name = Path(self.model_path).name
+        self.model_name = Path(model_path).name
 
-        # LiteLLM compatibility attributes
-        self.kwargs = {
-            "model": self.model_name,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }
-
+        # Model components
         self.model = None
         self.tokenizer = None
         self.generation_config = None
@@ -79,7 +69,7 @@ class SlurmEngine(BaseEngine):
         # Load and optimize model
         self._load_and_optimize_model()
 
-        logger.info(f"LocalModelEngine initialized with model: {self.model_name}")
+        logger.info(f"SlurmEngine initialized with model: {self.model_name}")
 
     def __call__(self, messages=None, **kwargs):
         """Make engine callable for STORM compatibility."""
@@ -98,6 +88,36 @@ class SlurmEngine(BaseEngine):
         # Default case
         return self.complete(str(kwargs), **kwargs)
 
+    def complete(self, messages: Union[str, List[Dict]], **kwargs) -> Any:
+        """LiteLLM-compatible completion method."""
+        try:
+            # Parse messages using base class method
+            prompt, system_prompt = self._parse_messages(messages)
+
+            # Combine system and user prompts
+            if system_prompt:
+                full_prompt = f"{system_prompt}\n\n{prompt}"
+            else:
+                full_prompt = prompt
+
+            # Get parameters (allow override)
+            temperature = kwargs.get("temperature", self.temperature)
+            max_tokens = kwargs.get("max_tokens", self.max_tokens)
+
+            # Generate response
+            response_text = self._generate(
+                prompt=full_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+            # Create and return LiteLLM-compatible response
+            return self._create_response(response_text, full_prompt)
+
+        except Exception as e:
+            logger.error(f"Completion failed: {e}")
+            return self._create_error_response(str(e))
+
     def list_available_models(self) -> List[str]:
         """List available models, in this case just the currently loaded model."""
         return [self.model_name]
@@ -114,10 +134,13 @@ class SlurmEngine(BaseEngine):
                 trust_remote_code=True,
             )
 
+            # Ensure pad_token is set
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+
             # Determine device placement
             if self.device == "auto":
                 if torch.cuda.is_available():
-                    # Use specific GPU instead of "auto" to avoid meta tensor issues
                     device_map = {"": 0}  # Place entire model on GPU 0
                 elif torch.backends.mps.is_available():
                     device_map = "mps"
@@ -142,8 +165,10 @@ class SlurmEngine(BaseEngine):
             # Create default generation config
             self.generation_config = GenerationConfig(
                 temperature=self.temperature,
-                max_length=self.max_tokens,
+                max_new_tokens=self.max_tokens,
                 do_sample=True if self.temperature > 0 else False,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
 
             load_time = time.time() - start_time
@@ -164,200 +189,72 @@ class SlurmEngine(BaseEngine):
         try:
             logger.info("Warming up model...")
             warmup_prompt = "Hello, how are you today?"
-
-            # Run a quick inference to initialize the model
-            with torch.no_grad():
-                inputs = self.tokenizer(warmup_prompt, return_tensors="pt").to(
-                    self.model.device
-                )
-                _ = self.model.generate(**inputs, max_new_tokens=20)
-
+            self._generate(warmup_prompt, temperature=0.1, max_tokens=10)
             self._warmup_done = True
-            logger.info("Model warmup complete")
+            logger.info("Model warmup completed")
+
         except Exception as e:
             logger.warning(f"Model warmup failed: {e}")
 
-    def _get_cached_tokenization(self, prompt: str, max_length: int = 1024) -> Dict:
-        """Get tokenization from cache or compute it."""
-        cache_key = f"{prompt}_{max_length}"
-
-        if cache_key in self._prompt_cache:
-            return self._prompt_cache[cache_key]
-
-        start_time = time.time()
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        self.stats["tokenization_time"] += time.time() - start_time
-
-        # Cache the result
-        self._prompt_cache[cache_key] = inputs
-
-        return inputs
-
-    def generate(
+    def _generate(
         self,
         prompt: str,
-        max_length: Optional[int] = None,
         temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ) -> str:
-        """Generate content from a prompt."""
-        self.stats["total_calls"] += 1
-
-        # Use provided params or defaults
-        max_length = max_length or self.max_tokens
-        temperature = temperature if temperature is not None else self.temperature
-
+        """Generate text using the local model."""
         try:
-            # Get inputs (from cache if possible)
-            inputs = self._get_cached_tokenization(prompt, max_length)
+            start_time = time.time()
 
-            # Configure generation parameters
-            gen_config = GenerationConfig(**self.generation_config.to_dict())
-            gen_config.temperature = temperature
-            gen_config.max_length = None  # Use max_new_tokens instead
-            gen_config.max_new_tokens = max_length
-            gen_config.do_sample = temperature > 0
+            # Tokenize input
+            inputs = self.tokenizer(prompt, return_tensors="pt")
+
+            # Move to model device
+            if hasattr(self.model, "device"):
+                inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+
+            # Update generation config for this call
+            gen_config = GenerationConfig(
+                temperature=temperature or self.temperature,
+                max_new_tokens=max_tokens or self.max_tokens,
+                do_sample=True if (temperature or self.temperature) > 0 else False,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+            )
 
             # Generate
-            start_time = time.time()
             with torch.no_grad():
-                output_ids = self.model.generate(
+                outputs = self.model.generate(
                     **inputs,
                     generation_config=gen_config,
                     use_cache=True,
                 )
-            self.stats["generation_time"] += time.time() - start_time
 
-            # Decode
-            response_text = self.tokenizer.decode(
-                output_ids[0], skip_special_tokens=True
+            # Decode only the new tokens
+            generated_text = self.tokenizer.decode(
+                outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
             )
 
-            # Remove the prompt from the response
-            if response_text.startswith(prompt):
-                response_text = response_text[len(prompt) :].strip()
+            generation_time = time.time() - start_time
+            self.stats["generation_time"] += generation_time
+            self.stats["total_calls"] += 1
 
-            # Clean <think> tags like in ollama_client
-            import re
-
-            response_text = re.sub(
-                r"<think>.*?</think>", "", response_text, flags=re.DOTALL
+            logger.debug(
+                f"Generated {len(generated_text)} chars in {generation_time:.2f}s"
             )
 
-            return response_text
+            return generated_text.strip()
 
         except Exception as e:
             logger.error(f"Generation failed: {e}")
-            return f"Error: {str(e)}"
+            raise RuntimeError(f"Local model generation error: {e}")
 
-    def complete(self, messages, **kwargs):
-        """Complete messages and return response object."""
-        try:
-            # Parse messages to a string prompt if needed
-            if isinstance(messages, list):
-                prompt = self._parse_messages_to_string(messages)
-            else:
-                prompt = str(messages)
-
-            # Generate and return response object
-            response_text = self._generate(
-                prompt,
-                max_length=kwargs.get("max_tokens", self.max_tokens),
-                temperature=kwargs.get("temperature", self.temperature),
-            )
-
-            return self._create_response(response_text, prompt)
-
-        except Exception as e:
-            logger.error(f"Completion failed: {e}")
-            return self._create_error_response(str(e))
-
-    def _generate(self, prompt: str, **kwargs) -> str:
-        """Direct generation method."""
-        return self.generate(
-            prompt,
-            max_length=kwargs.get("max_tokens", self.max_tokens),
-            temperature=kwargs.get("temperature", self.temperature),
-        )
-
-    @staticmethod
-    def _parse_messages_to_string(messages: List[Dict]) -> str:
-        """Parse chat messages to a string prompt."""
-        result = []
-
-        for msg in messages:
-            role = msg.get("role", "").lower()
-            content = msg.get("content", "")
-
-            if role == "system":
-                result.append(f"System: {content}")
-            elif role == "user":
-                result.append(f"User: {content}")
-            elif role == "assistant":
-                result.append(f"Assistant: {content}")
-            else:
-                result.append(content)
-
-        return "\n".join(result)
-
-    def _create_response(self, content: str, prompt: str) -> Any:
-        """Create a LiteLLM-compatible response object."""
-
-        class Response:
-            def __init__(self, content, model):
-                self.content = content
-                self.model = model
-                self.choices = [
-                    type(
-                        "Choice",
-                        (),
-                        {
-                            "message": type("Message", (), {"content": content}),
-                            "text": content,
-                        },
-                    )
-                ]
-
-        return Response(content, self.model_name)
-
-    def _create_error_response(self, error_msg: str) -> Any:
-        """Create an error response object."""
-
-        class ErrorResponse:
-            def __init__(self, error):
-                self.error = error
-                self.content = f"Error: {error}"
-                self.choices = []
-
-        return ErrorResponse(error_msg)
-
-    def batch_generate(
-        self, prompts: List[str], max_length: int = 1024, temperature: float = 0.3
-    ) -> List[str]:
-        """Generate responses for multiple prompts."""
-        return [self.generate(p, max_length, temperature) for p in prompts]
+    def get_stats(self) -> Dict[str, float]:
+        """Get performance statistics."""
+        return self.stats.copy()
 
     def clear_cache(self):
-        """Clear tokenization cache and KV cache."""
-        self._prompt_cache = {}
-        self._kv_cache = None
-
-    def get_performance_stats(self) -> Dict:
-        """Get performance statistics."""
-        if self.stats["total_calls"] > 0:
-            avg_tokenization = (
-                self.stats["tokenization_time"] / self.stats["total_calls"]
-            )
-            avg_generation = self.stats["generation_time"] / self.stats["total_calls"]
-        else:
-            avg_tokenization = 0
-            avg_generation = 0
-
-        return {
-            "total_calls": self.stats["total_calls"],
-            "total_tokenization_time": round(self.stats["tokenization_time"], 2),
-            "total_generation_time": round(self.stats["generation_time"], 2),
-            "avg_tokenization_time": round(avg_tokenization, 2),
-            "avg_generation_time": round(avg_generation, 2),
-            "model_name": self.model_name,
-            "device": self.model.device if self.model else self.device,
-        }
+        """Clear any cached data."""
+        self._prompt_cache.clear()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()

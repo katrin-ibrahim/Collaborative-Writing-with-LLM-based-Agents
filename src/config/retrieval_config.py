@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class RetrievalConfig(BaseConfig):
 
     # Retrieval Manager Configuration
-    retrieval_manager_type: str = "wiki"  # Options: "wiki", "bm25_wiki", "faiss_wiki"
+    retrieval_manager: str = "wiki"  # Options: "wiki", "bm25_wiki", "faiss_wiki"
 
     # Single Source of Truth for Retrieval Flow
     num_queries: int = 5  # How many search queries to generate
@@ -49,7 +49,7 @@ class RetrievalConfig(BaseConfig):
 
     def get_file_pattern(self) -> str:
         # Define how experiment outputs for retrieval should be named
-        return f"retrieval_{self.retrieval_manager_type}.json"
+        return f"retrieval_{self.retrieval_manager}.json"
 
     @classmethod
     def get_default(cls) -> "RetrievalConfig":

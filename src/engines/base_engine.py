@@ -1,26 +1,50 @@
 """
-Base model engine interface for standardization across different backends.
+Unified base engine interface for standardization across different backends.
 """
 
+import time
 from abc import ABC, abstractmethod
 
 import logging
-from typing import List
+from typing import Any, Dict, List, Union
 
 logger = logging.getLogger(__name__)
 
 
-from abc import ABC, abstractmethod
-
-from typing import List
-
-
 class BaseEngine(ABC):
     """
-    Abstract base class defining the interface for model engines.
-
-    Both LocalModelEngine and OllamaLiteLLMWrapper should implement this interface.
+    Abstract base class defining the unified interface for model engines.
+    All configuration is handled by ConfigContext - engines just handle inference.
     """
+
+    def __init__(
+        self, model: str, temperature: float = 0.7, max_tokens: int = 1000, **kwargs
+    ):
+        """
+        Initialize engine with minimal parameters from ConfigContext.
+
+        Args:
+            model: Model name/path
+            temperature: Generation temperature
+            max_tokens: Maximum tokens to generate
+            **kwargs: Backend-specific parameters (host, device, etc.)
+        """
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+
+        # Store backend-specific kwargs for child classes
+        self.backend_kwargs = kwargs
+
+        # LiteLLM compatibility attributes
+        self.model_name = model
+        self.kwargs = {
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        logger.info(f"{self.__class__.__name__} initialized with model: {model}")
 
     @abstractmethod
     def __call__(self, messages=None, **kwargs):
@@ -32,25 +56,35 @@ class BaseEngine(ABC):
             **kwargs: Additional parameters
 
         Returns:
-            Generation results
+            Generation results (LiteLLM-compatible response object)
         """
 
     @abstractmethod
-    def complete(self, messages, **kwargs):
+    def complete(self, messages: Union[str, List[Dict]], **kwargs) -> Any:
         """
         Complete messages and return response object.
 
         Args:
-            messages: Chat messages to complete
+            messages: Chat messages to complete (string or list of dicts)
             **kwargs: Additional parameters
 
         Returns:
-            Response object - compatible with STORM and LiteLLM
+            LiteLLM-compatible response object
+        """
+
+    @abstractmethod
+    def list_available_models(self) -> List[str]:
+        """
+        List available models for the engine.
+
+        Returns:
+            List of available model names
         """
 
     def extract_content(self, response) -> str:
         """
         Extract string content from a response object.
+        Handles various response formats from different backends.
 
         Args:
             response: Response object from complete() method
@@ -67,11 +101,107 @@ class BaseEngine(ABC):
         else:
             return str(response)
 
-    def list_available_models(self) -> List[str]:
+    def _create_response(self, content: str, prompt: str) -> Any:
         """
-        List available models for the engine.
+        Create LiteLLM-compatible response object.
+        Standardized across all engines for consistency.
+
+        Args:
+            content: Generated content
+            prompt: Original prompt (for token counting)
 
         Returns:
-            List of available model names
+            LiteLLM-compatible response object
         """
-        return [self.model_path]
+
+        class Response:
+            def __init__(self, content, model):
+                self.content = content
+                self.choices = [
+                    type(
+                        "Choice",
+                        (),
+                        {
+                            "message": type(
+                                "Message", (), {"content": content, "role": "assistant"}
+                            )(),
+                            "finish_reason": "stop",
+                            "index": 0,
+                        },
+                    )()
+                ]
+                self.model = model
+                self.usage = type(
+                    "Usage",
+                    (),
+                    {
+                        "prompt_tokens": len(prompt.split()),
+                        "completion_tokens": len(content.split()),
+                        "total_tokens": len(prompt.split()) + len(content.split()),
+                    },
+                )()
+                self.id = f"engine-{int(time.time())}"
+                self.object = "chat.completion"
+                self.created = int(time.time())
+
+                # Dict-like interface for compatibility
+                self._data = {
+                    "choices": self.choices,
+                    "model": self.model,
+                    "usage": self.usage,
+                    "id": self.id,
+                    "object": self.object,
+                    "created": self.created,
+                }
+
+            def __getitem__(self, key):
+                if isinstance(key, int):
+                    return self._data["choices"][key].message.content
+                else:
+                    return self._data[key]
+
+            def get(self, key, default=None):
+                return self._data.get(key, default)
+
+            def __str__(self):
+                return self.content
+
+        return Response(content, self.model)
+
+    def _parse_messages(self, messages: Union[str, List[Dict]]) -> tuple:
+        """
+        Parse various message formats into prompt and system_prompt.
+        Standardized across all engines.
+
+        Args:
+            messages: Input messages (string or chat format)
+
+        Returns:
+            tuple: (prompt, system_prompt)
+        """
+        if isinstance(messages, str):
+            return messages, None
+
+        if not isinstance(messages, list):
+            return str(messages), None
+
+        prompt_parts = []
+        system_prompt = None
+
+        for message in messages:
+            if isinstance(message, dict):
+                role = message.get("role", "")
+                content = message.get("content", "")
+
+                if role == "system":
+                    system_prompt = content
+                elif role in ["user", "assistant"]:
+                    prompt_parts.append(content)
+            else:
+                prompt_parts.append(str(message))
+
+        return "\n".join(prompt_parts), system_prompt
+
+    def _create_error_response(self, error_msg: str) -> Any:
+        """Create error response in LiteLLM format."""
+        return self._create_response(f"Error: {error_msg}", "")

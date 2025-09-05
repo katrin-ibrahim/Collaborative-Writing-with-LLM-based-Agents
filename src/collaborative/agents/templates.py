@@ -167,31 +167,42 @@ Prompt template functions for WriterAgent workflow.
 
 
 def planning_prompt(topic: str) -> str:
-    """Generate prompt for initial outline planning."""
     return f"""
-Create a detailed outline for a comprehensive article about: {topic}
+Create a simple outline for a comprehensive article about: {topic}.
+You must output ONLY the outline headings.
 
-Consider:
-- What are the essential aspects readers need to understand?
-- What background information is required?
-- What are the key concepts, applications, or examples?
-- What current developments or future implications exist?
-- How should information be logically organized?
+Structure:
+1. Title (as a markdown H1)
+2. 4–6 main sections (as markdown H2 headings)
+   - Section 1: introduction or background
+   - Section 2: core concepts
+   - Section 3: applications/examples
+   - Section 4: current developments
+   - Section 5: future/implications
+   - Section 6: conclusion (optional)
 
-Create an outline with:
-1. A clear, specific title
-2. 4-6 main sections that thoroughly cover the topic
-3. Logical flow from basic concepts to advanced topics
+Correct Format Example:
+# Title: Example Topic
 
-Format as:
-Title: [Specific Title]
+## Introduction & Context
+## Core Concepts
+## Applications
+## Current Developments
+## Future Implications
+## Conclusion
 
-1. [Section 1 - Usually introduction/background]
-2. [Section 2 - Core concepts]
-3. [Section 3 - Applications/examples]
-4. [Section 4 - Current state/developments]
-5. [Section 5 - Future/implications]
-6. [Section 6 - Conclusion (if needed)]
+Incorrect Format Example:
+# Title: Example Topic
+## Section 1
+- Explanation text
+## Section 2
+- Bullet points
+## Section 3 : subheading
+
+Guidelines:
+- Only output the section headings
+- No bullets, no explanations, no subheadings
+- Keep section titles concise
 """
 
 
@@ -253,30 +264,6 @@ Requirements:
 - Provide clear explanations and relevant examples
 - Maintain an informative, engaging tone
 - Ensure logical flow and organization
-"""
-
-
-def knowledge_organization_prompt(topic: str, search_results: str) -> str:
-    """Generate prompt for organizing search results."""
-    return f"""
-Organize the following search results for writing an article about "{topic}":
-
-Search Results:
-{search_results}
-
-Please organize this information into logical categories that would be useful for writing.
-For each category, list the relevant information and indicate how many sources support each point.
-
-Format as:
-Category 1: [Name]
-- [Key point 1 from sources]
-- [Key point 2 from sources]
-
-Category 2: [Name]
-- [Key point 1 from sources]
-- [Key point 2 from sources]
-
-Provide a brief summary of coverage for each category.
 """
 
 

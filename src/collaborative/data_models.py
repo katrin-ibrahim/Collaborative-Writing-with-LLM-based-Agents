@@ -54,8 +54,6 @@ class WriterState:
 
     # Research phase
     search_results: List[Dict[str, Any]]
-    organized_knowledge: Optional[Dict[str, Any]]
-
     # Refinement phase
     refined_outline: Optional[Outline]
     knowledge_gaps: List[str]

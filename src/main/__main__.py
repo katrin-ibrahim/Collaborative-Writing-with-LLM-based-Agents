@@ -86,8 +86,9 @@ def load_configurations(args):
 
     # Retrieval configuration - may be None
     try:
+
         retrieval_config = RetrievalConfig.from_yaml_with_overrides(
-            args.retrieval_manager,  # Could be None
+            retrieval_manager=args.retrieval_manager,  # Could be None
             semantic_filtering_enabled=args.semantic_filtering,
         )
         if args.retrieval_manager:

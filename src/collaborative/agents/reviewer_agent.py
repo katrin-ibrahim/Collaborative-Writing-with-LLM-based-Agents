@@ -39,7 +39,7 @@ class ReviewerAgent(BaseAgent):
         self.max_search_results = self.collaboration_config.get(
             "reviewer.max_search_results", 3
         )
-        self.rm_type = self.retrieval_config.get("retrieval_manager_type", "wiki")
+        self.rm_type = self.retrieval_config.get("retrieval_manager", "wiki")
 
         # Initialize reviewer toolkit
         self.toolkit = ReviewerToolkit(self.retrieval_config)

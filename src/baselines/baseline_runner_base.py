@@ -409,7 +409,7 @@ def run_baseline_experiment(args, runner_class, runner_name):
                         args.semantic_filtering.lower() == "true"
                     )
                 if hasattr(args, "retrieval_manager") and args.retrieval_manager:
-                    overrides["retrieval_manager_type"] = args.retrieval_manager
+                    overrides["retrieval_manager"] = args.retrieval_manager
 
                 retrieval_config = RetrievalConfig.from_yaml_with_overrides(
                     None, **overrides
