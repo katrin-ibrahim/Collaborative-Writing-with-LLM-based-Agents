@@ -276,7 +276,80 @@ class WriterAgent(BaseAgent):
         # Add new results to existing ones
         state.search_results.extend(new_results)
 
+        state.organized_knowledge = self._organize_search_results(
+            state.search_results, state.initial_outline, state.research_queries
+        )
+
         return state
+
+    def _organize_search_results(
+        self, search_results: List[Dict], outline: Outline, queries: List[str]
+    ) -> Dict:
+        """Organize search results using hybrid section + relevance approach."""
+        if not search_results or not outline:
+            return {
+                "by_section": {},
+                "cross_cutting": [],
+                "metadata": {"coverage_score": 0.0},
+            }
+
+        # Map queries to sections
+        query_to_section = {}
+        for i, query in enumerate(queries):
+            if i < len(outline.headings):
+                query_to_section[query] = outline.headings[i]
+
+        # Initialize organized structure
+        organized = {
+            "by_section": {
+                section: {"primary_results": [], "supporting_results": []}
+                for section in outline.headings
+            },
+            "cross_cutting": [],
+            "metadata": {},
+        }
+
+        # Organize results by relevance tiers
+        for result in search_results:
+            relevance = result.get("relevance_score", 0.5)
+            result_query = result.get("query", "")
+            target_section = query_to_section.get(result_query)
+
+            if target_section and target_section in organized["by_section"]:
+                if relevance >= 0.7:
+                    organized["by_section"][target_section]["primary_results"].append(
+                        result
+                    )
+                elif relevance >= 0.4:
+                    organized["by_section"][target_section][
+                        "supporting_results"
+                    ].append(result)
+            else:
+                if relevance >= 0.6:
+                    organized["cross_cutting"].append(result)
+
+        # Calculate coverage scores
+        section_coverage = {}
+        total_coverage = 0
+        for section in outline.headings:
+            primary_count = len(organized["by_section"][section]["primary_results"])
+            supporting_count = len(
+                organized["by_section"][section]["supporting_results"]
+            )
+            section_score = min(
+                1.0, (primary_count * 0.7 + supporting_count * 0.3) / 2.0
+            )
+            section_coverage[section] = section_score
+            total_coverage += section_score
+
+        organized["metadata"] = {
+            "coverage_score": (
+                total_coverage / len(outline.headings) if outline.headings else 0.0
+            ),
+            "section_coverage": section_coverage,
+        }
+
+        return organized
 
     def _refine_outline_node(self, state: WriterState) -> WriterState:
         """Refine outline based on research findings using LLM reasoning."""
@@ -295,13 +368,14 @@ class WriterAgent(BaseAgent):
         )
 
         # Use template prompt for refinement
+        knowledge_summary = self._generate_knowledge_summary(state.organized_knowledge)
+        coverage_analysis = self._format_coverage_analysis(state.organized_knowledge)
+
         prompt = refinement_prompt(
             topic=state.topic,
             current_outline=self._format_outline_for_prompt(state.initial_outline),
-            knowledge_summary=state.organized_knowledge.get(
-                "summary", "No summary available"
-            ),
-            coverage_analysis=str(knowledge_coverage),
+            knowledge_summary=knowledge_summary,
+            coverage_analysis=coverage_analysis,
         )
 
         refined_response = self.api_client.call_api(prompt)
@@ -332,6 +406,57 @@ class WriterAgent(BaseAgent):
         )
 
         return state
+
+    def _generate_knowledge_summary(self, organized_knowledge: Dict) -> str:
+        """Generate a summary of organized knowledge for prompting."""
+        if not organized_knowledge:
+            return "No research data available"
+
+        metadata = organized_knowledge.get("metadata", {})
+        by_section = organized_knowledge.get("by_section", {})
+        cross_cutting = organized_knowledge.get("cross_cutting", [])
+
+        summary_parts = []
+        summary_parts.append(
+            f"Total research results: {metadata.get('total_results', 0)}"
+        )
+        summary_parts.append(f"Unique sources: {metadata.get('unique_sources', 0)}")
+        summary_parts.append(
+            f"Overall coverage score: {metadata.get('coverage_score', 0):.2f}"
+        )
+
+        if cross_cutting:
+            summary_parts.append(f"Cross-cutting results: {len(cross_cutting)}")
+
+        summary_parts.append("\nSection-specific coverage:")
+        for section, data in by_section.items():
+            primary = len(data.get("primary_results", []))
+            supporting = len(data.get("supporting_results", []))
+            summary_parts.append(
+                f"- {section}: {primary} primary, {supporting} supporting results"
+            )
+
+        return "\n".join(summary_parts)
+
+    def _format_coverage_analysis(self, organized_knowledge: Dict) -> str:
+        """Format coverage analysis for prompting."""
+        if not organized_knowledge:
+            return "No coverage analysis available"
+
+        section_coverage = organized_knowledge.get("metadata", {}).get(
+            "section_coverage", {}
+        )
+
+        analysis_parts = []
+        for section, score in section_coverage.items():
+            status = (
+                "Well covered"
+                if score >= 0.6
+                else "Needs attention" if score >= 0.3 else "Poorly covered"
+            )
+            analysis_parts.append(f"- {section}: {score:.2f} ({status})")
+
+        return "\n".join(analysis_parts)
 
     def _write_content_node(self, state: WriterState) -> WriterState:
         """Generate article content using LLM with organized knowledge."""
@@ -390,7 +515,9 @@ class WriterAgent(BaseAgent):
 
         # Check knowledge coverage
         if state.organized_knowledge:
-            coverage_score = state.organized_knowledge.get("coverage_score", 0)
+            coverage_score = state.organized_knowledge.get("metadata", {}).get(
+                "coverage_score", 0
+            )
 
             if coverage_score >= self.knowledge_coverage_threshold:
                 logger.info(
@@ -474,37 +601,10 @@ class WriterAgent(BaseAgent):
     def _analyze_knowledge_coverage(
         self, outline: Outline, organized_knowledge: Dict
     ) -> Dict[str, float]:
-        """Analyze how well each outline section is covered by available knowledge."""
-        coverage = {}
-
-        if not organized_knowledge or not organized_knowledge.get("categories"):
+        if not organized_knowledge or not organized_knowledge.get("metadata"):
             return {heading: 0.0 for heading in outline.headings}
 
-        for heading in outline.headings:
-            # Simple heuristic: count relevant results for each section
-            relevant_count = 0
-            total_count = sum(
-                len(results) for results in organized_knowledge["categories"].values()
-            )
-
-            if total_count > 0:
-                # Look for heading keywords in organized content
-                heading_words = heading.lower().split()
-                for category, results in organized_knowledge["categories"].items():
-                    category_words = category.lower().split("_")
-
-                    # Check for keyword overlap
-                    overlap = set(heading_words) & set(category_words)
-                    if overlap:
-                        relevant_count += len(results)
-
-                coverage[heading] = min(
-                    1.0, relevant_count / max(1, total_count / len(outline.headings))
-                )
-            else:
-                coverage[heading] = 0.0
-
-        return coverage
+        return organized_knowledge["metadata"].get("section_coverage", {})
 
     def _identify_knowledge_gaps(
         self, outline: Outline, organized_knowledge: Dict
@@ -546,27 +646,31 @@ class WriterAgent(BaseAgent):
     def _find_relevant_info_for_section(
         self, section_heading: str, organized_knowledge: Optional[Dict]
     ) -> str:
-        """Find relevant organized information for a specific section."""
-        if not organized_knowledge or not organized_knowledge.get("categories"):
+        """Find relevant organized information using hybrid structure."""
+        if not organized_knowledge or not organized_knowledge.get("by_section"):
             return ""
 
+        section_data = organized_knowledge["by_section"].get(section_heading, {})
         relevant_parts = []
-        section_words = set(section_heading.lower().split())
 
-        for category, results in organized_knowledge["categories"].items():
-            category_words = set(category.lower().split("_"))
+        # Start with primary results (high confidence)
+        for result in section_data.get("primary_results", [])[:3]:
+            content = result.get("content", "")
+            if content:
+                if len(content) > 300:
+                    content = content[:300] + "..."
+                relevant_parts.append(f"- {content}")
 
-            # Check for keyword overlap
-            if section_words & category_words:
-                for result in results[:2]:  # Limit to top 2 results per category
-                    content = result.get("content", "")
-                    if content:
-                        # Truncate long content
-                        if len(content) > 300:
-                            content = content[:300] + "..."
-                        relevant_parts.append(f"- {content}")
+        # Add supporting results if needed
+        if len(relevant_parts) < 2:
+            for result in section_data.get("supporting_results", [])[:2]:
+                content = result.get("content", "")
+                if content:
+                    if len(content) > 300:
+                        content = content[:300] + "..."
+                    relevant_parts.append(f"- {content}")
 
-        return "\n".join(relevant_parts[:5])  # Limit total relevant information
+        return "\n".join(relevant_parts[:5])
 
     def _create_article_from_state(self, state: WriterState) -> Article:
         """Create Article object from final workflow state."""

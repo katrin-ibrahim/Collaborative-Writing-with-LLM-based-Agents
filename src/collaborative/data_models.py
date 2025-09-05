@@ -67,6 +67,7 @@ class WriterState:
 
     # Metadata
     metadata: Dict[str, Any]
+    organized_knowledge: Optional[Dict[str, Any]]
 
     def __init__(self, messages, topic, **kwargs):
         self.messages = messages
