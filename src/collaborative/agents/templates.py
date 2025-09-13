@@ -206,9 +206,7 @@ Guidelines:
 """
 
 
-def refinement_prompt(
-    topic: str, current_outline: str, knowledge_summary: str, coverage_analysis: str
-) -> str:
+def refinement_prompt(topic: str, current_outline: str, content_summary: str) -> str:
     """Generate prompt for outline refinement based on research."""
     return f"""
 Refine this outline for "{topic}" based on research findings:
@@ -216,20 +214,46 @@ Refine this outline for "{topic}" based on research findings:
 Current Outline:
 {current_outline}
 
-Available Knowledge Categories:
-{knowledge_summary}
+Content Summary from Research:
+{content_summary}
 
-Knowledge Coverage Analysis:
-{coverage_analysis}
+Structure:
+1. Title (as a markdown H1)
+2. 4–6 main sections (as markdown H2 headings)
+   - Section 1: introduction or background
+   - Section 2: core concepts
+   - Section 3: applications/examples
+   - Section 4: current developments
+   - Section 5: future/implications
+   - Section 6: conclusion (optional)
 
-Instructions:
-1. Keep well-supported sections with sufficient information
-2. Modify or merge sections with insufficient coverage
-3. Add new sections for important topics discovered in research
-4. Ensure logical flow and comprehensive coverage
-5. Aim for 4-6 main sections maximum
+Correct Format Example:
+# Title: Example Topic
 
-Provide the refined outline in the same format as the original.
+## Introduction & Context
+## Core Concepts
+## Applications
+## Current Developments
+## Future Implications
+## Conclusion
+
+Incorrect Format Example:
+# Title: Example Topic
+## Section 1
+- Explanation text
+## Section 2
+- Bullet points
+## Section 3 : subheading
+
+Guidelines:
+- Only output the section headings
+- No bullets, no explanations, no subheadings
+- Keep section titles concise
+- Incorporate search insights to improve relevance and completeness of section headings
+- There is no need to write section content at this stage, you are only using the research to enhance or create more targeted section headings
+
+
+
 """
 
 

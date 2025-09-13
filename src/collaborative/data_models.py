@@ -5,9 +5,11 @@ Data models for collaborative writing system.
 
 import operator
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from langchain_core.messages import BaseMessage
 from typing import Annotated, Any, Dict, List, Optional
+
+from src.utils.data.models import Outline
 
 
 @dataclass
@@ -30,15 +32,6 @@ class CollaborationMetrics:
     improvement: float
     total_time: float
     convergence_reason: str
-
-
-@dataclass
-class Outline:
-    """Article outline structure."""
-
-    title: str
-    headings: List[str]
-    subheadings: Dict[str, List[str]] = field(default_factory=dict)
 
 
 @dataclass
