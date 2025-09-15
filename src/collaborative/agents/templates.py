@@ -87,31 +87,34 @@ Do NOT provide numerical scores - these have been calculated objectively.
 
 def fact_checking_strategy_prompt(article_content: str, title: str) -> str:
     """Generate prompt to identify claims that need fact-checking."""
-
     return f"""
-Analyze this article about "{title}" and identify the most important factual claims that should be verified:
+    Extract factual claims that need verification.
 
-ARTICLE CONTENT:
-{article_content[:1000]}{"..." if len(article_content) > 1000 else ""}
+    CONTENT:
+    {article_content}
 
-Please identify:
-1. Statistical claims (numbers, percentages, dates)
-2. Factual assertions that could be verified
-3. Claims about recent events or developments
-4. Technical or scientific statements
+    Use this EXACT format (choose ONE value for each field):
 
-Return the top 5 most important claims to fact-check, formatted as:
-1. [First claim to verify]
-2. [Second claim to verify]
-3. [Third claim to verify]
-4. [Fourth claim to verify]
-5. [Fifth claim to verify]
+    <fact_check_analysis>
+    <claim id="1">
+    <text>exact claim text here</text>
+    <category>event</category>
+    <priority>high</priority>
+    <checkable>true</checkable>
+    </claim>
+    <claim id="2">
+    <text>another claim</text>
+    <category>number</category>
+    <priority>medium</priority>
+    <checkable>true</checkable>
+    </claim>
+    </fact_check_analysis>
 
-Focus on claims that are:
-- Specific and verifiable
-- Important to the article's credibility
-- Potentially controversial or disputed
-"""
+    Categories: date, number, name, location, event, quote
+    Priorities: high, medium, low
+    Checkable: true, false
+
+    Extract 5-10 claims minimum."""
 
 
 def structure_analysis_prompt(article_content: str, title: str, metrics: Dict) -> str:

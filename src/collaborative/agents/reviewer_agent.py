@@ -33,13 +33,13 @@ class ReviewerAgent(BaseAgent):
         self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Configuration
-        self.max_claims_to_check = self.collaboration_config.get(
-            "reviewer.max_claims_to_check", 5
+        self.max_claims_to_check = getattr(
+            self.collaboration_config, "reviewer.max_claims_to_check", 10
         )
-        self.max_search_results = self.collaboration_config.get(
-            "reviewer.max_search_results", 3
+        self.max_search_results = getattr(
+            self.collaboration_config, "reviewer.max_search_results", 3
         )
-        self.rm_type = self.retrieval_config.get("retrieval_manager", "wiki")
+        self.rm_type = getattr(self.retrieval_config, "retrieval_manager", "wiki")
 
         # Initialize reviewer toolkit
         self.toolkit = ReviewerToolkit(self.retrieval_config)
@@ -54,7 +54,7 @@ class ReviewerAgent(BaseAgent):
             elif tool.name == "get_article_metrics":
                 self.metrics_tool = tool
 
-        logger.info("ReviewerAgent initialized with clean architecture")
+        logger.info("ReviewerAgent initialized")
 
     def process(self, article: Article) -> ReviewFeedback:
         """
@@ -163,14 +163,44 @@ class ReviewerAgent(BaseAgent):
             response = self.api_client.call_api(prompt)
 
             # Parse numbered list from response
+            # Parse XML from response
             claims = []
-            for line in response.split("\n"):
-                line = line.strip()
-                if line and (line[0].isdigit() or line.startswith("-")):
-                    # Extract claim text after number/bullet
-                    claim_text = re.sub(r"^[\d\-\.\)\s]+", "", line).strip()
-                    if claim_text and len(claim_text) > 10:  # Reasonable length check
-                        claims.append(claim_text)
+            try:
+                # Extract XML block if wrapped in other text
+                xml_match = re.search(
+                    r"<fact_check_analysis>.*?</fact_check_analysis>",
+                    response,
+                    re.DOTALL,
+                )
+                if xml_match:
+                    xml_content = xml_match.group()
+                else:
+                    # Try parsing entire response as XML
+                    xml_content = response.strip()
+
+                # Parse XML
+                import xml.etree.ElementTree as ET
+
+                root = ET.fromstring(xml_content)
+
+                # Extract claims from XML
+                for claim_elem in root.findall("claim"):
+                    text_elem = claim_elem.find("text")
+                    if text_elem is not None and text_elem.text:
+                        claim_text = text_elem.text.strip()
+                        if (
+                            claim_text and len(claim_text) > 10
+                        ):  # Reasonable length check
+                            claims.append(claim_text)
+
+            except (ET.ParseError, AttributeError):
+                # Fallback to original numbered list parsing if XML fails
+                for line in response.split("\n"):
+                    line = line.strip()
+                    if line and (line[0].isdigit() or line.startswith("-")):
+                        claim_text = re.sub(r"^[\d\-\.\)\s]+", "", line).strip()
+                        if claim_text and len(claim_text) > 10:
+                            claims.append(claim_text)
 
             # Limit to configured maximum
             claims = claims[: self.max_claims_to_check]
@@ -332,36 +362,46 @@ class ReviewerAgent(BaseAgent):
     ) -> float:
         """Calculate overall score based on metrics and fact-checking."""
 
-        score = 0.5  # Base score
+        import math
 
-        # Word count component (0-0.3)
+        # Start with neutral score
+        score = 0.0
+
+        # Content adequacy (sigmoid curve, not hard thresholds)
         word_count = metrics.get("word_count", 0)
-        if word_count >= 1000:
-            score += 0.3
-        elif word_count >= 500:
-            score += 0.2
-        elif word_count >= 200:
-            score += 0.1
+        if word_count > 0:
+            # Sigmoid: approaches 1 as word count approaches target
+            length_score = 2 / (1 + math.exp(-(word_count - 1200) / 300)) - 1
+            score += max(0, length_score) * 0.4
 
-        # Structure component (0-0.2)
+        # Structure adequacy
         heading_count = metrics.get("heading_count", 0)
-        if heading_count >= 4:
-            score += 0.2
-        elif heading_count >= 2:
-            score += 0.1
+        if heading_count > 0:
+            # Diminishing returns: 1 heading = 0.3, 2 = 0.55, 3 = 0.7, 4+ = 0.8
+            structure_score = 1 - math.exp(-heading_count / 2.5)
+            score += structure_score * 0.3
 
-        # Fact-checking component (0-0.3)
-        if fact_check_results:
-            verified_claims = sum(
-                1 for result in fact_check_results if result.get("sources_found", 0) > 0
+        # Fact verification accuracy (fixed logic)
+        if fact_check_results and len(fact_check_results) > 0:
+            verified_count = sum(
+                1 for r in fact_check_results if r.get("verified") == True
             )
-            verification_rate = verified_claims / len(fact_check_results)
-            score += verification_rate * 0.3
-        else:
-            # No claims to verify - neutral
-            score += 0.15
+            false_count = sum(
+                1 for r in fact_check_results if r.get("verified") == False
+            )
+            total_claims = len(fact_check_results)
 
-        # Ensure score is between 0 and 1
+            # Accuracy with penalty for false claims
+            accuracy_rate = verified_count / total_claims
+            false_penalty = false_count / total_claims
+            fact_score = max(
+                0, accuracy_rate - false_penalty * 2
+            )  # False claims hurt more
+            score += fact_score * 0.3
+        else:
+            # No claims found - neutral (not bonus)
+            pass
+
         return max(0.0, min(1.0, score))
 
     def _parse_qualitative_feedback(

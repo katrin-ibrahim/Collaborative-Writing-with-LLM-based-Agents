@@ -21,7 +21,7 @@ class TestGenerationIntegration:
             # "rag",
             # "storm",
             # "direct",
-            "writer_only",
+            "writer_reviewer",
             "--model_config",
             "ollama_localhost",
             "--retrieval_manager",

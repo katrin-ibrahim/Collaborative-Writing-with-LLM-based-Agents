@@ -29,16 +29,13 @@ class WriterReviewerMethod(BaseMethod):
     """
 
     def __init__(self):
-        self.collaboration_config = ConfigContext.get_collaboration_config()
+        super().__init__()
+        self.collab_config = ConfigContext.get_collaboration_config()
 
-        # Collaboration parameters
-        self.max_iterations = self.collaboration_config.get("max_iterations", 3)
-        self.convergence_threshold = self.collaboration_config.get(
-            "convergence_threshold", 0.85
-        )
-        self.min_improvement_threshold = self.collaboration_config.get(
-            "min_improvement_threshold", 0.02
-        )
+        # Extract key parameters for easy access
+        self.max_iterations = self.collab_config.max_iterations
+        self.convergence_threshold = self.collab_config.convergence_threshold
+        self.min_improvement_threshold = self.collab_config.min_improvement_threshold
 
     def run(self, topic: str) -> Article:
         """
