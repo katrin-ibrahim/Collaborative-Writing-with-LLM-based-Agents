@@ -10,6 +10,7 @@ import logging
 from src.collaborative.agents.reviewer_agent import ReviewerAgent
 from src.collaborative.agents.writer_agent import WriterAgent
 from src.collaborative.data_models import CollaborationMetrics
+from src.collaborative.memory import SharedMemory
 from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
 from src.utils.data import Article
@@ -54,15 +55,27 @@ class WriterReviewerMethod(BaseMethod):
         reviewer_time = 0
 
         try:
-            # Initialize agents
+            # Initialize shared memory and agents
+            memory = SharedMemory(
+                topic=topic,
+                max_iterations=self.max_iterations,
+                min_feedback_threshold=1,
+            )
             writer = WriterAgent()
             reviewer = ReviewerAgent()
 
-            # Initial draft
-            logger.info(f"Writer creating initial draft for: {topic}")
-            writer_start = time.time()
-            current_article = writer.process(topic)
-            writer_time += time.time() - writer_start
+            # Check if we have an existing draft, otherwise create initial draft
+            current_draft = memory.get_current_draft()
+            if not current_draft:
+                logger.info(f"Writer creating initial draft for: {topic}")
+                writer_start = time.time()
+                current_article = writer.process(topic)
+                writer_time += time.time() - writer_start
+                memory.store_draft(current_article.content)
+            else:
+                # Resume from existing draft
+                current_article = Article(title=topic, content=current_draft)
+                logger.info(f"Resuming collaboration from existing draft")
 
             # Initial review
             reviewer_start = time.time()
@@ -74,21 +87,35 @@ class WriterReviewerMethod(BaseMethod):
 
             logger.info(f"Initial review score: {initial_score:.3f}")
 
+            # Add initial feedback to memory
+            memory.add_feedback([current_review.feedback_text])
+
             # Collaboration loop
             convergence_reason = "max_iterations_reached"
 
-            for iteration in range(1, self.max_iterations + 1):
-                logger.info(
-                    f"Collaboration iteration {iteration}/{self.max_iterations}"
-                )
+            while True:
+                # Check convergence using memory system
+                converged, reason = memory.check_convergence()
+                if converged:
+                    convergence_reason = reason
+                    logger.info(f"Convergence reached: {reason}")
+                    break
 
-                # Check convergence
+                # Check score-based convergence
                 if current_review.overall_score >= self.convergence_threshold:
                     convergence_reason = "score_threshold_reached"
                     logger.info(
                         f"Convergence reached: score {current_review.overall_score:.3f} >= {self.convergence_threshold}"
                     )
                     break
+
+                # Move to next iteration
+                memory.next_iteration()
+                iteration = memory.data["iteration"]
+
+                logger.info(
+                    f"Collaboration iteration {iteration}/{self.max_iterations}"
+                )
 
                 # Writer improves based on feedback
                 writer_start = time.time()
@@ -106,10 +133,16 @@ class WriterReviewerMethod(BaseMethod):
                     )
                     break
 
+                # Store improved draft
+                memory.store_draft(improved_article.content)
+
                 # Review improved article
                 reviewer_start = time.time()
                 improved_review = reviewer.process(improved_article)
                 reviewer_time += time.time() - reviewer_start
+
+                # Add new feedback to memory
+                memory.add_feedback([improved_review.feedback_text])
 
                 # Calculate improvement
                 score_improvement = (
@@ -121,7 +154,7 @@ class WriterReviewerMethod(BaseMethod):
                 )
 
                 # Check for minimal improvement
-                if score_improvement < self.min_improvement_threshold:
+                if score_improvement > self.min_improvement_threshold:
                     convergence_reason = "minimal_improvement"
                     logger.info(
                         f"Minimal improvement detected (< {self.min_improvement_threshold})"
@@ -144,14 +177,20 @@ class WriterReviewerMethod(BaseMethod):
             final_score = current_review.overall_score
             total_improvement = final_score - initial_score
 
+            # Get final convergence reason from memory system (takes priority)
+            session_summary = memory.get_session_summary()
+            final_convergence_reason = (
+                session_summary.get("convergence_reason") or convergence_reason
+            )
+
             # Create collaboration metrics
             metrics = CollaborationMetrics(
-                iterations=len(collaboration_history) - 1,
+                iterations=session_summary["iteration"],
                 initial_score=initial_score,
                 final_score=final_score,
                 improvement=total_improvement,
                 total_time=total_time,
-                convergence_reason=convergence_reason,
+                convergence_reason=final_convergence_reason,
             )
 
             # Update article metadata
@@ -168,6 +207,8 @@ class WriterReviewerMethod(BaseMethod):
                     "reviewer_time": reviewer_time,
                     "review_score": current_review.overall_score,
                     "review_feedback": current_review.feedback_text,
+                    "session_id": session_summary["session_id"],
+                    "draft_version": session_summary["draft_version"],
                 }
             )
 

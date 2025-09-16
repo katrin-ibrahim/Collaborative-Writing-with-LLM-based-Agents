@@ -91,6 +91,15 @@ class ReviewerAgent(BaseAgent):
             # Step 6: Calculate overall score based on metrics and fact-checking
             overall_score = self._calculate_overall_score(metrics, fact_check_results)
 
+            # Debug logging for scoring
+            logger.info(
+                f"Article scoring debug - Title: {article.title}, "
+                f"Word count: {metrics.get('word_count', 0)}, "
+                f"Heading count: {metrics.get('heading_count', 0)}, "
+                f"Fact check results: {len(fact_check_results)}, "
+                f"Final score: {overall_score:.3f}"
+            )
+
             # Step 7: Create structured feedback
             feedback = ReviewFeedback(
                 overall_score=overall_score,
@@ -366,22 +375,36 @@ class ReviewerAgent(BaseAgent):
 
         # Start with neutral score
         score = 0.0
+        logger.debug(f"Starting score calculation with metrics: {metrics}")
 
         # Content adequacy (sigmoid curve, not hard thresholds)
         word_count = metrics.get("word_count", 0)
+        length_component = 0.0
         if word_count > 0:
             # Sigmoid: approaches 1 as word count approaches target
             length_score = 2 / (1 + math.exp(-(word_count - 1200) / 300)) - 1
-            score += max(0, length_score) * 0.4
+            length_component = max(0, length_score) * 0.4
+            score += length_component
+            logger.debug(
+                f"Length scoring: {word_count} words -> raw_score={length_score:.3f}, "
+                f"component={length_component:.3f}"
+            )
 
         # Structure adequacy
         heading_count = metrics.get("heading_count", 0)
+        structure_component = 0.0
         if heading_count > 0:
             # Diminishing returns: 1 heading = 0.3, 2 = 0.55, 3 = 0.7, 4+ = 0.8
             structure_score = 1 - math.exp(-heading_count / 2.5)
-            score += structure_score * 0.3
+            structure_component = structure_score * 0.3
+            score += structure_component
+            logger.debug(
+                f"Structure scoring: {heading_count} headings -> raw_score={structure_score:.3f}, "
+                f"component={structure_component:.3f}"
+            )
 
         # Fact verification accuracy (fixed logic)
+        fact_component = 0.0
         if fact_check_results and len(fact_check_results) > 0:
             verified_count = sum(
                 1 for r in fact_check_results if r.get("verified") == True
@@ -397,12 +420,23 @@ class ReviewerAgent(BaseAgent):
             fact_score = max(
                 0, accuracy_rate - false_penalty * 2
             )  # False claims hurt more
-            score += fact_score * 0.3
+            fact_component = fact_score * 0.3
+            score += fact_component
+            logger.debug(
+                f"Fact checking: {verified_count}/{total_claims} verified, "
+                f"{false_count} false -> component={fact_component:.3f}"
+            )
         else:
             # No claims found - neutral (not bonus)
-            pass
+            logger.debug("No fact checking results available")
 
-        return max(0.0, min(1.0, score))
+        final_score = max(0.0, min(1.0, score))
+        logger.debug(
+            f"Final score calculation: length={length_component:.3f} + "
+            f"structure={structure_component:.3f} + fact={fact_component:.3f} = {final_score:.3f}"
+        )
+
+        return final_score
 
     def _parse_qualitative_feedback(
         self, feedback_text: str
