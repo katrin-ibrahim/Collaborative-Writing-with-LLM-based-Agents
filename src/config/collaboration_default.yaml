@@ -7,7 +7,7 @@ convergence_threshold: 0.75
 min_improvement_threshold: 0.05
 
 # Writer agent configuration
-writer_max_research_iterations: 1
+
 writer_use_external_knowledge: true
 
 # Reviewer agent configuration

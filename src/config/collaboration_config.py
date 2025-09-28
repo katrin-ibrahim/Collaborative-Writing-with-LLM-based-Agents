@@ -18,7 +18,6 @@ class CollaborationConfig(BaseConfig):
     min_improvement_threshold: float = 0.02
 
     # Writer agent configuration
-    writer_max_research_iterations: int = 2
     writer_use_external_knowledge: bool = True
 
     # Reviewer agent configuration

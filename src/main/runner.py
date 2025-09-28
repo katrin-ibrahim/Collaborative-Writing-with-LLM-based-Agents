@@ -121,12 +121,15 @@ class Runner:
             method_results = self.run_topics(method_topics, method)
             results.extend(method_results)
 
-            # Save progress if state manager available
-            if self.state_manager:
-                for topic, article in zip(method_topics, method_results):
-                    if "error" not in article.metadata:
+            # Save articles and mark progress
+            for topic, article in zip(method_topics, method_results):
+                if "error" not in article.metadata:
+                    # Save article if output manager available
+                    if self.output_manager:
+                        self.output_manager.save_article(article, method)
+
+                    # Mark complete if state manager available
+                    if self.state_manager:
                         self.state_manager.mark_complete(topic, method)
-                        if self.output_manager:
-                            self.output_manager.save_article(article, method)
 
         return results

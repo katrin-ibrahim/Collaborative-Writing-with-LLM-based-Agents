@@ -36,42 +36,31 @@ class CollaborationMetrics:
 
 @dataclass
 class WriterState:
-    """State for writer workflow with planning-first approach."""
+    """State for simplified writer workflow: search → outline → write."""
 
     messages: Annotated[List[BaseMessage], operator.add]
     topic: str
 
-    # Planning phase
-    initial_outline: Optional[Outline]
+    # Search phase
     research_queries: List[str]
-
-    # Research phase
     search_results: List[Dict[str, Any]]
-    # Refinement phase
-    refined_outline: Optional[Outline]
-    knowledge_gaps: List[str]
+    organized_knowledge: Optional[Dict[str, Any]]
+
+    # Outline phase
+    initial_outline: Optional[Outline]
 
     # Writing phase
     article_content: str
 
-    # Flow control
-    research_iterations: int
-    ready_to_write: bool
-
     # Metadata
     metadata: Dict[str, Any]
-    organized_knowledge: Optional[Dict[str, Any]]
 
     def __init__(self, messages, topic, **kwargs):
         self.messages = messages
         self.topic = topic
-        self.initial_outline = kwargs.get("initial_outline")
         self.research_queries = kwargs.get("research_queries", [])
         self.search_results = kwargs.get("search_results", [])
         self.organized_knowledge = kwargs.get("organized_knowledge")
-        self.refined_outline = kwargs.get("refined_outline")
-        self.knowledge_gaps = kwargs.get("knowledge_gaps", [])
+        self.initial_outline = kwargs.get("initial_outline")
         self.article_content = kwargs.get("article_content", "")
-        self.research_iterations = kwargs.get("research_iterations", 0)
-        self.ready_to_write = kwargs.get("ready_to_write", False)
         self.metadata = kwargs.get("metadata", {})

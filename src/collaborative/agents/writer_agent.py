@@ -13,7 +13,7 @@ from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
     improvement_prompt,
     planning_prompt,
-    refinement_prompt,
+    search_query_generation_prompt,
     section_content_prompt_with_research,
     section_content_prompt_without_research,
 )
@@ -27,9 +27,10 @@ logger = logging.getLogger(__name__)
 
 class WriterAgent(BaseAgent):
     """
-    Sophisticated Writer agent with planning-first workflow.
+    Sophisticated Writer agent with simplified search-first workflow.
 
-    Workflow: plan_outline → targeted_research → refine_outline → write_content
+    Workflow: search → outline → write
+    Search includes: direct topic search + context-aware targeted queries
     Uses only real tools (search_and_retrieve) and LLM reasoning.
     """
 
@@ -39,18 +40,7 @@ class WriterAgent(BaseAgent):
         self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Get configuration values with proper defaults
-        self.max_research_iterations = getattr(
-            self.collaboration_config, "writer.max_research_iterations", 3
-        )
-        self.knowledge_coverage_threshold = getattr(
-            self.collaboration_config, "writer.knowledge_coverage_threshold", 0.7
-        )
-        self.max_research_queries_per_iteration = getattr(
-            self.collaboration_config, "writer.max_queries_per_iteration", 6
-        )
-        self.max_search_results = getattr(
-            self.collaboration_config, "writer.max_search_results", 5
-        )
+        self.num_queries = getattr(self.retrieval_config, "num_queries", 5)
         self.rm_type = getattr(self.retrieval_config, "retrieval_manager", "wiki")
 
         # Initialize writer toolkit (only search_and_retrieve tool)
@@ -67,39 +57,30 @@ class WriterAgent(BaseAgent):
         self.workflow = self._build_workflow()
 
         logger.info(
-            f"WriterAgent initialized with planning-first workflow "
-            f"(max_iterations={self.max_research_iterations}, "
-            f"coverage_threshold={self.knowledge_coverage_threshold})"
+            f"WriterAgent initialized with simplified workflow: search → outline → write "
+            f"(max_queries={self.num_queries})"
         )
 
     def _build_workflow(self) -> StateGraph:
-        """Build sophisticated planning-first workflow."""
+        """Build simplified workflow: search → outline → write."""
         workflow = StateGraph(WriterState)
 
         # Add workflow nodes
-        workflow.add_node("plan_outline", self._plan_outline_node)
-        workflow.add_node("targeted_research", self._targeted_research_node)
-        workflow.add_node("refine_outline", self._refine_outline_node)
-        workflow.add_node("write_content", self._write_content_node)
+        workflow.add_node("search", self._search_node)
+        workflow.add_node("outline", self._outline_node)
+        workflow.add_node("write", self._write_node)
 
-        # Set entry point to planning
-        workflow.set_entry_point("plan_outline")
+        # Set entry point to search
+        workflow.set_entry_point("search")
 
-        # Planning → Research (always)
-        workflow.add_edge("plan_outline", "targeted_research")
+        # Search → Outline (always)
+        workflow.add_edge("search", "outline")
 
-        # Research → Refinement (always)
-        workflow.add_edge("targeted_research", "refine_outline")
+        # Outline → Write (always)
+        workflow.add_edge("outline", "write")
 
-        # Refinement → Conditional (research more or write)
-        workflow.add_conditional_edges(
-            "refine_outline",
-            self._decide_after_outline_refinement,
-            {"research_more": "targeted_research", "ready_to_write": "write_content"},
-        )
-
-        # Writing → End
-        workflow.add_edge("write_content", END)
+        # Write → End
+        workflow.add_edge("write", END)
 
         return workflow.compile()
 
@@ -109,7 +90,7 @@ class WriterAgent(BaseAgent):
         previous_article: Optional[Article] = None,
         review_feedback: Optional[ReviewFeedback] = None,
     ) -> Article:
-        """Process topic through sophisticated planning-first workflow."""
+        """Process topic through simplified search → outline → write workflow."""
 
         logger.info(f"Starting writer workflow for: {topic}")
 
@@ -121,18 +102,14 @@ class WriterAgent(BaseAgent):
         initial_state = WriterState(
             messages=[HumanMessage(content=f"Write an article about: {topic}")],
             topic=topic,
-            initial_outline=None,
             research_queries=[],
             search_results=[],
             organized_knowledge=None,
-            refined_outline=None,
-            knowledge_gaps=[],
+            initial_outline=None,
             article_content="",
-            research_iterations=0,
-            ready_to_write=False,
             metadata={
                 "method": "writer_agent",
-                "workflow_version": "1.0",
+                "workflow_version": "2.0",
                 "tool_usage": [],
                 "decisions": [],
             },
@@ -146,8 +123,7 @@ class WriterAgent(BaseAgent):
 
             logger.info(
                 f"Completed writer workflow for '{topic}' "
-                f"({final_state.research_iterations} research iterations, "
-                f"{len(final_state.search_results)} sources)"
+                f"({len(final_state.search_results)} sources)"
             )
 
             return article
@@ -206,264 +182,150 @@ class WriterAgent(BaseAgent):
             logger.error(f"Article improvement failed: {e}")
             return article  # Return original on failure
 
-    def _plan_outline_node(self, state: WriterState) -> WriterState:
-        """Create initial outline using LLM reasoning."""
+    def _search_node(self, state: WriterState) -> WriterState:
+        """
+        Search node:
+        1. Direct search on topic to get top result as context
+        2. Generate targeted queries using this context
+        3. Execute all searches and organize results
+        """
 
-        logger.info(f"Planning initial outline for: {state.topic}")
+        logger.info(f"Starting search for: {state.topic}")
 
-        # Use template prompt
-        prompt = planning_prompt(state.topic)
-        outline_response = self.api_client.call_api(prompt)
-        initial_outline = self.parse_outline(outline_response, state.topic)
+        # Step 1: Direct search on topic to get context
+        context = ""
+        try:
+            direct_search = self.search_tool.invoke(state.topic)
+            if direct_search.get("success") and direct_search.get("results"):
+                # Get the top result as context
+                top_result = direct_search["results"][0]
+                context = top_result.get("content", "")
+                logger.info(f"Got context from direct search: {context}")
+        except Exception as e:
+            logger.warning(f"Direct search failed: {e}")
 
-        # Generate targeted research queries based on outline
-        research_queries = self._generate_research_queries_from_outline(
-            initial_outline, state.topic
-        )
+        # Step 2: Generate targeted queries using context
+        prompt = search_query_generation_prompt(state.topic, context, self.num_queries)
+        queries_response = self.api_client.call_api(prompt)
 
-        state.initial_outline = initial_outline
-        state.research_queries = research_queries
-        state.metadata["decisions"].append(
-            f"Created initial outline with {len(initial_outline.headings)} sections"
-        )
-        state.metadata["decisions"].append(
-            f"Generated {len(research_queries)} targeted research queries"
-        )
+        # Parse queries from response with basic cleanup
+        queries = []
+        for line in queries_response.strip().split("\n"):
+            line = line.strip()
+            if line:
+                # Basic cleanup: remove common prefixes and formatting
+                if line.lower().startswith(("here are", "query:", "search:")):
+                    continue
+                # Remove numbering and quotes
+                import re
 
-        logger.info(
-            f"Created outline with {len(initial_outline.headings)} sections, "
-            f"generated {len(research_queries)} research queries"
-        )
+                line = re.sub(
+                    r"^\d+[\.\)\:]\s*", "", line
+                )  # Remove "1. " or "1) " or "1: "
+                line = line.strip("\"'")  # Remove quotes
+                # Skip if too short after cleanup
+                if len(line.strip()) >= 3:
+                    queries.append(line.strip())
 
-        return state
+        # Limit queries to reasonable number
+        queries = queries[: self.num_queries]
 
-    def _targeted_research_node(self, state: WriterState) -> WriterState:
-        """Conduct targeted research using search tool."""
+        # Step 3: Execute all searches
+        all_results = []
+        query_result_mapping = []
 
-        state.research_iterations += 1
-        logger.info(
-            f"Starting research iteration {state.research_iterations} "
-            f"with {len(state.research_queries)} queries"
-        )
+        # Include direct search results if we have them
+        if context:
+            direct_results = direct_search.get("results", [])
+            all_results.extend(direct_results)
+            for result in direct_results:
+                query_result_mapping.append((state.topic, result))
 
-        # Limit queries per iteration for efficiency
-        current_queries = state.research_queries[
-            : self.max_research_queries_per_iteration
-        ]
-
-        new_results = []
-        query_result_mapping = []  # Track which results came from which queries
-
-        for query in current_queries:
+        # Execute targeted queries
+        for query in queries:
             try:
                 search_result = self.search_tool.invoke(query)
                 if search_result.get("success") and search_result.get("results"):
                     for result in search_result["results"]:
                         query_result_mapping.append((query, result))
-                    new_results.extend(search_result["results"])
+                    all_results.extend(search_result["results"])
             except Exception as e:
                 logger.warning(f"Search failed for query '{query}': {e}")
                 continue
 
-        # Add new results to existing ones
-        state.search_results.extend(new_results)
+        # Store results
+        state.research_queries = [state.topic] + queries  # Include direct search
+        state.search_results = all_results
 
-        # Organize search results (do not pass query_result_mapping if not needed)
-        state.organized_knowledge = self._organize_search_results(
-            state.initial_outline, query_result_mapping
+        # We can't organize by outline sections yet since we don't have an outline
+        # So we'll organize by query instead
+        state.organized_knowledge = self._organize_search_results_by_query(
+            query_result_mapping
+        )
+
+        state.metadata["decisions"].append(
+            f"Completed search: direct + {len(queries)} targeted queries, {len(all_results)} total results"
+        )
+
+        logger.info(
+            f"Search completed: {len(queries)} targeted queries + direct search, "
+            f"{len(all_results)} total results"
         )
 
         return state
 
-    def _organize_search_results(
-        self, outline: Outline, query_result_mapping: List[tuple] = None
+    def _outline_node(self, state: WriterState) -> WriterState:
+        """Create outline using LLM reasoning and available research."""
+
+        logger.info(f"Creating outline for: {state.topic}")
+
+        # Use template prompt to create outline
+        prompt = planning_prompt(state.topic)
+        outline_response = self.api_client.call_api(prompt)
+        initial_outline = self.parse_outline(outline_response, state.topic)
+
+        state.initial_outline = initial_outline
+        state.metadata["decisions"].append(
+            f"Created outline with {len(initial_outline.headings)} sections"
+        )
+
+        logger.info(f"Created outline with {len(initial_outline.headings)} sections")
+
+        return state
+
+    def _organize_search_results_by_query(
+        self, query_result_mapping: List[tuple]
     ) -> Dict:
-        if not query_result_mapping or not outline:
-            return {"by_section": {}, "cross_cutting": []}
+        """Organize search results by query since we don't have outline sections yet."""
+        if not query_result_mapping:
+            return {"by_query": {}, "all_results": []}
 
-        organized = {
-            "by_section": {
-                section: {"primary_results": [], "supporting_results": []}
-                for section in outline.headings
-            },
-            "cross_cutting": [],
-            "metadata": {},
-        }
+        organized = {"by_query": {}, "all_results": [], "metadata": {}}
 
-        # Step 1: Group results by query (section)
-        query_groups = {}
+        # Group results by query
         for query, result in query_result_mapping:
-            if query not in query_groups:
-                query_groups[query] = []
-            query_groups[query].append(result)
+            if query not in organized["by_query"]:
+                organized["by_query"][query] = []
+            organized["by_query"][query].append(result)
+            organized["all_results"].append(result)
 
-        # Step 2: Assign primary results - each section gets its own query results
-        section_to_results = {}
-        for section_index, section in enumerate(outline.headings):
-            if section_index < len(query_groups):
-                query = list(query_groups.keys())[section_index]
-                section_results = query_groups[query]
-                section_to_results[section] = section_results
-
-                # All results from this section's query are primary for this section
-                for result in section_results:
-                    relevance = result.get("relevance_score", 0.5)
-                    if relevance >= 0.7:
-                        organized["by_section"][section]["primary_results"].append(
-                            result
-                        )
-                    else:
-                        organized["by_section"][section]["supporting_results"].append(
-                            result
-                        )
-
-        # Step 3: Cross-pollinate - check if results from other sections are relevant
-        for target_section in outline.headings:
-            for other_section in outline.headings:
-                if target_section == other_section:
-                    continue  # Skip same section
-
-                other_results = section_to_results.get(other_section, [])
-                for result in other_results:
-                    # Check if this result is relevant to the target section
-                    if self._is_result_relevant_to_section(result, target_section):
-                        # Add as supporting result (avoid duplicates)
-                        if (
-                            result
-                            not in organized["by_section"][target_section][
-                                "supporting_results"
-                            ]
-                        ):
-                            organized["by_section"][target_section][
-                                "supporting_results"
-                            ].append(result)
-
+        # Add metadata
         organized["metadata"] = {
             "total_results": len(query_result_mapping),
+            "unique_queries": len(organized["by_query"]),
             "unique_sources": len(
                 set(r.get("source", "") for _, r in query_result_mapping)
             ),
-            "cross_cutting_count": len(organized["cross_cutting"]),
         }
 
         return organized
 
-    def _is_result_relevant_to_section(self, result: Dict, section_name: str) -> bool:
-        """Check if a result is relevant to a specific section."""
-        content = result.get("content", "")
-        if not content:
-            return False
-
-        content_words = set(content.lower().split())
-        section_words = set(section_name.lower().split())
-
-        # Simple word overlap - could be enhanced with embeddings
-        overlap = len(content_words & section_words)
-        len(content_words)
-
-        # Relevance based on overlap ratio and minimum relevance score
-        overlap_ratio = overlap / max(len(section_words), 1)
-        min_relevance = result.get("relevance_score", 0) >= 0.5
-
-        return overlap_ratio > 0.3 and min_relevance  # Adjust thresholds as needed
-
-    def _generate_content_summary_for_refinement(
-        self, organized_knowledge: Dict
-    ) -> str:
-        """Generate a content summary from top search results for outline refinement."""
-        if not organized_knowledge:
-            return "No research content available"
-
-        summary_parts = []
-
-        # Get top results from each section
-        for section, data in organized_knowledge.get("by_section", {}).items():
-            primary_results = data.get("primary_results", [])
-            supporting_results = data.get("supporting_results", [])
-
-            # Combine and sort by relevance
-            all_section_results = primary_results + supporting_results
-            all_section_results.sort(
-                key=lambda x: x.get("relevance_score", 0), reverse=True
-            )
-
-            top_results = all_section_results[:3]  # Top 3 for this section
-
-            if top_results:
-                summary_parts.append(f"\n{section}:")
-                for i, result in enumerate(top_results, 1):
-                    content = result.get("content", "")
-                    # Truncate long content
-                    if len(content) > 500:
-                        content = content[:500] + "..."
-                    summary_parts.append(f"  {i}. {content}")
-
-        # Add cross-cutting content if any
-        cross_cutting = organized_knowledge.get("cross_cutting", [])
-        if cross_cutting:
-            summary_parts.append(f"\nOther relevant findings:")
-            for i, result in enumerate(cross_cutting[:2], 1):  # Top 2 cross-cutting
-                content = result.get("content", "")
-                if len(content) > 500:
-                    content = content[:500] + "..."
-                summary_parts.append(f"  {i}. {content}")
-
-        return "\n".join(summary_parts)
-
-    def _refine_outline_node(self, state: WriterState) -> WriterState:
-        """Refine outline based on research findings using LLM reasoning."""
-
-        logger.info("Refining outline based on research findings")
-
-        if not state.organized_knowledge:
-            # No knowledge to work with, keep original outline
-            state.refined_outline = state.initial_outline
-            state.ready_to_write = True
-            return state
-
-        # Use template prompt for refinement
-        content_summary_for_refinement = self._generate_content_summary_for_refinement(
-            state.organized_knowledge
-        )
-
-        prompt = refinement_prompt(
-            topic=state.topic,
-            current_outline=self._format_outline_for_prompt(state.initial_outline),
-            content_summary=content_summary_for_refinement,
-        )
-
-        refined_response = self.api_client.call_api(prompt)
-        refined_outline = self.parse_outline(refined_response, state.topic)
-
-        state.refined_outline = refined_outline
-
-        return state
-
-    def _generate_knowledge_summary(self, organized_knowledge: Dict) -> str:
-        """Generate a summary of organized knowledge for prompting."""
-        if not organized_knowledge:
-            return "No research data available"
-
-        metadata = organized_knowledge.get("metadata", {})
-        cross_cutting = organized_knowledge.get("cross_cutting", [])
-
-        summary_parts = []
-        summary_parts.append(
-            f"Total research results: {metadata.get('total_results', 0)}"
-        )
-        summary_parts.append(f"Unique sources: {metadata.get('unique_sources', 0)}")
-
-        if cross_cutting:
-            summary_parts.append(f"Cross-cutting results: {len(cross_cutting)}")
-
-        return "\n".join(summary_parts)
-
-    def _write_content_node(self, state: WriterState) -> WriterState:
+    def _write_node(self, state: WriterState) -> WriterState:
         """Generate article content using LLM with organized knowledge."""
 
         logger.info("Generating article content")
 
-        working_outline = state.refined_outline or state.initial_outline
+        working_outline = state.initial_outline
 
         if not working_outline:
             state.article_content = (
@@ -506,14 +368,6 @@ class WriterAgent(BaseAgent):
 
         return state
 
-    def _decide_after_outline_refinement(self, state: WriterState) -> str:
-        """Decide whether to research more or proceed to writing."""
-
-        # Default: proceed to writing
-        logger.info("Research appears sufficient, proceeding to writing")
-        state.ready_to_write = True
-        return "ready_to_write"
-
     # ========================================================================
     # HELPER METHODS - LLM-based, no external tools
     # ========================================================================
@@ -531,41 +385,23 @@ class WriterAgent(BaseAgent):
                 title = line.replace("#", "").strip()
             elif line.startswith("## "):  # H2 headings
                 heading = line.replace("##", "").strip()
-                headings.append(heading)
-                subheadings[heading] = []
+                # Avoid duplicates and limit to reasonable number
+                if heading not in headings and len(headings) < 8:
+                    headings.append(heading)
+                    subheadings[heading] = []
 
-        # Fallback outline if parsing fails
-        if not headings:
+        # Fallback outline if parsing fails or too few sections
+        if len(headings) < 3:
             headings = [
                 "Introduction",
                 "Background and Context",
                 "Key Concepts",
                 "Applications and Examples",
                 "Current Developments",
-                "Future Implications",
             ]
             subheadings = {heading: [] for heading in headings}
 
         return Outline(title=title, headings=headings, subheadings=subheadings)
-
-    def _generate_research_queries_from_outline(
-        self, outline: Outline, topic: str
-    ) -> List[str]:
-        """Generate targeted research queries based on outline sections."""
-        queries = []
-
-        for heading in outline.headings:
-            # Main topic query for each section
-            queries.append(f"{heading} {topic}")
-            # TODO: LLM could be used here for more sophisticated query generation
-        return queries
-
-    def _format_outline_for_prompt(self, outline: Outline) -> str:
-        """Format outline for inclusion in prompts."""
-        formatted = f"Title: {outline.title}\n\n"
-        for i, heading in enumerate(outline.headings, 1):
-            formatted += f"{i}. {heading}\n"
-        return formatted
 
     def _generate_section_content(
         self, section_heading: str, topic: str, organized_knowledge: Optional[Dict]
@@ -594,24 +430,52 @@ class WriterAgent(BaseAgent):
     def _find_relevant_info_for_section(
         self, section_heading: str, organized_knowledge: Optional[Dict]
     ) -> str:
-        """Find relevant organized information using hybrid structure."""
-        if not organized_knowledge or not organized_knowledge.get("by_section"):
+        """Find relevant information for section from all search results."""
+        if not organized_knowledge:
             return ""
 
-        section_data = organized_knowledge["by_section"].get(section_heading, {})
         relevant_parts = []
 
-        # Start with primary results (high confidence)
-        for result in section_data.get("primary_results", [])[:3]:
-            content = result.get("content", "")
-            if content:
-                if len(content) > 300:
-                    content = content[:300] + "..."
-                relevant_parts.append(f"- {content}")
+        # Check if we have by_section organization (old format) or by_query (new format)
+        if organized_knowledge.get("by_section"):
+            # Old format - use existing logic
+            section_data = organized_knowledge["by_section"].get(section_heading, {})
+            for result in section_data.get("primary_results", [])[:3]:
+                content = result.get("content", "")
+                if content:
+                    if len(content) > 300:
+                        content = content[:300] + "..."
+                    relevant_parts.append(f"- {content}")
 
-        # Add supporting results if needed
-        if len(relevant_parts) < 2:
-            for result in section_data.get("supporting_results", [])[:2]:
+            if len(relevant_parts) < 2:
+                for result in section_data.get("supporting_results", [])[:2]:
+                    content = result.get("content", "")
+                    if content:
+                        if len(content) > 300:
+                            content = content[:300] + "..."
+                        relevant_parts.append(f"- {content}")
+
+        elif organized_knowledge.get("all_results"):
+            # New format - search through all results for relevance
+            all_results = organized_knowledge["all_results"]
+
+            # Simple relevance check based on keyword overlap
+            section_keywords = set(section_heading.lower().split())
+
+            scored_results = []
+            for result in all_results:
+                content = result.get("content", "")
+                if content:
+                    content_words = set(content.lower().split())
+                    overlap = len(section_keywords & content_words)
+                    relevance_score = result.get("relevance_score", 0.5)
+                    combined_score = overlap + relevance_score
+                    scored_results.append((combined_score, result))
+
+            # Sort by relevance and take top results
+            scored_results.sort(key=lambda x: x[0], reverse=True)
+
+            for score, result in scored_results[:4]:
                 content = result.get("content", "")
                 if content:
                     if len(content) > 300:
@@ -623,8 +487,8 @@ class WriterAgent(BaseAgent):
     def _create_article_from_state(self, state: WriterState) -> Article:
         """Create Article object from final workflow state."""
 
-        # Use refined outline if available, otherwise initial outline
-        final_outline = state.refined_outline or state.initial_outline
+        # Use initial outline since we no longer refine
+        final_outline = state.initial_outline
 
         # Extract sections from content
         sections = {}
@@ -638,7 +502,6 @@ class WriterAgent(BaseAgent):
         metadata = state.metadata.copy()
         metadata.update(
             {
-                "research_iterations": state.research_iterations,
                 "total_search_results": len(state.search_results),
             }
         )

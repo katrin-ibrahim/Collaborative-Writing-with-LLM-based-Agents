@@ -170,94 +170,21 @@ Prompt template functions for WriterAgent workflow.
 
 
 def planning_prompt(topic: str) -> str:
-    return f"""
-Create a simple outline for a comprehensive article about: {topic}.
-You must output ONLY the outline headings.
+    return f"""Create exactly 5 sections for an article about: {topic}
 
-Structure:
-1. Title (as a markdown H1)
-2. 4–6 main sections (as markdown H2 headings)
-   - Section 1: introduction or background
-   - Section 2: core concepts
-   - Section 3: applications/examples
-   - Section 4: current developments
-   - Section 5: future/implications
-   - Section 6: conclusion (optional)
-
-Correct Format Example:
-# Title: Example Topic
-
-## Introduction & Context
-## Core Concepts
-## Applications
-## Current Developments
-## Future Implications
-## Conclusion
-
-Incorrect Format Example:
-# Title: Example Topic
+Output ONLY this format:
+# Article Title
 ## Section 1
-- Explanation text
 ## Section 2
-- Bullet points
-## Section 3 : subheading
+## Section 3
+## Section 4
+## Section 5
 
-Guidelines:
-- Only output the section headings
-- No bullets, no explanations, no subheadings
-- Keep section titles concise
-"""
+No explanations. No bullets. No additional text.
 
+Topic: {topic}
 
-def refinement_prompt(topic: str, current_outline: str, content_summary: str) -> str:
-    """Generate prompt for outline refinement based on research."""
-    return f"""
-Refine this outline for "{topic}" based on research findings:
-
-Current Outline:
-{current_outline}
-
-Content Summary from Research:
-{content_summary}
-
-Structure:
-1. Title (as a markdown H1)
-2. 4–6 main sections (as markdown H2 headings)
-   - Section 1: introduction or background
-   - Section 2: core concepts
-   - Section 3: applications/examples
-   - Section 4: current developments
-   - Section 5: future/implications
-   - Section 6: conclusion (optional)
-
-Correct Format Example:
-# Title: Example Topic
-
-## Introduction & Context
-## Core Concepts
-## Applications
-## Current Developments
-## Future Implications
-## Conclusion
-
-Incorrect Format Example:
-# Title: Example Topic
-## Section 1
-- Explanation text
-## Section 2
-- Bullet points
-## Section 3 : subheading
-
-Guidelines:
-- Only output the section headings
-- No bullets, no explanations, no subheadings
-- Keep section titles concise
-- Incorporate search insights to improve relevance and completeness of section headings
-- There is no need to write section content at this stage, you are only using the research to enhance or create more targeted section headings
-
-
-
-"""
+Output:"""
 
 
 def section_content_prompt_with_research(
@@ -318,4 +245,58 @@ Instructions:
 5. Ensure smooth flow between sections
 
 Provide the improved article:
+"""
+
+
+def search_query_generation_prompt(
+    topic: str, context: str = "", num_queries: int = 5
+) -> str:
+    """Generate prompt for creating targeted search queries using entity extraction and relationship analysis."""
+    context_section = ""
+    if context.strip():
+        context_section = f"""
+CONTEXT FROM INITIAL SEARCH:
+{context[:1200]}{"..." if len(context) > 1200 else ""}
+
+First, extract key entities from this context:
+- PEOPLE: Names of key individuals mentioned
+- ORGANIZATIONS: Teams, companies, institutions
+- LOCATIONS: Places, venues, geographic areas
+- DATES/TIMES: Specific dates, periods, timeframes
+- EVENTS: Specific incidents, competitions, ceremonies
+- STATISTICS: Numbers, measurements, records
+- CONCEPTS: Technical terms, processes, phenomena
+
+Then use these entities to create specific, relationship-focused queries.
+"""
+
+    return f"""
+You must generate exactly {num_queries} highly targeted search queries for comprehensive research about: {topic}
+{context_section}
+Create queries that explore specific relationships and details by combining entities and concepts from the context.
+
+Query Strategy:
+1. ENTITY RELATIONSHIPS: How do key people/organizations interact?
+2. TEMPORAL ANALYSIS: What happened before/during/after key events?
+3. CAUSAL CONNECTIONS: What factors led to specific outcomes?
+4. COMPARATIVE ANALYSIS: How does this compare to similar cases?
+5. DETAILED MECHANICS: What are the specific processes/strategies involved?
+
+Guidelines:
+- Use specific names, dates, and locations from the context
+- Focus on relationships between entities rather than isolated facts
+- Ask for detailed analysis rather than basic information
+- Include quantitative aspects (statistics, measurements, comparisons)
+- Target controversial or disputed aspects when relevant
+
+IMPORTANT: Output EXACTLY {num_queries} search queries. Each query should be a single line with 3-8 words maximum. No explanations, no numbering, no extra text.
+
+FORMAT: Each line = one search query only
+
+Example for "2022 World Cup Final":
+Lionel Messi Kylian Mbappe individual performance statistics 2022 World Cup Final
+Argentina France penalty shootout decision-making tactical analysis December 2022
+Qatar World Cup Final attendance revenue compared previous World Cup finals
+Lionel Scaloni Didier Deschamps tactical substitutions impact match outcome
+2022 World Cup Final cultural impact Argentina national celebration aftermath
 """
