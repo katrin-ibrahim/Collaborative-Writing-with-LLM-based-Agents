@@ -9,6 +9,10 @@ import re
 from ollama import Client
 from typing import Any, Dict, List, Optional, Union
 
+THINKING_LINE_LENGTH_THRESHOLD = (
+    20  # Lines shorter than this are likely thinking fragments
+)
+
 from src.engines.base_engine import BaseEngine
 
 logger = logging.getLogger(__name__)
@@ -117,8 +121,57 @@ class OllamaEngine(BaseEngine):
             )
 
             content = response.message.content
-            # Clean up thinking tags if present
+
+            # Clean up thinking tags
+            # Method 1: Remove closed thinking tags
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+
+            # Method 2: Handle unclosed thinking tags at the start
+            if content.strip().startswith("<think>"):
+                # Find where actual content starts (look for patterns that indicate real content)
+                lines = content.split("\n")
+                content_start_idx = None
+
+                for i, line in enumerate(lines):
+                    line_stripped = line.strip()
+                    # Skip empty lines and thinking content
+                    if not line_stripped or line_stripped.startswith("<think>"):
+                        continue
+                    # Look for signs of real content (markdown headers, structured text, etc.)
+                    if (
+                        line_stripped.startswith("#")
+                        or line_stripped.startswith("## ")
+                        or len(line_stripped) > 50  # Substantial content line
+                        or any(
+                            keyword in line_stripped.lower()
+                            for keyword in [
+                                "content quality",
+                                "structural",
+                                "improvement",
+                                "overall assessment",
+                            ]
+                        )
+                    ):
+                        content_start_idx = i
+                        break
+
+                if content_start_idx is not None:
+                    content = "\n".join(lines[content_start_idx:])
+                else:
+                    # Fallback: remove first few lines that look like thinking
+                    filtered_lines = []
+                    skip_thinking = True
+                    for line in lines:
+                        if skip_thinking and (
+                            not line.strip()
+                            or line.strip().startswith("<think>")
+                            or len(line.strip()) < THINKING_LINE_LENGTH_THRESHOLD
+                        ):  # Very short lines are likely thinking fragments
+                            continue
+                        skip_thinking = False
+                        filtered_lines.append(line)
+                    content = "\n".join(filtered_lines)
+
             return content.strip()
 
         except Exception as e:

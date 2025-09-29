@@ -7,14 +7,46 @@ Prompt template functions for ReviewerAgent workflow.
 from typing import Dict, List
 
 
-def qualitative_feedback_prompt(
+def fact_checking_prompt(article_content: str, title: str) -> str:
+    """Generate prompt to identify factual claims that need verification."""
+    return f"""You are a fact-checking expert. Extract factual claims from this article about "{title}" that need verification.
+
+ARTICLE CONTENT:
+{article_content}
+
+IMPORTANT: You must provide your response in the EXACT XML format shown below. Do not include <think> tags or explanations outside the XML.
+
+Find 3-8 specific factual claims that can be verified (statistics, dates, names, events, quotes). Output them using this EXACT format:
+
+<fact_check_analysis>
+<claim id="1">
+<text>exact claim text from the article</text>
+<category>number</category>
+<priority>high</priority>
+<checkable>true</checkable>
+</claim>
+<claim id="2">
+<text>another exact claim text</text>
+<category>event</category>
+<priority>medium</priority>
+<checkable>true</checkable>
+</claim>
+</fact_check_analysis>
+
+Categories: date, number, name, location, event, quote
+Priorities: high, medium, low
+
+Remember: Only output the XML format above. No additional text or thinking."""
+
+
+def feedback_prompt(
     article_title: str,
     article_content: str,
     metrics: Dict,
     potential_claims: List[str],
     fact_check_results: List[Dict],
 ) -> str:
-    """Generate prompt for qualitative feedback based on metrics and fact-checking."""
+    """Generate informed feedback prompt based on metrics and fact-checking results."""
 
     # Format metrics for readability
     word_count = metrics.get("word_count", 0)
@@ -28,24 +60,20 @@ def qualitative_feedback_prompt(
         else "No specific claims identified"
     )
 
-    # Format fact-check results
+    # Format fact-check results with verification status
     fact_check_text = ""
     if fact_check_results:
-        for result in fact_check_results[:3]:
+        for result in fact_check_results[:5]:
             claim = result.get("claim", "Unknown claim")
             sources_found = result.get("sources_found", 0)
-            fact_check_text += (
-                f"- '{claim}': {sources_found} sources found for verification\n"
-            )
+            verified = "VERIFIED" if sources_found > 0 else "UNVERIFIED"
+            fact_check_text += f"- '{claim}': {verified} ({sources_found} sources)\n"
     else:
         fact_check_text = "No fact-checking performed"
 
-    return f"""
-Provide qualitative feedback for this article. Objective metrics have been calculated separately.
+    return f"""Provide expert feedback for this article about "{article_title}" based on objective analysis and fact-checking results.
 
-ARTICLE: {article_title}
-
-CONTENT:
+ARTICLE CONTENT:
 {article_content[:1500]}{"..." if len(article_content) > 1500 else ""}
 
 OBJECTIVE METRICS:
@@ -53,114 +81,33 @@ OBJECTIVE METRICS:
 - Heading Count: {heading_count}
 - Paragraph Count: {paragraph_count}
 
-POTENTIAL CLAIMS IDENTIFIED:
+CLAIMS IDENTIFIED:
 {claims_text}
 
 FACT-CHECKING RESULTS:
 {fact_check_text}
 
-Provide qualitative feedback in this format:
+Provide structured feedback in this exact format:
 
-MAIN ISSUES:
-- [List 2-3 specific issues you observe]
-- [Focus on clarity, coherence, completeness]
-- [Be concrete and actionable]
+## Content Quality Issues
+- [Specific clarity or accuracy issues, especially for UNVERIFIED claims]
+- [Problems with logical flow or organization]
+- [Missing information or incomplete coverage]
 
-RECOMMENDATIONS:
-- [Provide 2-4 specific improvement suggestions]
-- [Focus on content quality and structure]
-- [Consider the metrics and fact-checking results above]
+## Structural Assessment
+- [Evaluation of section organization and transitions]
+- [Assessment of heading appropriateness and hierarchy]
+- [Comments on overall article structure]
 
-DETAILED FEEDBACK:
-[2-3 sentences with your overall qualitative assessment]
+## Improvement Recommendations
+- [Specific suggestions for content enhancement]
+- [Recommendations for unverified claims - add sources or qualify statements]
+- [Areas requiring additional research or development]
 
-Focus on:
-- Content clarity and logical flow
-- Completeness of coverage for the topic
-- Writing quality and readability
-- Structural organization
-- Accuracy based on fact-checking results
+## Overall Assessment
+[2-3 sentences providing comprehensive evaluation considering both content quality and factual accuracy]
 
-Do NOT provide numerical scores - these have been calculated objectively.
-"""
-
-
-def fact_checking_strategy_prompt(article_content: str, title: str) -> str:
-    """Generate prompt to identify claims that need fact-checking."""
-    return f"""
-    Extract factual claims that need verification.
-
-    CONTENT:
-    {article_content}
-
-    Use this EXACT format (choose ONE value for each field):
-
-    <fact_check_analysis>
-    <claim id="1">
-    <text>exact claim text here</text>
-    <category>event</category>
-    <priority>high</priority>
-    <checkable>true</checkable>
-    </claim>
-    <claim id="2">
-    <text>another claim</text>
-    <category>number</category>
-    <priority>medium</priority>
-    <checkable>true</checkable>
-    </claim>
-    </fact_check_analysis>
-
-    Categories: date, number, name, location, event, quote
-    Priorities: high, medium, low
-    Checkable: true, false
-
-    Extract 5-10 claims minimum."""
-
-
-def structure_analysis_prompt(article_content: str, title: str, metrics: Dict) -> str:
-    """Generate prompt for analyzing article structure beyond basic metrics."""
-
-    word_count = metrics.get("word_count", 0)
-    heading_count = metrics.get("heading_count", 0)
-    headings = metrics.get("headings", [])
-
-    headings_text = (
-        "\n".join([f"- {heading}" for heading in headings])
-        if headings
-        else "No headings found"
-    )
-
-    return f"""
-Analyze the structure and organization of this article about "{title}":
-
-BASIC METRICS:
-- Word Count: {word_count}
-- Heading Count: {heading_count}
-
-HEADINGS FOUND:
-{headings_text}
-
-ARTICLE CONTENT:
-{article_content[:1000]}{"..." if len(article_content) > 1000 else ""}
-
-Evaluate the structural quality:
-
-STRUCTURAL ASSESSMENT:
-- Is the article well-organized with logical flow?
-- Are the headings appropriate and comprehensive?
-- Does each section contribute meaningfully to the topic?
-- Is the length appropriate for the topic complexity?
-
-SPECIFIC ISSUES:
-- [List any structural problems you identify]
-- [Note missing sections or organizational issues]
-
-STRUCTURAL RECOMMENDATIONS:
-- [Suggest specific improvements to organization]
-- [Recommend additional sections if needed]
-
-Focus on how well the structure serves the reader's understanding of the topic.
-"""
+Focus on factual accuracy issues revealed by the fact-checking results."""
 
 
 # ---------------------------------------- Writer Templates ----------------------------------------
@@ -170,21 +117,25 @@ Prompt template functions for WriterAgent workflow.
 
 
 def planning_prompt(topic: str) -> str:
-    return f"""Create exactly 5 sections for an article about: {topic}
+    return f"""Create a comprehensive article structure for: {topic}
 
-Output ONLY this format:
-# Article Title
-## Section 1
-## Section 2
-## Section 3
-## Section 4
-## Section 5
+Plan exactly 5 meaningful sections with descriptive titles that logically cover the topic.
 
-No explanations. No bullets. No additional text.
+Output format:
+# {topic}
+## [Descriptive Section Title 1]
+## [Descriptive Section Title 2]
+## [Descriptive Section Title 3]
+## [Descriptive Section Title 4]
+## [Descriptive Section Title 5]
 
-Topic: {topic}
+Requirements:
+- Create specific, informative section titles (not generic "Section 1, Section 2")
+- Ensure logical flow from introduction to conclusion
+- Cover all important aspects of the topic
+- Use proper markdown heading format
 
-Output:"""
+Topic: {topic}"""
 
 
 def section_content_prompt_with_research(
@@ -218,33 +169,6 @@ Requirements:
 - Provide clear explanations and relevant examples
 - Maintain an informative, engaging tone
 - Ensure logical flow and organization
-"""
-
-
-def improvement_prompt(
-    topic: str, article_content: str, feedback_text: str, recommendations: str
-) -> str:
-    """Generate prompt for improving article based on feedback."""
-    return f"""
-Improve the following article about "{topic}" based on this feedback:
-
-Current Article:
-{article_content}
-
-Reviewer Feedback:
-{feedback_text}
-
-Specific Issues to Address:
-{recommendations}
-
-Instructions:
-1. Address the feedback while maintaining the article's structure
-2. Improve clarity, accuracy, and completeness
-3. Add missing information where identified
-4. Maintain consistent tone and style
-5. Ensure smooth flow between sections
-
-Provide the improved article:
 """
 
 
@@ -300,3 +224,150 @@ Qatar World Cup Final attendance revenue compared previous World Cup finals
 Lionel Scaloni Didier Deschamps tactical substitutions impact match outcome
 2022 World Cup Final cultural impact Argentina national celebration aftermath
 """
+
+
+# ---------------------------------------- Reviewer Agentic Templates ---------------------------------------
+
+
+def reviewer_tool_decision_prompt(
+    article_title: str, available_tools: List[str]
+) -> str:
+    """Let reviewer agent decide which tools to use for comprehensive review."""
+    return f"""You are reviewing an article titled "{article_title}".
+
+AVAILABLE TOOLS: {available_tools}
+
+DECISION TASK: Which tools should you use for a comprehensive review?
+
+Consider:
+1. Do you need to search for additional sources to verify claims?
+2. Should you retrieve specific research chunks for fact-checking?
+3. Do you need to check previous iterations for comparison?
+4. Are there feedback tools that would improve your review?
+
+Respond with:
+REVIEW_TOOLS: tool1,tool2,tool3 (comma-separated)
+REASONING: Explain why these tools will improve your review quality"""
+
+
+def reviewer_search_strategy_prompt(article_title: str, claims: List[str]) -> str:
+    """Reviewer decides what to search for to verify claims."""
+    return f"""You are fact-checking claims from "{article_title}".
+
+CLAIMS TO VERIFY:
+{chr(10).join([f"- {claim}" for claim in claims[:5]])}
+
+DECISION TASK: What should you search for to verify these claims?
+
+Consider:
+1. Which claims are most important to verify?
+2. What search terms would find authoritative sources?
+3. Should you do broad searches or specific targeted searches?
+
+Respond with:
+SEARCH_QUERIES: query1,query2,query3 (comma-separated)
+PRIORITY_CLAIMS: claim numbers that are highest priority
+REASONING: Explain your verification strategy"""
+
+
+def reviewer_feedback_strategy_prompt(
+    article_title: str,
+    fact_check_results: List[Dict],
+    available_context_tools: List[str],
+) -> str:
+    """Reviewer decides how to structure feedback using available context tools."""
+    return f"""You are providing feedback for "{article_title}".
+
+FACT-CHECK RESULTS:
+- Total claims checked: {len(fact_check_results)}
+- Claims with issues: {sum(1 for r in fact_check_results if not r.get('verified', True))}
+
+AVAILABLE CONTEXT TOOLS: {available_context_tools}
+
+DECISION TASK: How should you structure your feedback?
+
+Consider:
+1. Should you compare with previous iterations?
+2. Do you need current iteration context?
+3. Should you check existing feedback to avoid duplication?
+
+Respond with:
+CONTEXT_TOOLS: tool1,tool2 (or "NONE" if not needed)
+FEEDBACK_FOCUS: areas to prioritize in feedback
+REASONING: Explain your feedback strategy"""
+
+
+def enhanced_feedback_prompt(base_feedback: str, supplementary_context: str) -> str:
+    """Enhanced feedback prompt incorporating agentic tool context."""
+    return f"""{base_feedback}
+
+ADDITIONAL CONTEXT FROM AGENTIC TOOLS:
+{supplementary_context}
+
+ENHANCED INSTRUCTIONS:
+- Incorporate insights from the additional context above
+- Provide more comprehensive feedback based on the supplementary information
+- If you found contradicting sources, note the discrepancies
+- If iteration context is available, compare with previous versions
+
+Focus on providing comprehensive feedback that utilizes all available context."""
+
+
+def agentic_review_prompt(
+    article_title: str,
+    context_text: str,
+    metrics: dict,
+    fact_check_summary: str,
+    article_content: str,
+) -> str:
+    """Context-aware agentic review prompt."""
+    return f"""You are reviewing an article titled "{article_title}".
+
+ITERATION & MEMORY CONTEXT:
+{context_text}
+
+ARTICLE METRICS:
+- Word count: {metrics.get('word_count', 0)}
+- Headings: {metrics.get('heading_count', 0)} ({', '.join(metrics.get('headings', [])[:5])})
+- Paragraphs: {metrics.get('paragraph_count', 0)}
+
+FACT-CHECK SUMMARY:
+{fact_check_summary}
+
+ARTICLE CONTENT:
+{article_content}
+
+TASK: Provide comprehensive feedback that considers the iteration context and fact-checking results.
+
+Focus on improvement areas and specific recommendations based on the available context."""
+
+
+def context_decision_prompt(
+    topic: str, context_summary: str, outline_info: str, num_chunks: int
+) -> str:
+    """Prompt for deciding whether to select specific research chunks."""
+    return f"""You are about to write an article about "{topic}".
+
+CURRENT CONTEXT: {context_summary}
+{outline_info}
+AVAILABLE RESEARCH CHUNKS: {num_chunks} chunks
+
+QUESTION: Do you need to select specific chunks before writing this article?
+
+Respond with just "YES" if you need to select chunks, "NO" if you're ready to write with all available chunks."""
+
+
+def chunk_selection_detailed_prompt(
+    topic: str, outline_info: str, chunks_info: str
+) -> str:
+    """Detailed prompt for selecting specific research chunks."""
+    return f"""You are writing about "{topic}".
+
+{outline_info}
+
+AVAILABLE RESEARCH CHUNKS:
+{chunks_info}
+
+TASK: Select which chunk IDs are most relevant for writing this article.
+
+Respond with just the chunk IDs separated by commas (e.g., "search_direct_0,search_query_1") or "NONE" if nothing is relevant:"""

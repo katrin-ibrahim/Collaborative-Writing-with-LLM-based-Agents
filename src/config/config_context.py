@@ -21,6 +21,7 @@ class ConfigContext:
     _model_config = None
     _retrieval_config = None
     _collaboration_config = None
+    _memory_instance = None
 
     @classmethod
     def initialize(
@@ -100,3 +101,14 @@ class ConfigContext:
     def get_backend_kwargs(cls):
         """Get backend parameters."""
         return cls._backend_kwargs
+
+    @classmethod
+    def set_memory_instance(cls, memory):
+        """Set the global memory instance for tools and agents."""
+        cls._memory_instance = memory
+        logger.info("Memory instance registered with ConfigContext")
+
+    @classmethod
+    def get_memory_instance(cls):
+        """Get the current memory instance."""
+        return cls._memory_instance

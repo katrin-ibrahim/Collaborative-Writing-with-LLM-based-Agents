@@ -2,7 +2,6 @@
 from abc import ABC, abstractmethod
 
 import logging
-from typing import Any
 
 from src.config.config_context import ConfigContext
 
@@ -19,7 +18,7 @@ class BaseAgent(ABC):
         self.api_client = ConfigContext.get_client("writing")
 
     @abstractmethod
-    def process(self, input_data: Any) -> Any:
+    def process(self) -> None:
         """Main processing method that each agent must implement."""
 
     def get_task_client(self, task: str):
