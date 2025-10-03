@@ -87,6 +87,7 @@ Examples:
         choices=[
             "wiki",
             "supabase_faiss",
+            "hybrid",
         ],
         help="Retrieval manager type (overrides config file)",
     )

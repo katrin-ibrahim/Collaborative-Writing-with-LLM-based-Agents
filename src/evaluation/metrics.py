@@ -8,6 +8,7 @@ All metrics are implemented as pure functions for easy testing and reuse.
 """
 
 from collections import Counter
+from functools import lru_cache
 
 import logging
 import numpy as np
@@ -173,8 +174,12 @@ def calculate_all_rouge_metrics(generated: str, reference: str) -> Dict[str, flo
 # ============================================================================
 
 
-def extract_entities(text: str) -> set:
-    """Extract named entities using FLAIR with STORM confidence threshold."""
+@lru_cache(maxsize=128)
+def extract_entities(text: str) -> frozenset:
+    """Extract named entities using FLAIR with STORM confidence threshold.
+
+    Optimized version that chunks long texts for faster processing.
+    """
     ner_tagger = _get_ner_tagger()
 
     if ner_tagger is None:
@@ -184,22 +189,50 @@ def extract_entities(text: str) -> set:
     entities = set()
 
     try:
-        sentence = Sentence(text)
-        ner_tagger.predict(sentence)
+        # Split long texts into chunks for faster processing
+        # FLAIR is much faster on shorter texts
+        chunk_size = 2000  # characters per chunk
+        text_chunks = []
 
-        for entity in sentence.get_spans("ner"):
-            if entity.score > 0.5:  # STORM confidence threshold
-                entity_text = entity.text.lower().strip()
-                if len(entity_text) > 1:
-                    entities.add(entity_text)
-                    logger.debug(
-                        f"FLAIR entity: {entity_text} ({entity.tag}, {entity.score:.3f})"
-                    )
+        if len(text) <= chunk_size:
+            text_chunks = [text]
+        else:
+            # Split by sentences to avoid breaking mid-sentence
+            sentences = text.split(". ")
+            current_chunk = ""
+
+            for sentence in sentences:
+                if len(current_chunk + sentence) < chunk_size:
+                    current_chunk += sentence + ". "
+                else:
+                    if current_chunk:
+                        text_chunks.append(current_chunk.strip())
+                    current_chunk = sentence + ". "
+
+            if current_chunk:
+                text_chunks.append(current_chunk.strip())
+
+        # Process each chunk
+        for chunk in text_chunks:
+            if not chunk.strip():
+                continue
+
+            sentence = Sentence(chunk)
+            ner_tagger.predict(sentence)
+
+            for entity in sentence.get_spans("ner"):
+                if entity.score > 0.5:  # STORM confidence threshold
+                    entity_text = entity.text.lower().strip()
+                    if len(entity_text) > 1:
+                        entities.add(entity_text)
+                        logger.debug(
+                            f"FLAIR entity: {entity_text} ({entity.tag}, {entity.score:.3f})"
+                        )
 
     except Exception as e:
         logger.warning(f"FLAIR NER failed: {e}. returning empty set.")
 
-    return entities
+    return frozenset(entities)  # frozenset for hashability in lru_cache
 
 
 def calculate_entity_recall(generated: str, reference: str) -> float:

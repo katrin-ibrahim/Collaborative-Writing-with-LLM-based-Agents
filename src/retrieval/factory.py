@@ -52,9 +52,18 @@ def create_retrieval_manager(
             logger.error(f"FAISSWikiRM initialization failed: {e}")
             raise RuntimeError(f"FAISSWikiRM failed to initialize: {e}")
 
+    elif rm_type == "hybrid":
+        try:
+            from src.retrieval.rms.hybrid_rm import HybridRM
+
+            base_rm = HybridRM(**default_args)
+        except Exception as e:
+            logger.error(f"HybridRM initialization failed: {e}")
+            raise RuntimeError(f"HybridRM failed to initialize: {e}")
+
     else:
         logger.error(f"Unknown retrieval manager type: {rm_type}")
-        logger.error(f"Supported types: wiki, supabase_faiss")
+        logger.error(f"Supported types: wiki, supabase_faiss, hybrid")
         raise ValueError(f"Unsupported retrieval manager type: {rm_type}")
 
     return base_rm

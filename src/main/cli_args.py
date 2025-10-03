@@ -63,6 +63,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=[
             "wiki",
             "supabase_faiss",
+            "hybrid",
         ],
         help="Retrieval manager type (overrides config file)",
     )
