@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class RetrievalConfig(BaseConfig):
 
     # Retrieval Manager Configuration
-    retrieval_manager: str = "wiki"  # Options: "wiki", "bm25_wiki", "faiss_wiki"
+    retrieval_manager: str = "supabase_faiss"  # Options: "wiki", "supabase_faiss"
 
     # Single Source of Truth for Retrieval Flow
     num_queries: int = 5  # How many search queries to generate

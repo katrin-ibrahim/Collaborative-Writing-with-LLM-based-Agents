@@ -11,6 +11,7 @@ from .models import (
     FactCheckResult,
     Outline,
     ResearchChunk,
+    ReviewFeedback,
     SearchResult,
 )
 
@@ -20,6 +21,7 @@ __all__ = [
     "FactCheckResult",
     "Outline",
     "ResearchChunk",
+    "ReviewFeedback",
     "SearchResult",
     "EvaluationResult",
     "FreshWikiLoader",

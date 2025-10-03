@@ -79,7 +79,7 @@ class OllamaEngine(BaseEngine):
             max_tokens = kwargs.get("max_tokens", self.max_tokens)
 
             # Generate response using Ollama API
-            response_text = self._call_ollama_api(
+            response_text = self.call_api(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 model=model,

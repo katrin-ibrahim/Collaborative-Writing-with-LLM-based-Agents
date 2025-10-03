@@ -13,10 +13,11 @@ src_dir = Path(__file__).parent.parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+from src.utils.clients import OllamaClient
+
 from src.config.baselines_model_config import ModelConfig
 from src.config.retrieval_config import RetrievalConfig
 from src.retrieval import create_retrieval_manager
-from src.utils.clients import OllamaClient
 
 from .runner_utils import get_model_wrapper
 
@@ -51,7 +52,9 @@ def setup_storm_runner(
         used_retrieval_config = retrieval_config
     else:
         # Fallback: create config for wiki RM that respects base configuration
-        used_retrieval_config = RetrievalConfig.from_yaml_with_overrides(rm_type="wiki")
+        used_retrieval_config = RetrievalConfig.from_yaml_with_overrides(
+            rm_type="supabase_faiss"
+        )
 
     # Default Storm configuration using retrieval config values
     default_config = {

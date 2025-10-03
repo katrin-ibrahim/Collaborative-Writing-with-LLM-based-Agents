@@ -47,17 +47,16 @@ class ResearchChunk(BaseModel):
         Create ResearchChunk from retrieval manager result.
         Handles different retrieval result formats.
         """
-        # Extract description from various possible fields
-        description = (
-            result.get("description")
-            or result.get("summary")
-            or result.get("content")
-            or result.get("text", "")
-        )
+        # Extract content from various possible fields
+        content = result.get("content") or ""
+
+        # Extract description from various possible fields (prefer summary/description over content)
+        description = result.get("description")
 
         return cls(
             chunk_id=chunk_id,
             description=description,
+            content=content,
             source=result.get("source", ""),
             url=result.get("url"),
             metadata=result.get("metadata", {}),
@@ -267,6 +266,25 @@ class ReviewFeedback:
     feedback_text: str
     issues_count: int
     recommendations: List[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "overall_score": self.overall_score,
+            "feedback_text": self.feedback_text,
+            "issues_count": self.issues_count,
+            "recommendations": self.recommendations,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ReviewFeedback":
+        """Create from dictionary."""
+        return cls(
+            overall_score=data["overall_score"],
+            feedback_text=data["feedback_text"],
+            issues_count=data["issues_count"],
+            recommendations=data["recommendations"],
+        )
 
 
 @dataclass
