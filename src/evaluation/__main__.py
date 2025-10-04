@@ -26,6 +26,61 @@ from src.utils.io import setup_logging
 logger = logging.getLogger(__name__)
 
 
+# Removed incomplete multiprocessing implementation
+# Multiprocessing would be slower due to model loading overhead in each process
+
+
+def _generate_aggregation_summary(data):
+    """Generate and log aggregation summary of evaluation results."""
+    print("\n" + "=" * 80)
+    print("EVALUATION SUMMARY")
+    print("=" * 80)
+
+    methods_data = {}
+
+    # Collect all evaluation results by method
+    for topic, topic_data in data.get("results", {}).items():
+        for method, method_data in topic_data.items():
+            if method not in methods_data:
+                methods_data[method] = []
+
+            eval_results = method_data.get("evaluation")
+            if eval_results and isinstance(eval_results, dict):
+                methods_data[method].append(eval_results)
+
+    # Calculate and display averages for each method
+    for method, results_list in methods_data.items():
+        if not results_list:
+            continue
+
+        print(f"\n{method.upper()}:")
+        print(f"  📊 Evaluated articles: {len(results_list)}")
+
+        # Calculate averages for STORM metrics
+        metrics = [
+            "rouge_1",
+            "rouge_l",
+            "heading_soft_recall",
+            "heading_entity_recall",
+            "article_entity_recall",
+        ]
+
+        for metric in metrics:
+            values = [r.get(metric, 0) for r in results_list if metric in r]
+            if values:
+                avg_value = sum(values) / len(values)
+                metric_display = {
+                    "rouge_1": "ROUGE-1",
+                    "rouge_l": "ROUGE-L",
+                    "heading_soft_recall": "HSR (Heading Soft Recall)",
+                    "heading_entity_recall": "HER (Heading Entity Recall)",
+                    "article_entity_recall": "AER (Article Entity Recall)",
+                }
+                print(f"  🔍 {metric_display[metric]}: {avg_value:.1f}")
+
+    print("\n" + "=" * 80)
+
+
 def parse_arguments():
     """Parse command line arguments for evaluation."""
     parser = argparse.ArgumentParser(
@@ -59,6 +114,7 @@ Examples:
         action="store_true",
         help="Force re-evaluation even if evaluation results already exist",
     )
+    # Removed multiprocessing option - not beneficial due to model loading overhead
 
     return parser.parse_args()
 
@@ -107,30 +163,53 @@ def create_dummy_results(results_dir: Path) -> Dict:
             filename = article_file.stem
 
             # Try to split method from topic
-            for potential_method in ["direct", "storm", "rag", "collaborative"]:
+            for potential_method in [
+                "direct",
+                "storm",
+                "rag",
+                "writer_only",
+                "writer_reviewer",
+                "writer_reviewer_tom",
+            ]:
                 if filename.startswith(f"{potential_method}_"):
                     methods.add(potential_method)
                     topic_part = filename[len(potential_method) + 1 :]
 
-                    # Handle special cases
-                    if "and_or" in topic_part:
-                        topic = topic_part.replace("and_or", "and/or")
-                    else:
-                        topic = topic_part.replace("_", " ")
+                    # Keep original topic format for FreshWiki matching
+                    topic = topic_part
 
                     topics.add(topic)
                     break
 
         # Also check for method/topic.md structure
-        for potential_method in ["direct", "storm", "rag", "collaborative"]:
+        for potential_method in [
+            "direct",
+            "storm",
+            "rag",
+            "collaborative",
+            "writer_only",
+            "writer_reviewer",
+            "writer_reviewer_tom",
+        ]:
             method_dir = articles_dir / potential_method
             if method_dir.exists() and method_dir.is_dir():
                 methods.add(potential_method)
                 for article_file in method_dir.glob("*.md"):
-                    topic = article_file.stem.replace("_", " ")
+                    topic = article_file.stem  # Keep original format
                     topics.add(topic)
 
-    methods = list(methods) if methods else ["direct", "storm", "rag"]
+    methods = (
+        list(methods)
+        if methods
+        else [
+            "direct",
+            "storm",
+            "rag",
+            "writer_only",
+            "writer_reviewer",
+            "writer_reviewer_tom",
+        ]
+    )
     topics = list(topics) if topics else ["dummy_topic"]
 
     logger.info(f"Detected methods: {methods}")
@@ -441,6 +520,9 @@ def main():
         # Save updated results
         logger.info("Saving updated results...")
         save_results(results_dir, data)
+
+        # Generate aggregation summary
+        _generate_aggregation_summary(data)
 
         # Log completion
         elapsed_time = time.time() - start_time

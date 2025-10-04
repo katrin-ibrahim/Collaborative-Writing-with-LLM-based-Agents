@@ -34,19 +34,35 @@ def create_method(method_name: str) -> BaseMethod:
 
         return WriterReviewerMethod()
 
-    # Future methods can be added here:
-    # elif method_name == "direct":
-    #     from src.methods.direct_method import DirectMethod
-    #     return DirectMethod(client, config)
-    # elif method_name == "rag":
-    #     from src.methods.rag_method import RagMethod
-    #     return RagMethod(client, config)
-    # elif method_name == "storm":
-    #     from src.methods.storm_method import StormMethod
-    #     return StormMethod(client, config)
+    elif method_name == "writer_reviewer_tom":
+        from src.methods.writer_reviewer_tom_method import WriterReviewerTomMethod
+
+        return WriterReviewerTomMethod()
+
+    elif method_name == "direct":
+        from src.methods.direct_method import DirectMethod
+
+        return DirectMethod()
+
+    elif method_name == "rag":
+        from src.methods.rag_method import RagMethod
+
+        return RagMethod()
+
+    elif method_name == "storm":
+        from src.methods.storm_method import StormMethod
+
+        return StormMethod()
 
     else:
-        supported_methods = ["writer_only", "writer_reviewer"]
+        supported_methods = [
+            "writer_only",
+            "writer_reviewer",
+            "writer_reviewer_tom",
+            "direct",
+            "rag",
+            "storm",
+        ]
         raise ValueError(
             f"Unknown method: '{method_name}'. "
             f"Supported methods: {supported_methods}"
@@ -60,4 +76,11 @@ def get_supported_methods() -> list[str]:
     Returns:
         List of supported method names
     """
-    return ["writer_only", "writer_reviewer"]
+    return [
+        "writer_only",
+        "writer_reviewer",
+        "writer_reviewer_tom",
+        "direct",
+        "rag",
+        "storm",
+    ]

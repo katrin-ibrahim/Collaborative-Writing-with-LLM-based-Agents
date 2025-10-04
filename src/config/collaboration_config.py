@@ -24,9 +24,6 @@ class CollaborationConfig(BaseConfig):
     reviewer_max_claims_per_article: int = 10
     reviewer_fact_check_timeout: int = 30
 
-    # Theory of Mind configuration
-    tom_enabled: bool = False
-
     # Convergence detection configuration
     semantic_similarity_threshold: float = 0.95
     feedback_delta_threshold: float = 0.1

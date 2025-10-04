@@ -101,6 +101,7 @@ class OllamaEngine(BaseEngine):
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        stop: Optional[List[str]] = None,
     ) -> str:
         """
         Direct Ollama API call - returns just the text content.
@@ -111,13 +112,17 @@ class OllamaEngine(BaseEngine):
         messages.append({"role": "user", "content": prompt})
 
         try:
+            options = {
+                "temperature": temperature or self.temperature,
+                "num_predict": max_tokens or self.max_tokens,
+            }
+            if stop:
+                options["stop"] = stop
+
             response = self.client.chat(
                 model=model or self.model,
                 messages=messages,
-                options={
-                    "temperature": temperature or self.temperature,
-                    "num_predict": max_tokens or self.max_tokens,
-                },
+                options=options,
             )
 
             content = response.message.content

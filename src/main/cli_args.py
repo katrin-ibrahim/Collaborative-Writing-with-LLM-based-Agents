@@ -34,8 +34,16 @@ def parse_arguments() -> argparse.Namespace:
         "--methods",
         "-m",
         nargs="+",
-        choices=["writer_only", "writer_reviewer"],
-        help="Methods to run (default: direct). Note: STORM only works with --backend ollama.",
+        choices=[
+            "writer_only",
+            "writer_reviewer",
+            "writer_reviewer_tom",
+            "direct",
+            "rag",
+            "storm",
+        ],
+        default=["writer_only"],
+        help="Methods to run (default: writer_only). Note: STORM only works with --backend ollama.",
     )
 
     # =================== Common Configuration ===================

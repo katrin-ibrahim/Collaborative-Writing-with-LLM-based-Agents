@@ -20,7 +20,7 @@ class RetrievalConfig(BaseConfig):
     # Single Source of Truth for Retrieval Flow
     num_queries: int = 5  # How many search queries to generate
     results_per_query: int = (
-        3  # How many results per query (replaces max_results_per_query, search_top_k, wiki_max_articles)
+        8  # How many results per query - increased for smart chunk filtering (was 3)
     )
     max_content_pieces: int = (
         3  # How many sections/chunks per result (replaces wiki_max_sections)

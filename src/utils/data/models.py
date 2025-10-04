@@ -48,10 +48,22 @@ class ResearchChunk(BaseModel):
         Handles different retrieval result formats.
         """
         # Extract content from various possible fields
-        content = result.get("content") or ""
+        snippets = result.get("snippets")
+        if isinstance(snippets, list) and snippets:
+            # Join multiple snippets or take the first one
+            content = " ".join(snippets) if len(snippets) > 1 else snippets[0]
+        elif isinstance(snippets, str):
+            content = snippets
+        else:
+            # Fallback to other possible content fields
+            content = result.get("content", "") or ""
 
         # Extract description from various possible fields (prefer summary/description over content)
         description = result.get("description")
+        if not description and content:
+            # Generate description from content if not provided
+            words = content.split()
+            description = " ".join(words[:25]) + ("..." if len(words) > 25 else "")
 
         return cls(
             chunk_id=chunk_id,
