@@ -1,23 +1,26 @@
 # src/collaborative/agents/writer_agent.py
 """
-Refactored WriterAgent using clean architecture with real tools only.
+LangGraph-based WriterAgent with sophisticated workflow and automatic tool calling.
 """
 
+from __future__ import annotations
+
+import json
 import logging
 import re
+from dataclasses import dataclass
 from langgraph.graph import END, StateGraph
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
-    chunk_selection_detailed_prompt,
     context_decision_prompt,
     planning_prompt,
     search_query_generation_prompt,
     section_content_prompt_with_research,
     section_content_prompt_without_research,
 )
-from src.collaborative.memory.memory import SharedMemory
+from src.collaborative.memory.memory import MemoryState
 from src.collaborative.tools.writer_toolkit import WriterToolkit
 from src.config.config_context import ConfigContext
 from src.utils.data import Article, Outline
@@ -25,512 +28,827 @@ from src.utils.data import Article, Outline
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ToolPlannerResult:
+    selected_chunks: List[str]
+    notes: str
+
+
 class WriterAgent(BaseAgent):
-    """
-    Sophisticated Writer agent with simplified search-first workflow.
+    """Sophisticated Writer agent with LangGraph workflow and automatic tool calling."""
 
-    Workflow: search → outline → write
-    Search includes: direct topic search + context-aware targeted queries
-    Uses only real tools (search_and_retrieve) and LLM reasoning.
-    """
-
-    def __init__(self):
+    def __init__(self, llm=None):
         super().__init__()
+
         self.collaboration_config = ConfigContext.get_collaboration_config()
         self.retrieval_config = ConfigContext.get_retrieval_config()
 
-        # Get configuration values with proper defaults
-        self.num_queries = getattr(self.retrieval_config, "num_queries", 5)
-        self.rm_type = getattr(self.retrieval_config, "retrieval_manager", "wiki")
+        # Choose ChatModel adapter for LangGraph tool usage
+        self.llm = llm or ConfigContext.get_tool_chat_client("writing")
 
-        # Initialize writer toolkit (only search_and_retrieve tool)
+        # Toolkit and tools
         self.toolkit = WriterToolkit(self.retrieval_config)
+        self.tools = self.toolkit.get_available_tools()
+        self.tool_map = {tool.name: tool for tool in self.tools}
 
-        # Get the search tool
-        self.search_tool = None
-        for tool in self.toolkit.get_available_tools():
-            if tool.name == "search_and_retrieve":
-                self.search_tool = tool
-                break
+        self.search_tool = self.tool_map.get("search_and_retrieve")
+        self.feedback_tool = self.tool_map.get("get_feedback")
 
-        # Build workflow
+        # Config values
+        self.num_queries = getattr(self.retrieval_config, "num_queries", 5)
+
         self.workflow = self._build_workflow()
 
-        logger.info(
-            f"WriterAgent initialized with simplified workflow: search → outline → write "
-            f"(max_queries={self.num_queries})"
-        )
-
+    # ------------------------------------------------------------------
+    # Workflow
+    # ------------------------------------------------------------------
     def _build_workflow(self) -> StateGraph:
-        """Build memory-enabled workflow: search → outline → decide_context → tools ↔ write."""
-        workflow = StateGraph(SharedMemory)
+        workflow = StateGraph(MemoryState)
 
-        # Add workflow nodes
         workflow.add_node("search", self._search_node)
         workflow.add_node("outline", self._outline_node)
         workflow.add_node("decide_context", self._decide_context_node)
-        workflow.add_node("tools", self._tools_node)
+        workflow.add_node("tool_planning", self._tool_planning_node)
         workflow.add_node("write", self._write_node)
+        workflow.add_node("evaluate_continue", self._evaluate_continue_node)
 
-        # Set entry point to search
         workflow.set_entry_point("search")
-
-        # Search → Outline (always)
         workflow.add_edge("search", "outline")
-
-        # Outline → Decide Context (always)
         workflow.add_edge("outline", "decide_context")
-
-        # Decide Context → Tools or Write (conditional)
+        workflow.add_edge("decide_context", "tool_planning")
+        workflow.add_edge("tool_planning", "write")
+        workflow.add_edge("write", "evaluate_continue")
         workflow.add_conditional_edges(
-            "decide_context",
-            self._should_use_tools,
-            {"tools": "tools", "write": "write"},
-        )
-
-        # Tools → Write (always)
-        workflow.add_edge("tools", "write")
-
-        # Write → Tools or End (conditional)
-        workflow.add_conditional_edges(
-            "write", self._should_continue_writing, {"tools": "tools", "end": END}
+            "evaluate_continue",
+            self._route_after_evaluation,
+            {"tools": "tool_planning", "end": END},
         )
 
         return workflow.compile()
 
     def process(self) -> None:
-        """Process topic through memory-enabled workflow using shared memory."""
-
-        # Get shared memory from ConfigContext
         shared_memory = ConfigContext.get_memory_instance()
         if not shared_memory:
             raise RuntimeError(
-                "SharedMemory not available in ConfigContext. Make sure it's initialized before calling WriterAgent.process()"
+                "SharedMemory not available in ConfigContext. Initialize it before running WriterAgent.process()."
             )
 
-        topic = shared_memory.state.topic
-        logger.info(f"Starting writer workflow for: {topic}")
+        # Ensure metadata scaffolding exists
+        metadata = shared_memory.state.setdefault("metadata", {})
+        metadata.setdefault("decisions", [])
+        metadata.setdefault("workflow_version", "lg_hybrid_1.0")
+        metadata.setdefault("method", "writer_agent_lg")
 
-        # Initialize workflow metadata if not present
-        if not shared_memory.state.metadata.get("decisions"):
-            shared_memory.state.metadata["decisions"] = []
-        if not shared_memory.state.metadata.get("method"):
-            shared_memory.state.metadata["method"] = "writer_agent"
-        if not shared_memory.state.metadata.get("workflow_version"):
-            shared_memory.state.metadata["workflow_version"] = "3.0"
+        result_state = self.workflow.invoke(shared_memory.state)
+        shared_memory.state.update(result_state)
 
-        # Execute workflow
-        try:
-            self.workflow.invoke(shared_memory)
-            # Results are automatically stored in shared_memory by the workflow
+    # ------------------------------------------------------------------
+    # Graph nodes
+    # ------------------------------------------------------------------
+    def _search_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Run initial research on iteration 0."""
+        iteration = state.get("iteration", 0)
+        if iteration > 0:
+            logger.info("SEARCH_NODE: Skipping initial search (later iteration)")
+            return {"metadata": state.get("metadata", {})}
 
-            logger.info(
-                f"Completed writer workflow for '{topic}' "
-                f"({len(shared_memory.state.research_chunks)} research chunks used)"
-            )
+        topic = state.get("topic", "")
+        logger.info(
+            f"SEARCH_NODE: Starting initial research for: {topic}, search_tool={self.search_tool is not None}"
+        )
 
-        except Exception as e:
-            logger.error(f"Writer workflow failed for '{topic}': {e}")
-            raise
-
-    def _search_node(self, state: SharedMemory) -> Dict[str, Any]:
-        """
-        Search node:
-        1. Direct search on topic to get top result as context
-        2. Generate targeted queries using this context
-        3. Execute all searches and organize results
-        """
-
-        # Use the clean dataclass access
-        topic = state.state.topic
-
-        logger.info(f"Starting search for: {topic}")
-
-        # Step 1: Direct search on topic using the tool (it handles storage automatically)
+        direct_search_chunks = 0
         context = ""
-        try:
-            direct_search = self.search_tool.invoke(topic)
-            if direct_search.get("success") and direct_search.get("chunk_summaries"):
-                # Get summaries for context generation
-                summaries = direct_search["chunk_summaries"]
-                if summaries:
-                    context = summaries[0].get("description", "")
-                logger.info(
-                    f"Direct search stored {direct_search.get('total_chunks', 0)} chunks"
-                )
-        except Exception as e:
-            logger.warning(f"Direct search failed: {e}")
 
-        # Step 2: Generate targeted queries using context
-        prompt = search_query_generation_prompt(topic, context, self.num_queries)
-        queries_response = self.api_client.call_api(prompt)
-
-        # Parse queries from response with basic cleanup
-        queries = []
-        for line in queries_response.strip().split("\n"):
-            line = line.strip()
-            if line:
-                # Basic cleanup: remove common prefixes and formatting
-                if line.lower().startswith(("here are", "query:", "search:")):
-                    continue
-                # Remove numbering and quotes
-                import re
-
-                line = re.sub(
-                    r"^\d+[\.\)\:]\s*", "", line
-                )  # Remove "1. " or "1) " or "1: "
-                line = line.strip("\"'")  # Remove quotes
-                # Skip if too short after cleanup
-                if len(line.strip()) >= 3:
-                    queries.append(line.strip())
-
-        # Limit queries to reasonable number
-        queries = queries[: self.num_queries]
-
-        # Step 3: Execute targeted queries (tool handles storage automatically)
-        total_chunks_stored = direct_search.get("total_chunks", 0)
-
-        for query in queries:
+        if self.search_tool:
             try:
+                logger.info(f"SEARCH_NODE: Calling search_tool.invoke('{topic}')")
+                direct_search = self.search_tool.invoke(topic)
+                if direct_search.get("success"):
+                    direct_search_chunks = direct_search.get("total_chunks", 0)
+                    summaries = direct_search.get("chunk_summaries", [])
+                    if summaries:
+                        context = summaries[0].get("description", "")
+                else:
+                    logger.warning(
+                        f"SEARCH_NODE: Direct search failed for '{topic}': {direct_search}"
+                    )
+            except Exception as exc:
+                logger.warning(f"SEARCH_NODE: Direct search exception: {exc}")
+
+        prompt = search_query_generation_prompt(topic, context, self.num_queries)
+        queries_response = self.api_client.call_api(prompt=prompt)
+        queries = self._parse_queries(queries_response)
+
+        total_chunks_stored = direct_search_chunks
+        for query in queries:
+            if not self.search_tool:
+                break
+            try:
+                logger.info(f"SEARCH_NODE: Calling search_tool.invoke('{query}')")
                 search_result = self.search_tool.invoke(query)
                 if search_result.get("success"):
-                    total_chunks_stored += search_result.get("total_chunks", 0)
+                    chunks_found = search_result.get("total_chunks", 0)
+                    total_chunks_stored += chunks_found
                     logger.info(
-                        f"Query '{query}' stored {search_result.get('total_chunks', 0)} chunks"
+                        f"SEARCH_NODE: Query '{query}' stored {chunks_found} chunks"
                     )
-            except Exception as e:
-                logger.warning(f"Search failed for query '{query}': {e}")
-                continue
+                else:
+                    logger.warning(
+                        f"SEARCH_NODE: Query '{query}' failed: {search_result}"
+                    )
+            except Exception as exc:
+                logger.warning(f"SEARCH_NODE: Search exception for '{query}': {exc}")
 
-        state.state.metadata["decisions"].append(
-            f"Completed search: direct + {len(queries)} targeted queries, {total_chunks_stored} total chunks stored"
+        decisions = state.setdefault("metadata", {}).setdefault("decisions", [])
+        decisions.append(
+            f"Initial research complete: {len(queries)} targeted queries, {total_chunks_stored} total chunks"
         )
 
-        logger.info(
-            f"Search completed: {len(queries)} targeted queries + direct search, "
-            f"{total_chunks_stored} total chunks stored"
-        )
+        return {"metadata": state["metadata"]}
 
-        return {}
-
-    def _outline_node(self, state: SharedMemory) -> Dict[str, Any]:
-        """Create outline using LLM reasoning and available research."""
-
-        topic = state.state.topic
+    def _outline_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Create outline using stored research."""
+        topic = state.get("topic", "")
         logger.info(f"Creating outline for: {topic}")
 
-        # Use template prompt to create outline
-        prompt = planning_prompt(topic)
-        outline_response = self.api_client.call_api(prompt)
-        initial_outline = self.parse_outline(outline_response, topic)
+        # Select best single chunk by stored similarity to ground the outline
+        memory = ConfigContext.get_memory_instance()
+        best_chunk = None
+        best_score = None
+        for ch in memory.get_stored_chunks():
+            score = ch.metadata.get("relevance_score")
+            if score is None:
+                # fallback to inverse rank (lower is better)
+                rank = ch.metadata.get("relevance_rank", 9999)
+                score_val = -float(rank)
+            else:
+                score_val = float(score)
+            if best_score is None or score_val > best_score:
+                best_score = score_val
+                best_chunk = ch
 
-        state.state.initial_outline = initial_outline
-        state.state.metadata["decisions"].append(
-            f"Created outline with {len(initial_outline.headings)} sections"
+        excerpt = (
+            (best_chunk.content[:1200] + "...")
+            if best_chunk and len(best_chunk.content) > 1200
+            else (best_chunk.content if best_chunk else "")
         )
 
-        logger.info(f"Created outline with {len(initial_outline.headings)} sections")
-
-        return {}
-
-    def _decide_context_node(self, state: SharedMemory) -> Dict[str, Any]:
-        """LLM decides what additional context it needs before writing."""
-
-        logger.info("Deciding what context is needed for writing")
-
-        # Get current context summary
-        chunk_summaries = state.get_chunk_summaries()
-        context_summary = (
-            f"Available chunks: {len(chunk_summaries)}"
-            if chunk_summaries
-            else "No chunks available"
+        prompt = (
+            planning_prompt(topic)
+            + "\n\nUse the following excerpt to ground the outline.\n"
+            + "EXCERPT:\n"
+            + (excerpt or "")
+            + "\n\nCreate an entity-rich outline: prefer real team names, venues, dates, and match facts present in the excerpt."
         )
+        system = (
+            "Headings only. After the title line, output six lines starting with '## '. "
+            "No prose paragraphs. Base headings on the excerpt — do not invent facts."
+        )
+        outline_response = self.api_client.call_api(
+            prompt=prompt,
+            system_prompt=system,
+            temperature=0.2,
+            max_tokens=180,
+            stop=["\n\n"],
+        )
+        if not isinstance(outline_response, str):
+            outline_response = str(outline_response)
+        logger.debug(
+            "LLM outline len=%d preview=%s",
+            len(outline_response or ""),
+            (outline_response or "")[:200].replace("\n", " ⏎ "),
+        )
+        # Parse headings in a permissive way (agentic): collect all '## ' lines
+        outline = self._parse_outline(outline_response, topic)
+        state["initial_outline"] = outline
 
-        # Prepare outline info
-        outline_info = ""
-        if state.state.initial_outline:
-            outline_info = (
-                f"Sections to write: {', '.join(state.state.initial_outline.headings)}"
-            )
+        logger.info(
+            "Outline ready with %d sections: %s",
+            len(outline.headings),
+            outline.headings,
+        )
+        state["metadata"]["decisions"].append(
+            f"Outline ready with {len(outline.headings)} sections"
+        )
+        return {"initial_outline": outline, "metadata": state["metadata"]}
 
-        # Simple decision - ask if tools are needed
+    def _decide_context_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        shared_memory = ConfigContext.get_memory_instance()
+        logger.info("Deciding whether more context is needed")
+
+        search_summaries = shared_memory.get_search_summaries()
+
+        headings = []
+        if state.get("initial_outline"):
+            headings = state["initial_outline"].headings
+
         prompt = context_decision_prompt(
-            state.state.topic,
-            context_summary,
-            outline_info,
-            len(state.state.research_chunks),
+            state.get("topic", ""),
+            search_summaries,
+            ", ".join(headings),
+            len(search_summaries),
         )
+        decision_response = self.api_client.call_api(prompt=prompt)
+        decision = decision_response.strip().lower()
 
-        decision_response = self.api_client.call_api(prompt)
+        logger.info("Context decision raw response: %s", decision_response.strip())
+        state["metadata"]["context_decision"] = decision
+        state["metadata"]["decisions"].append(f"Context decision: {decision}")
+        return {"metadata": state["metadata"]}
 
-        # Store the decision for the conditional edge
-        state.state.metadata["context_decision"] = decision_response.strip().lower()
-        state.state.metadata["decisions"].append(
-            f"Context decision: {decision_response.strip()}"
+    def _tool_planning_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        shared_memory = ConfigContext.get_memory_instance()
+        metadata = state.setdefault("metadata", {})
+        metadata.setdefault("tool_attempts", 0)
+        metadata["tool_attempts"] += 1
+
+        logger.info(f"Tool planning iteration (attempt {metadata['tool_attempts']})")
+
+        if state.get("iteration", 0) > 0:
+            self._gather_pending_feedback(state, shared_memory)
+
+        chunk_summaries = self._collect_chunk_summaries(shared_memory)
+
+        planner_result = self._run_tool_planner(state, chunk_summaries)
+        if planner_result and planner_result.selected_chunks:
+            metadata["selected_chunks"] = planner_result.selected_chunks
+            notes = planner_result.notes or ""
+        else:
+            fallback = list(chunk_summaries.keys())[:5]
+            metadata["selected_chunks"] = fallback
+            notes = "Planner fallback: using top chunk summaries"
+
+        metadata.setdefault("decisions", []).append(
+            f"Tool planner notes: {notes[:120]}"
         )
+        return {"metadata": state["metadata"]}
 
-        logger.info(f"Context decision: {decision_response.strip()}")
+    def _write_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        from src.config.config_context import ConfigContext
 
-        return {}
-
-    def _tools_node(self, state: SharedMemory) -> Dict[str, Any]:
-        """Use tools to gather additional context based on LLM decision."""
-
-        logger.info("Using tools to gather additional context")
-
-        # Select relevant research chunks based on outline
-        chunk_summaries = state.get_chunk_summaries()
-        if chunk_summaries:
-            outline_info = ""
-            if state.state.initial_outline:
-                outline_info = f"Sections to write: {', '.join(state.state.initial_outline.headings)}"
-
-            # Create chunk selection prompt
-            chunks_info = []
-            for chunk_id, summary in list(chunk_summaries.items())[
-                :10
-            ]:  # Limit to 10 for LLM
-                chunks_info.append(f"{chunk_id}: {summary}")
-
-            prompt = chunk_selection_detailed_prompt(
-                state.state.topic, outline_info, chr(10).join(chunks_info)
-            )
-
-            selection_response = self.api_client.call_api(prompt)
-
-            # Parse the selection
-            try:
-                selection_response = selection_response.strip()
-                if selection_response.upper() != "NONE":
-                    # Parse comma-separated chunk IDs
-                    chunk_ids = [
-                        x.strip() for x in selection_response.split(",") if x.strip()
-                    ]
-
-                    # Mark selected chunks (for now just log them)
-                    selected_chunks = [
-                        cid for cid in chunk_ids if cid in chunk_summaries
-                    ]
-
-                    state.state.metadata["decisions"].append(
-                        f"Selected {len(selected_chunks)} chunks for context: {selected_chunks[:3]}"
-                    )
-
-                    logger.info(f"Selected {len(selected_chunks)} chunks for context")
-                else:
-                    logger.info("No relevant chunks selected")
-
-            except Exception as e:
-                logger.warning(f"Failed to parse chunk selection: {e}")
-
-        return {}
-
-    def _write_node(self, state: SharedMemory) -> Dict[str, Any]:
-        """Generate article content using LLM with organized knowledge."""
-
+        shared_memory = ConfigContext.get_memory_instance()
         logger.info("Generating article content")
 
-        working_outline = state.state.initial_outline
+        outline: Outline = state.get("initial_outline")
+        if not outline:
+            fallback = f"# {state.get('topic', 'Article')}\n\nUnable to create outline."
+            self._persist_article(shared_memory, state, outline, fallback, {})
+            return {"article_content": fallback, "metadata": state.get("metadata", {})}
 
-        if not working_outline:
-            state.state.article_content = (
-                f"# {state.state.topic}\n\nUnable to create outline for article."
-            )
-            return {}
+        iteration = state.get("iteration", 0)
+        sections_to_revise = set(self._get_sections_to_revise(shared_memory))
 
-        # Initialize article with title
-        article_parts = [f"# {working_outline.title}"]
+        article_parts = [f"# {outline.title}"]
+        section_contents: Dict[str, str] = {}
 
-        # Generate each section using available research chunks
-        for section_heading in working_outline.headings:
+        logger.info("Outline headings entering write: %s", outline.headings)
+
+        for heading in outline.headings:
             try:
-                section_content = self._generate_section_content(
-                    section_heading, state.state.topic, state
+                logger.info(
+                    "Preparing section '%s' (regenerate=%s)",
+                    heading,
+                    iteration == 0 or heading in sections_to_revise,
                 )
+                regenerate = iteration == 0 or heading in sections_to_revise
+                if regenerate:
+                    section_text = self._generate_section_content(
+                        heading, state, shared_memory
+                    )
+                    logger.info(f"Generated section '{heading}'")
+                else:
+                    section_text = self._get_existing_section_content(
+                        heading, shared_memory
+                    )
+                    logger.info(f"Reused section '{heading}'")
+            except Exception as exc:
+                logger.warning(f"Section '{heading}' generation failed: {exc}")
+                section_text = "Content generation failed for this section."
 
-                article_parts.append(f"## {section_heading}")
-                article_parts.append(section_content)
+            article_parts.append(f"## {heading}")
+            article_parts.append(section_text)
+            section_contents[heading] = section_text
 
-            except Exception as e:
-                logger.warning(f"Failed to generate section '{section_heading}': {e}")
-                article_parts.append(f"## {section_heading}")
-                article_parts.append("Content generation failed for this section.")
+        full_article = "\n\n".join(article_parts)
+        state["article_content"] = full_article
 
-        # Combine all parts
-        full_content = "\n\n".join(article_parts)
-        state.state.article_content = full_content
+        if len(full_article.strip()) < 400:
+            logger.warning(
+                "Article draft too short (%d chars). Building fallback summary.",
+                len(full_article.strip()),
+            )
+            summary_chunks = state.get("metadata", {}).get("selected_chunks", [])
+            fallback_sections: List[str] = []
+            for chunk_id in summary_chunks[:4]:
+                chunk = shared_memory.get_chunk_by_id(chunk_id)
+                if chunk and chunk.content:
+                    fallback_sections.append(chunk.content[:500])
+            fallback_content = "\n\n".join(fallback_sections) or "Summary unavailable."
+            title = outline.title if outline else state.get("topic", "Article")
+            full_article = f"# {title}\n\n{fallback_content}"
+            state["article_content"] = full_article
+            if outline and outline.headings:
+                section_contents = {outline.headings[0]: fallback_content}
+            else:
+                section_contents = {"Summary": fallback_content}
 
-        state.state.metadata["decisions"].append(
-            f"Generated article with {len(working_outline.headings)} sections"
+        self._persist_article(
+            shared_memory, state, outline, full_article, section_contents
         )
 
         logger.info(
-            f"Article generation completed: {len(full_content)} characters, "
-            f"{len(working_outline.headings)} sections"
+            "Generated article length: %d chars across %d sections",
+            len(full_article),
+            len(section_contents),
+        )
+        logger.info("Article preview (first 400 chars): %s", full_article[:400])
+
+        if iteration > 0 and sections_to_revise:
+            self._mark_section_feedback_applied(shared_memory, list(sections_to_revise))
+
+        decision_msg = (
+            f"Revised {len(sections_to_revise)} sections"
+            if sections_to_revise
+            else "Initial article draft created"
+        )
+        state["metadata"]["decisions"].append(decision_msg)
+
+        return {
+            "article_content": full_article,
+            "article_sections_by_iteration": {str(iteration): section_contents},
+            "metadata": state["metadata"],
+        }
+
+    def _evaluate_continue_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return {"metadata": state.get("metadata", {})}
+
+    def _route_after_evaluation(self, state: Dict[str, Any]) -> str:
+        metadata = state.setdefault("metadata", {})
+        tool_attempts = metadata.get("tool_attempts", 0)
+        max_attempts = 3
+        content_length = len(state.get("article_content", ""))
+
+        if tool_attempts >= max_attempts:
+            logger.warning("Max tool attempts reached, ending workflow")
+            return "end"
+
+        if content_length < 500:
+            logger.info("Article still short, looping back to tools")
+            return "tools"
+
+        return "end"
+
+    # ------------------------------------------------------------------
+    # Tool planner (hybrid auto-plan logic)
+    # ------------------------------------------------------------------
+    def _run_tool_planner(
+        self, state: Dict[str, Any], chunk_summaries: Dict[str, str]
+    ) -> Optional[ToolPlannerResult]:
+        topic = state.get("topic", "")
+        iteration = state.get("iteration", 0)
+        outline = state.get("initial_outline")
+        outline_text = ", ".join(outline.headings) if outline else ""
+        feedback_items = state.get("metadata", {}).get("current_feedback", [])
+
+        chunk_lines = [
+            f"{cid}: {summary}" for cid, summary in list(chunk_summaries.items())[:10]
+        ]
+        feedback_summary = "\n".join(
+            f"- {item.get('id')}: {item.get('feedback') or item.get('text', '')}"
+            for item in feedback_items[:5]
         )
 
-        return {}
+        prompt = (
+            "You are planning what the writer should do before drafting the next version.\n"
+            "Follow this exact response template (no extra text):\n"
+            "SELECT_CHUNKS: chunk_id, ... (list up to 5 chunk IDs or NONE)\n"
+            "REQUEST_SEARCH: YES or NO\n"
+            "SEARCH_QUERIES: query1 | query2 (only if REQUEST_SEARCH is YES, otherwise NONE)\n"
+            "NOTES: short explanation\n\n"
+            f"Topic: {topic}\n"
+            f"Iteration: {iteration}\n"
+            f"Outline sections: {outline_text}\n"
+            f"Pending feedback items: {len(feedback_items)}\n"
+            f"Top feedback (if any):\n{feedback_summary or 'None'}\n"
+            f"Available chunk summaries (max 10):\n{chr(10).join(chunk_lines) or 'None'}\n"
+            "Remember: reuse existing chunks whenever possible. Only request a search if critical information is missing."
+        )
 
-    # ========================================================================
-    # CONDITIONAL EDGE FUNCTIONS
-    # ========================================================================
+        response = self.api_client.call_api(prompt=prompt)
+        selected_chunks, search_flag, queries, notes = self._parse_writer_plan_response(
+            response, chunk_summaries
+        )
 
-    def _should_use_tools(self, state: SharedMemory) -> str:
-        """Determine if agent should use tools or proceed to writing."""
-        decision = state.state.metadata.get("context_decision", "").lower()
+        logger.info(
+            f"Writer planner → chunks: {selected_chunks}, request_search: {search_flag}, queries: {queries}"
+        )
 
-        # Simple decision logic based on LLM response
-        if any(
-            word in decision
-            for word in ["yes", "need", "require", "fetch", "get", "retrieve"]
-        ):
-            return "tools"
+        if search_flag and queries and self.search_tool:
+            for query in queries[:3]:
+                try:
+                    result = self.search_tool.invoke(query)
+                    if result.get("success"):
+                        logger.info(
+                            f"Planner search '{query}' stored {result.get('total_chunks', 0)} chunks"
+                        )
+                except Exception as exc:
+                    logger.warning(f"Planner search failed for '{query}': {exc}")
+
+        return ToolPlannerResult(selected_chunks=selected_chunks, notes=notes)
+
+    # ------------------------------------------------------------------
+    # Helper methods
+    # ------------------------------------------------------------------
+    def _parse_writer_plan_response(
+        self, response: str, chunk_summaries: Dict[str, str]
+    ) -> Tuple[List[str], bool, List[str], str]:
+        selected: List[str] = []
+        request_search = False
+        queries: List[str] = []
+        notes = ""
+
+        for line in response.splitlines():
+            clean = line.strip()
+            if clean.upper().startswith("SELECT_CHUNKS:"):
+                value = clean[len("SELECT_CHUNKS:") :].strip()
+                if value.upper() != "NONE":
+                    selected = [
+                        cid.strip()
+                        for cid in value.split(",")
+                        if cid.strip() in chunk_summaries
+                    ]
+            elif clean.upper().startswith("REQUEST_SEARCH:"):
+                value = clean[len("REQUEST_SEARCH:") :].strip().upper()
+                request_search = value.startswith("Y")
+            elif clean.upper().startswith("SEARCH_QUERIES:"):
+                value = clean[len("SEARCH_QUERIES:") :].strip()
+                if value.upper() != "NONE":
+                    queries = [q.strip() for q in value.split("|") if q.strip()]
+            elif clean.upper().startswith("NOTES:"):
+                notes = clean[len("NOTES:") :].strip()
+
+        if not selected:
+            selected = list(chunk_summaries.keys())[:5]
+        return (
+            selected,
+            request_search,
+            queries,
+            notes or "Planner response unavailable",
+        )
+
+    def _normalize_llm_output(self, result: Any) -> Tuple[str, List[Dict[str, Any]]]:
+        tool_calls: List[Dict[str, Any]] = []
+
+        if result is None:
+            return "", tool_calls
+
+        if isinstance(result, dict):
+            content = result.get("content") or ""
+            if result.get("tool_calls"):
+                tool_calls = [
+                    {
+                        "name": call.get("name"),
+                        "args": call.get("arguments") or call.get("args") or {},
+                    }
+                    for call in result["tool_calls"]
+                ]
+            return str(content), tool_calls
+
+        # LangChain AIMessage
+        if hasattr(result, "content"):
+            content = result.content or ""
+            additional_kwargs = getattr(result, "additional_kwargs", {})
+            llm_calls = additional_kwargs.get("tool_calls") or []
+            for call in llm_calls:
+                tool_calls.append(
+                    {
+                        "name": call.get("function", {}).get("name")
+                        or call.get("name"),
+                        "args": (
+                            json.loads(call.get("function", {}).get("arguments", "{}"))
+                            if isinstance(
+                                call.get("function", {}).get("arguments"), str
+                            )
+                            else call.get("function", {}).get("arguments", {})
+                        ),
+                    }
+                )
+            return str(content), tool_calls
+
+        return str(result), tool_calls
+
+    def _run_tool_conversation(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        tool_names: List[str],
+        max_turns: int = 5,
+    ) -> Optional[Dict[str, Any]]:
+        tools = [self.tool_map[name] for name in tool_names if name in self.tool_map]
+        tool_lookup = {tool.name: tool for tool in tools}
+
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        model = self.llm.bind_tools(tools) if tools else self.llm
+        final_text = ""
+
+        for _ in range(max_turns):
+            result = model.invoke(messages)
+            content, tool_calls = self._normalize_llm_output(result)
+            assistant_msg = {"role": "assistant", "content": content}
+            if tool_calls:
+                assistant_msg["tool_calls"] = tool_calls
+            messages.append(assistant_msg)
+
+            if tool_calls:
+                for call in tool_calls:
+                    tool_name = call.get("name")
+                    args = call.get("args", {})
+                    tool_obj = tool_lookup.get(tool_name)
+                    if not tool_obj:
+                        tool_result = {
+                            "success": False,
+                            "error": f"Unknown tool '{tool_name}'",
+                        }
+                    else:
+                        try:
+                            tool_result = tool_obj.invoke(**args)
+                        except Exception as exc:
+                            tool_result = {
+                                "success": False,
+                                "error": str(exc),
+                            }
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "name": tool_name or "tool",
+                            "content": json.dumps(tool_result),
+                        }
+                    )
+                continue
+
+            final_text = content
+            break
+
+        return {"messages": messages, "final": final_text}
+
+    def _parse_planner_output(self, text: str) -> Optional[Dict[str, Any]]:
+        if not text:
+            return None
+
+        cleaned = text.strip()
+        if cleaned.upper().startswith("FINAL:"):
+            cleaned = cleaned[6:].strip()
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            # Try to extract JSON substring
+            try:
+                start = cleaned.index("{")
+                end = cleaned.rindex("}") + 1
+                return json.loads(cleaned[start:end])
+            except Exception:
+                return None
+
+    def _gather_pending_feedback(self, state: Dict[str, Any], shared_memory):
+        if not self.feedback_tool:
+            return
+        try:
+            feedback_result = self.feedback_tool.invoke(only_pending=True)
+        except Exception as exc:
+            logger.warning(f"Failed to retrieve feedback via tool: {exc}")
+            return
+
+        if feedback_result.get("success"):
+            feedback_items = feedback_result.get("feedback", [])
+            metadata = state.setdefault("metadata", {})
+            metadata["current_feedback"] = feedback_items
+            metadata["feedback_count"] = len(feedback_items)
+
+            sections = {
+                item.get("target_section")
+                for item in feedback_items
+                if item.get("target_section")
+            }
+            metadata["sections_to_revise"] = list(sections)
+            logger.info(
+                f"Loaded {len(feedback_items)} pending feedback items for revision"
+            )
         else:
-            return "write"
+            logger.info("No pending feedback retrieved via tool")
 
-    def _should_continue_writing(self, state: SharedMemory) -> str:
-        """Determine if agent should get more context or finish."""
-        # For now, simple logic - finish after first write
-        # Later we can add more sophisticated logic based on:
-        # - Content quality assessment
-        # - Missing information detection
-        # - Feedback from previous iterations
+    def _collect_chunk_summaries(self, shared_memory) -> Dict[str, str]:
+        summaries: Dict[str, str] = {}
+        search_summaries = shared_memory.get_search_summaries()
+        for result in search_summaries.values():
+            # Ensure result is a dictionary before calling .get()
+            if not isinstance(result, dict):
+                logger.warning(
+                    f"Skipping non-dict search result: {type(result)} = {result}"
+                )
+                continue
 
-        # Check if we have substantial content
-        if len(state.state.article_content) > 500:  # Basic length check
-            return "end"
-        else:
-            return "tools"  # Get more context if content seems insufficient
+            chunk_summaries = result.get("chunk_summaries", [])
+            if not isinstance(chunk_summaries, list):
+                logger.warning(
+                    f"chunk_summaries is not a list: {type(chunk_summaries)}"
+                )
+                continue
 
-    # ========================================================================
-    # HELPER METHODS - LLM-based, no external tools
-    # ========================================================================
+            for chunk_summary in chunk_summaries:
+                if not isinstance(chunk_summary, dict):
+                    logger.warning(
+                        f"Skipping non-dict chunk_summary: {type(chunk_summary)}"
+                    )
+                    continue
 
-    def parse_outline(self, response: str, topic: str):
-        lines = response.strip().split("\n")
+                chunk_id = chunk_summary.get("chunk_id")
+                if not chunk_id:
+                    continue
+                description = chunk_summary.get("description", "")
+                source = chunk_summary.get("source", "")
+                label = description
+                if source:
+                    label = f"{description} (Source: {source})"
+                summaries[chunk_id] = label
+        return summaries
 
-        title = topic  # fallback
-        headings = []
-        subheadings = {}
+    def _persist_article(
+        self,
+        shared_memory,
+        state: Dict[str, Any],
+        outline: Optional[Outline],
+        content: str,
+        sections: Dict[str, str],
+    ) -> None:
+        article_metadata = state.get("metadata", {}).copy()
+        article = Article(
+            title=outline.title if outline else state.get("topic", "Article"),
+            content=content,
+            outline=outline,
+            sections=sections,
+            metadata=article_metadata,
+        )
+        shared_memory.update_article_state(article)
+        state["drafts_by_iteration"] = shared_memory.state["drafts_by_iteration"]
+        state["article_sections_by_iteration"] = shared_memory.state[
+            "article_sections_by_iteration"
+        ]
 
-        for line in lines:
-            line = line.strip()
-            if line.startswith("# ") and not line.startswith("## "):  # H1 title
-                title = line.replace("#", "").strip()
-            elif line.startswith("## "):  # H2 headings
-                heading = line.replace("##", "").strip()
-                # Avoid duplicates and limit to reasonable number
-                if heading not in headings and len(headings) < 8:
-                    headings.append(heading)
-                    subheadings[heading] = []
+    def _parse_queries(self, response: str) -> List[str]:
+        queries: List[str] = []
+        for line in response.splitlines():
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            if cleaned.lower().startswith(("here are", "query:", "search:")):
+                continue
+            cleaned = re.sub(r"^\d+[.):]\s*", "", cleaned)
+            cleaned = cleaned.strip("\"'")
+            if len(cleaned) >= 3:
+                queries.append(cleaned)
+        return queries[: self.num_queries]
 
-        # Fallback outline if parsing fails or too few sections
-        if len(headings) < 3:
+    def _parse_outline(self, response: str, topic: str) -> Outline:
+        lines = [ln.strip() for ln in response.splitlines() if ln.strip()]
+        # Title: first '# ' line or fallback
+        title = topic
+        for ln in lines:
+            if ln.startswith("# "):
+                title = ln.lstrip("# ").strip()
+                break
+        # Collect all '## ' headings in order (agentic, no strict cap)
+        headings: List[str] = [
+            ln.lstrip("# ").strip() for ln in lines if ln.startswith("## ")
+        ]
+        if not headings:
+            # Fallback to a minimal outline if model failed
             headings = [
-                "Introduction",
-                "Background and Context",
-                "Key Concepts",
-                "Applications and Examples",
-                "Current Developments",
+                "Overview",
+                "Teams and Venue",
+                "Route to Grand Final",
+                "Key Match Moments",
+                "Standout Players",
+                "Result and Aftermath",
             ]
-            subheadings = {heading: [] for heading in headings}
-
+        subheadings: Dict[str, List[str]] = {h: [] for h in headings}
         return Outline(title=title, headings=headings, subheadings=subheadings)
 
     def _generate_section_content(
-        self, section_heading: str, topic: str, memory_state: SharedMemory
+        self, heading: str, state: Dict[str, Any], shared_memory
     ) -> str:
-        """Generate content for a specific section using research chunks."""
+        selected_chunks = state.get("metadata", {}).get("selected_chunks", [])
+        chunk_contents: List[str] = []
+        for chunk_id in selected_chunks:
+            chunk = shared_memory.get_chunk_by_id(chunk_id)
+            if chunk:
+                chunk_contents.append(chunk.content)
 
-        # Find relevant information for this section from research chunks
-        relevant_info = self._find_relevant_info_for_section(
-            section_heading, memory_state
-        )
+        relevant_info = "\n\n".join(chunk_contents)
+        feedback_text = self._get_section_feedback(heading, shared_memory)
+        topic = state.get("topic", "")
 
-        # Choose appropriate template based on available information
-        if relevant_info:
+        if relevant_info or feedback_text:
+            if feedback_text:
+                feedback_block = f"\n\nREVIEWER FEEDBACK TO ADDRESS:\n{feedback_text}"
+                relevant_info = (
+                    relevant_info + feedback_block
+                    if relevant_info
+                    else feedback_block.strip()
+                )
             prompt = section_content_prompt_with_research(
-                section_heading=section_heading,
+                section_heading=heading,
                 topic=topic,
                 relevant_info=relevant_info,
             )
         else:
             prompt = section_content_prompt_without_research(
-                section_heading=section_heading, topic=topic
+                section_heading=heading,
+                topic=topic,
             )
 
-        return self.api_client.call_api(prompt)
+        text = self.api_client.call_api(prompt=prompt)
+        logger.info("Raw section response for '%s': %r", heading, text)
+        logger.info(
+            "Writer section output for '%s' (len=%d): %s",
+            heading,
+            len(text or ""),
+            (text or "")[:200],
+        )
 
-    def _find_relevant_info_for_section(
-        self, section_heading: str, memory_state: SharedMemory
-    ) -> str:
-        """Find relevant information for section from research chunks."""
-
-        chunks = memory_state.state.research_chunks
-        if not chunks:
-            return ""
-
-        relevant_parts = []
-
-        # Simple relevance check based on keyword overlap
-        section_keywords = set(section_heading.lower().split())
-
-        scored_chunks = []
-        for chunk_id, chunk_data in chunks.items():
-            content = chunk_data.get("content", "")
-            description = chunk_data.get("description", "")
-
-            if content:
-                content_words = set(content.lower().split())
-                desc_words = set(description.lower().split())
-                all_words = content_words | desc_words
-
-                overlap = len(section_keywords & all_words)
-                scored_chunks.append((overlap, chunk_data))
-
-        # Sort by relevance and take top results
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-
-        for score, chunk_data in scored_chunks[:4]:
-            content = chunk_data.get("content", "")
-            if content and score > 0:  # Only include chunks with some relevance
-                if len(content) > 300:
-                    content = content[:300] + "..."
-                relevant_parts.append(f"- {content}")
-
-        return "\n".join(relevant_parts[:5])
-
-    def _create_article_from_state(self, state: SharedMemory) -> Article:
-        """Create Article object from final workflow state."""
-
-        # Use initial outline since we no longer refine
-        final_outline = state.state.initial_outline
-
-        # Extract sections from content
-        sections = {}
-        if final_outline and state.state.article_content:
-            section_pattern = r"## (.+?)\n\n(.*?)(?=\n## |\Z)"
-            matches = re.findall(
-                section_pattern, state.state.article_content, re.DOTALL
+        if not text or len(text.strip()) < 200:
+            logger.warning(
+                "Section '%s' output too short (%d chars). Using chunk fallback.",
+                heading,
+                len(text.strip()) if text else 0,
             )
-            for section_title, section_content in matches:
-                sections[section_title.strip()] = section_content.strip()
+            fallback = (
+                "\n\n".join(chunk_contents[:2])
+                or "Content unavailable from research chunks."
+            )
+            text = (
+                f"{heading}\n\n"
+                f"Summary based on available research about {topic}:\n\n"
+                f"{fallback[:1000]}"
+            )
 
-        # Build comprehensive metadata
-        metadata = state.state.metadata.copy()
-        metadata.update(
-            {
-                "total_research_chunks": len(state.state.research_chunks),
-            }
+        return text
+
+    def _get_section_feedback(self, heading: str, shared_memory) -> str:
+        feedback_items = shared_memory.state.get("metadata", {}).get(
+            "current_feedback", []
         )
+        section_feedback = [
+            item.get("feedback") or item.get("text", "")
+            for item in feedback_items
+            if item.get("target_section") == heading
+        ]
+        return "\n".join(section_feedback)
 
-        # CREATE AND RETURN THE ARTICLE
-        article = Article(
-            title=final_outline.title if final_outline else state.state.topic,
-            content=state.state.article_content,
-            outline=final_outline,
-            sections=sections,
-            metadata=metadata,
+    def _get_sections_to_revise(self, shared_memory) -> List[str]:
+        sections = set()
+        for feedback in shared_memory.state.get("structured_feedback", []):
+            if feedback.get("status") == "pending" and feedback.get("target_section"):
+                sections.add(feedback["target_section"])
+        sections.update(
+            shared_memory.state.get("metadata", {}).get("sections_to_revise", [])
         )
+        return list(sections)
 
-        return article
+    def _get_existing_section_content(self, heading: str, shared_memory) -> str:
+        state = shared_memory.state
+        iteration = state.get("iteration", 0)
+        if iteration > 0:
+            prev = state.get("article_sections_by_iteration", {}).get(
+                str(iteration - 1), {}
+            )
+            if heading in prev:
+                return prev[heading]
+        article_text = state.get("article_content", "")
+        if article_text:
+            pattern = rf"## {re.escape(heading)}\n\n(.*?)(?=\n## |\Z)"
+            match = re.search(pattern, article_text, re.DOTALL)
+            if match:
+                return match.group(1).strip()
+        logger.warning(f"No existing content for section '{heading}', regenerating")
+        return ""
+
+    def _mark_section_feedback_applied(
+        self, shared_memory, sections_revised: List[str]
+    ):
+        metadata = shared_memory.state.get("metadata", {})
+        current_feedback = metadata.get("current_feedback", [])
+        for feedback in current_feedback:
+            target = feedback.get("target_section")
+            fid = feedback.get("id")
+            if target in sections_revised and fid:
+                reasoning = f"Updated section '{target}' in iteration {shared_memory.state.get('iteration', 0)}"
+                shared_memory.mark_feedback_claimed_by_writer(
+                    fid,
+                    claim_status="claimed_addressed",
+                    reasoning=reasoning,
+                )

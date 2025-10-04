@@ -3,49 +3,58 @@ import time
 import uuid
 from pathlib import Path
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 from src.collaborative.memory.convergence import ConvergenceChecker
 from src.collaborative.memory.storage import SessionStorage
-from src.utils.data import Outline, ResearchChunk
+from src.collaborative.theory_of_mind import TheoryOfMindModule
+from src.utils.data import Outline, ResearchChunk, ReviewFeedback
 
 
-@dataclass
-class MemoryState:
-    """Dataclass for the memory state - provides type safety and clean access."""
+class MemoryState(TypedDict, total=False):
+    """TypedDict for LangGraph compatibility - provides both type safety and direct serialization."""
 
-    # Session metadata
+    # Session metadata (required fields)
     topic: str
     session_id: str
-    iteration: int = 0
-    converged: bool = False
-    convergence_reason: Optional[str] = None
+
+    # Optional fields with defaults
+    iteration: int
+    converged: bool
+    convergence_reason: Optional[str]
 
     # Current workflow state
-    initial_outline: Optional[Outline] = None
-    article_content: str = ""
+    initial_outline: Optional[Outline]
+    article_content: str
 
     # Content by iteration
-    drafts_by_iteration: Dict[str, str] = field(
-        default_factory=dict
-    )  # iteration -> full draft content
-    article_sections_by_iteration: Dict[str, Dict[str, str]] = field(
-        default_factory=dict
-    )  # iteration -> {section_name: content}
+    drafts_by_iteration: Dict[str, str]  # iteration -> full draft content
+    article_sections_by_iteration: Dict[
+        str, Dict[str, str]
+    ]  # iteration -> {section_name: content}
 
     # Research storage
-    research_chunks: Dict[str, Dict[str, Any]] = field(
-        default_factory=dict
-    )  # chunk_id -> chunk data
+    research_chunks: Dict[str, Dict[str, Any]]  # chunk_id -> serialized chunk data
+    search_summaries: Dict[
+        str, Dict[str, Any]
+    ]  # query -> search results with summaries
 
     # Feedback storage
-    structured_feedback: List[Dict[str, Any]] = field(
-        default_factory=list
-    )  # feedback items with IDs and status
+    structured_feedback: List[Dict[str, Any]]  # serialized feedback items
 
     # Workflow metadata (decisions, timing, etc.)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any]
+
+    # Reviewer workflow temporary state (for LangGraph)
+    _current_article: Optional[Any]  # Article object being reviewed
+    _metrics: Optional[Dict[str, Any]]  # Article metrics
+    _potential_claims: Optional[List[str]]  # Claims to fact-check
+    _selected_tools: Optional[List[str]]  # Tools selected for review
+    _inspect_chunks: Optional[List[str]]  # Chunks to inspect
+    _fact_check_results: Optional[List[Dict[str, Any]]]  # Fact check results
+    _review_notes: Optional[List[str]]  # Review planning notes
+    _overall_score: Optional[float]  # Overall review score
+    _qualitative_feedback: Optional[str]  # Generated feedback text
 
 
 class SharedMemory:
@@ -60,6 +69,7 @@ class SharedMemory:
         max_iterations: int = 5,
         min_feedback_threshold: int = 1,
         storage_dir: str = "data/memory",
+        tom_enabled: bool = False,
     ):
         self.topic = topic
         self.session_id = self._generate_session_id(topic)
@@ -67,17 +77,34 @@ class SharedMemory:
 
         self.storage = SessionStorage(self.storage_dir, self.session_id)
         self.convergence_checker = ConvergenceChecker(
-            max_iterations, min_feedback_threshold
+            max_iterations, min_feedback_threshold, feedback_addressed_threshold=0.9
         )
+
+        # Initialize Theory of Mind module
+        self.tom_module = TheoryOfMindModule(enabled=tom_enabled)
 
         # Load existing data or create new state
         raw_data = self.storage.load_session()
         if raw_data.get("topic"):
-            # Convert loaded dict to dataclass
-            self.state = MemoryState(**raw_data)
+            # Use existing data as TypedDict
+            self.state: MemoryState = raw_data
         else:
-            # Create new state
-            self.state = MemoryState(topic=topic, session_id=self.session_id)
+            # Create new state with defaults
+            self.state: MemoryState = {
+                "topic": topic,
+                "session_id": self.session_id,
+                "iteration": 0,
+                "converged": False,
+                "convergence_reason": None,
+                "initial_outline": None,
+                "article_content": "",
+                "drafts_by_iteration": {},
+                "article_sections_by_iteration": {},
+                "research_chunks": {},
+                "search_summaries": {},
+                "structured_feedback": [],
+                "metadata": {},
+            }
 
         # Persist if new state
         if not raw_data.get("topic"):
@@ -86,58 +113,45 @@ class SharedMemory:
     @property
     def data(self) -> Dict[str, Any]:
         """Backward compatibility: provide dict access to state data."""
-        from dataclasses import asdict
-
-        return asdict(self.state)
+        return dict(self.state)
 
     # LangGraph compatibility methods
     def __getitem__(self, key: str):
         """Dictionary-like access for LangGraph compatibility."""
-        return getattr(self.state, key)
+        return self.state[key]
 
     def __setitem__(self, key: str, value):
         """Dictionary-like assignment for LangGraph compatibility."""
-        setattr(self.state, key, value)
+        self.state[key] = value
         self._persist()
 
     def keys(self):
         """Return state field names for LangGraph compatibility."""
-        from dataclasses import fields
-
-        return [field.name for field in fields(self.state)]
+        return self.state.keys()
 
     def __iter__(self):
         """Iterate over state field names for LangGraph compatibility."""
-        return iter(self.keys())
+        return iter(self.state)
 
     def items(self):
         """Return key-value pairs for LangGraph compatibility."""
-        from dataclasses import fields
-
-        return [
-            (field.name, getattr(self.state, field.name))
-            for field in fields(self.state)
-        ]
+        return self.state.items()
 
     def values(self):
         """Return state field values for LangGraph compatibility."""
-        from dataclasses import fields
-
-        return [getattr(self.state, field.name) for field in fields(self.state)]
+        return self.state.values()
 
     def __contains__(self, key):
         """Check if state has field for LangGraph compatibility."""
-        return hasattr(self.state, key)
+        return key in self.state
 
     def get(self, key, default=None):
         """Get state field value with default for LangGraph compatibility."""
-        return getattr(self.state, key, default)
+        return self.state.get(key, default)
 
     def update(self, updates: Dict[str, Any]):
         """Update multiple state fields for LangGraph compatibility."""
-        for key, value in updates.items():
-            if hasattr(self.state, key):
-                setattr(self.state, key, value)
+        self.state.update(updates)
         self._persist()
 
     def _generate_session_id(self, topic: str) -> str:
@@ -146,117 +160,172 @@ class SharedMemory:
         return f"{topic_hash}_{timestamp}"
 
     def _persist(self) -> None:
-        from dataclasses import asdict
+        # Convert state to JSON-serializable format
+        serializable_state = self._make_serializable(dict(self.state))
+        self.storage.save_session(serializable_state)
 
-        self.storage.save_session(asdict(self.state))
+    def _make_serializable(self, obj):
+        """Convert objects to JSON-serializable format."""
+        if hasattr(obj, "to_dict"):
+            return obj.to_dict()
+        elif isinstance(obj, dict):
+            return {key: self._make_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_serializable(item) for item in obj]
+        elif isinstance(obj, (str, int, float, bool, type(None))):
+            return obj
+        else:
+            # For other objects, try to convert to string
+            return str(obj)
 
     def store_draft(self, draft: str, iteration: Optional[int] = None) -> None:
         """Store draft for specific iteration."""
         if iteration is None:
-            iteration = self.state.iteration
-        self.state.drafts_by_iteration[str(iteration)] = draft
+            iteration = self.state["iteration"]
+        self.state["drafts_by_iteration"][str(iteration)] = draft
         self._persist()
 
     def get_current_draft(self) -> str:
         """Get draft for current iteration."""
-        current_iteration = str(self.state.iteration)
-        return self.state.drafts_by_iteration.get(current_iteration, "")
+        current_iteration = str(self.state["iteration"])
+        return self.state["drafts_by_iteration"].get(current_iteration, "")
 
     def get_current_iteration(self) -> int:
         """Get current iteration number."""
-        return self.state.iteration
+        return self.state["iteration"]
 
     def get_draft_by_iteration(self, iteration: int) -> str:
         """Get draft for specific iteration."""
-        return self.state.drafts_by_iteration.get(str(iteration), "")
+        return self.state["drafts_by_iteration"].get(str(iteration), "")
 
     def next_iteration(self) -> None:
         """Move to next iteration."""
-        self.state.iteration += 1
+        self.state["iteration"] += 1
         self._persist()
 
     def check_convergence(self) -> tuple[bool, str]:
-        # Note: This method may need adjustment based on what current_feedback and feedback_history should be
-        # For now, using structured_feedback as a proxy
+        # Get current iteration feedback (pending feedback for this iteration)
+        current_feedback = [
+            fb
+            for fb in self.state["structured_feedback"]
+            if fb.get("iteration") == self.state["iteration"]
+            and fb.get("status") == "pending"
+        ]
+
         converged, reason = self.convergence_checker.check_convergence(
-            self.state.iteration,
-            (
-                self.state.structured_feedback[-1]
-                if self.state.structured_feedback
-                else {}
-            ),
-            self.state.structured_feedback,
+            self.state["iteration"],
+            current_feedback,
+            self.state["structured_feedback"],
+            structured_feedback=self.state["structured_feedback"],  # Pass for 90% rule
         )
 
         if converged:
-            self.state.converged = True
-            self.state.convergence_reason = reason
+            self.state["converged"] = True
+            self.state["convergence_reason"] = reason
             self._persist()
 
         return converged, reason
 
     def get_session_summary(self) -> dict:
-        from dataclasses import asdict
-
-        return asdict(self.state)
+        return dict(self.state)
 
     # =================== Research Chunks Management ===================
 
     def store_research_chunk(self, chunk: ResearchChunk) -> None:
-        """Store a ResearchChunk object directly."""
-        self.state.research_chunks[chunk.chunk_id] = chunk.to_dict()
+        """Store research chunk information."""
+        # Serialize for LangGraph compatibility
+        self.state["research_chunks"][chunk.chunk_id] = chunk.to_dict()
         self._persist()
 
-    def get_chunks_by_ids(self, chunk_ids: List[str]) -> Dict[str, ResearchChunk]:
-        """Retrieve multiple research chunks by their IDs as ResearchChunk objects."""
-        chunks = {}
-        for chunk_id in chunk_ids:
-            chunk_data = self.state.research_chunks.get(chunk_id)
-            if chunk_data:
-                # Handle backward compatibility: convert 'summary' to 'description' if needed
-                if "summary" in chunk_data and "description" not in chunk_data:
-                    chunk_data["description"] = chunk_data.pop("summary")
-                chunk_data["chunk_id"] = chunk_id  # Ensure chunk_id is present
-                chunks[chunk_id] = ResearchChunk.from_dict(chunk_data)
+    def get_stored_chunks(self) -> List[ResearchChunk]:
+        """Retrieve all stored research chunks."""
+        chunks = []
+        for chunk_data in self.state["research_chunks"].values():
+            if isinstance(chunk_data, dict):
+                chunks.append(ResearchChunk.from_dict(chunk_data))
+            else:
+                # Already a ResearchChunk object
+                chunks.append(chunk_data)
         return chunks
 
-    def get_chunk_summaries(self) -> Dict[str, str]:
-        """Get summaries of all stored chunks for LLM chunk selection."""
-        summaries = {}
-        for chunk_id, chunk_data in self.state.research_chunks.items():
-            description = chunk_data.get("description", "")
-            source = chunk_data.get("source", "")
-            summary = f"{description}"
-            if source:
-                summary += f" (Source: {source})"
-            summaries[chunk_id] = summary
-        return summaries
+    def store_search_summary(self, query: str, search_results: Dict[str, Any]) -> None:
+        """Store search results with summaries for LLM context."""
+        self.state["search_summaries"][query] = search_results
+        self._persist()
+
+    def get_search_summaries(self) -> Dict[str, Dict[str, Any]]:
+        """Get all search summaries."""
+        return self.state["search_summaries"]
 
     def get_all_chunk_ids(self) -> List[str]:
         """Get all available chunk IDs."""
-        return list(self.state.research_chunks.keys())
+        return list(self.state["research_chunks"].keys())
+
+    def get_chunks_by_ids(self, chunk_ids: List[str]) -> Dict[str, ResearchChunk]:
+        """Get specific chunks by their IDs as typed objects."""
+        chunks = {}
+        for chunk_id in chunk_ids:
+            if chunk_id in self.state["research_chunks"]:
+                chunk_data = self.state["research_chunks"][chunk_id]
+                chunks[chunk_id] = ResearchChunk.from_dict(chunk_data)
+        return chunks
+
+    def get_chunk_by_id(self, chunk_id: str) -> Optional[ResearchChunk]:
+        """Get a single research chunk by ID as a typed object."""
+        chunk_data = self.state["research_chunks"].get(chunk_id)
+        if not chunk_data:
+            return None
+        if isinstance(chunk_data, dict):
+            return ResearchChunk.from_dict(chunk_data)
+        return chunk_data
+
+    # =================== Typed Feedback Management ===================
+
+    def store_review_feedback(self, feedback: ReviewFeedback) -> None:
+        """Store typed review feedback."""
+        self.state["structured_feedback"].append(feedback.to_dict())
+        self._persist()
+
+    def get_review_feedback(self) -> List[ReviewFeedback]:
+        """Get all review feedback as typed objects."""
+        feedback_list = []
+        for feedback_data in self.state["structured_feedback"]:
+            if isinstance(feedback_data, dict) and "overall_score" in feedback_data:
+                feedback_list.append(ReviewFeedback.from_dict(feedback_data))
+        return feedback_list
 
     # =================== Article Sections Management ===================
 
     def store_article_sections(self, iteration: int, sections: Dict[str, str]) -> None:
         """Store article sections for a specific iteration."""
-        self.state.article_sections_by_iteration[str(iteration)] = sections.copy()
+        self.state["article_sections_by_iteration"][str(iteration)] = sections.copy()
         self._persist()
 
     def get_section_by_iteration(
         self, section_name: str, iteration: int
     ) -> Optional[str]:
         """Get a specific section from a specific iteration."""
-        iteration_data = self.state.article_sections_by_iteration.get(
+        iteration_data = self.state["article_sections_by_iteration"].get(
             str(iteration), {}
         )
         return iteration_data.get(section_name)
 
     def get_sections_from_iteration(self, iteration: int) -> Dict[str, str]:
         """Get all sections from a specific iteration."""
-        return self.state.article_sections_by_iteration.get(str(iteration), {}).copy()
+        return (
+            self.state["article_sections_by_iteration"].get(str(iteration), {}).copy()
+        )
 
     # =================== Structured Feedback Management ===================
+
+    def _format_feedback_item(self, feedback: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy of feedback with normalized fields."""
+        item = feedback.copy()
+        base_text = item.get("text", "")
+        item.setdefault("feedback", base_text)
+        item.setdefault("priority", "medium")
+        item.setdefault("target_section", "general")
+        return item
 
     def store_structured_feedback(
         self,
@@ -264,6 +333,7 @@ class SharedMemory:
         iteration: int,
         target_section: Optional[str] = None,
         feedback_id: Optional[str] = None,
+        priority: str = "medium",
     ) -> str:
         """Store structured feedback with ID and status tracking."""
         if feedback_id is None:
@@ -272,22 +342,72 @@ class SharedMemory:
         feedback_item = {
             "id": feedback_id,
             "text": feedback_text,
+            "feedback": feedback_text,
             "iteration": iteration,
             "target_section": target_section,
             "status": "pending",
             "created_at": time.time(),
+            "priority": priority,
+            # Writer's claim tracking
+            "writer_claim_status": None,  # claimed_addressed, contested, etc.
+            "writer_reasoning": "",
+            "writer_claimed_at": None,
+            # Reviewer's evaluation tracking
+            "reviewer_verification": None,  # verified_addressed, partially_addressed, misunderstood, etc.
+            "reviewer_reasoning": "",
+            "reviewer_verified_at": None,
+            # Legacy fields (for backward compatibility)
             "applied_at": None,
             "application_notes": "",
         }
 
-        self.state.structured_feedback.append(feedback_item)
+        self.state["structured_feedback"].append(feedback_item)
         self._persist()
 
         return feedback_id
 
+    def mark_feedback_claimed_by_writer(
+        self,
+        feedback_id: str,
+        claim_status: str = "claimed_addressed",
+        reasoning: str = "",
+    ) -> bool:
+        """Writer marks feedback as claimed to be addressed with reasoning."""
+        for feedback in self.state["structured_feedback"]:
+            if feedback["id"] == feedback_id:
+                feedback["writer_claim_status"] = claim_status
+                feedback["writer_reasoning"] = reasoning
+                feedback["writer_claimed_at"] = time.time()
+                feedback["status"] = "writer_claimed"  # Intermediate status
+                self._persist()
+                return True
+        return False
+
+    def mark_feedback_verified_by_reviewer(
+        self, feedback_id: str, verification_status: str, reasoning: str = ""
+    ) -> bool:
+        """Reviewer evaluates writer's claim and marks verification status."""
+        for feedback in self.state["structured_feedback"]:
+            if feedback["id"] == feedback_id:
+                feedback["reviewer_verification"] = verification_status
+                feedback["reviewer_reasoning"] = reasoning
+                feedback["reviewer_verified_at"] = time.time()
+
+                # Update final status based on reviewer's evaluation
+                if verification_status == "verified_addressed":
+                    feedback["status"] = "applied"
+                elif verification_status in ["partially_addressed", "misunderstood"]:
+                    feedback["status"] = "partially_applied"
+                else:
+                    feedback["status"] = "pending"  # Back to pending for re-work
+
+                self._persist()
+                return True
+        return False
+
     def mark_feedback_applied(self, feedback_id: str, notes: str = "") -> bool:
-        """Mark feedback as applied."""
-        for feedback in self.state.structured_feedback:
+        """Legacy method - mark feedback as applied (for backward compatibility)."""
+        for feedback in self.state["structured_feedback"]:
             if feedback["id"] == feedback_id:
                 feedback["status"] = "applied"
                 feedback["application_notes"] = notes
@@ -298,7 +418,7 @@ class SharedMemory:
 
     def mark_feedback_ignored(self, feedback_id: str, notes: str = "") -> bool:
         """Mark feedback as ignored."""
-        for feedback in self.state.structured_feedback:
+        for feedback in self.state["structured_feedback"]:
             if feedback["id"] == feedback_id:
                 feedback["status"] = "ignored"
                 feedback["application_notes"] = notes
@@ -309,24 +429,90 @@ class SharedMemory:
 
     def get_feedback_by_id(self, feedback_id: str) -> Optional[Dict]:
         """Get feedback by its ID."""
-        for feedback in self.state.structured_feedback:
+        for feedback in self.state["structured_feedback"]:
             if feedback["id"] == feedback_id:
-                return feedback.copy()
+                return self._format_feedback_item(feedback)
         return None
+
+    def contest_feedback(self, feedback_id: str, contest_reasoning: str) -> bool:
+        """Writer contests reviewer feedback instead of applying/ignoring it."""
+        for feedback in self.state["structured_feedback"]:
+            if feedback["id"] == feedback_id:
+                feedback["writer_claim_status"] = "contested"
+                feedback["writer_reasoning"] = contest_reasoning
+                feedback["writer_claimed_at"] = time.time()
+                feedback["status"] = "contested"
+                feedback["contest_history"] = feedback.get("contest_history", [])
+                feedback["contest_history"].append(
+                    {
+                        "action": "writer_contested",
+                        "reasoning": contest_reasoning,
+                        "timestamp": time.time(),
+                        "iteration": self.state["iteration"],
+                    }
+                )
+                self._persist()
+                return True
+        return False
+
+    def resolve_contested_feedback(
+        self, feedback_id: str, resolution: str, resolver: str, reasoning: str = ""
+    ) -> bool:
+        """
+        Resolve contested feedback.
+
+        Args:
+            feedback_id: ID of the contested feedback
+            resolution: 'accept_writer_position', 'maintain_reviewer_position', 'compromise'
+            resolver: 'writer', 'reviewer', or 'system'
+            reasoning: Explanation for the resolution
+        """
+        for feedback in self.state["structured_feedback"]:
+            if feedback["id"] == feedback_id and feedback["status"] == "contested":
+                feedback["contest_history"] = feedback.get("contest_history", [])
+                feedback["contest_history"].append(
+                    {
+                        "action": f"resolved_by_{resolver}",
+                        "resolution": resolution,
+                        "reasoning": reasoning,
+                        "timestamp": time.time(),
+                        "iteration": self.state["iteration"],
+                    }
+                )
+
+                # Update final status based on resolution
+                if resolution == "accept_writer_position":
+                    feedback["status"] = "ignored"  # Writer's disagreement accepted
+                elif resolution == "maintain_reviewer_position":
+                    feedback["status"] = (
+                        "pending"  # Back to pending for writer to address
+                    )
+                elif resolution == "compromise":
+                    feedback["status"] = "partially_applied"  # Compromise reached
+                else:
+                    feedback["status"] = (
+                        "contested"  # Remains contested if no valid resolution
+                    )
+
+                feedback["resolved_at"] = time.time()
+                feedback["resolved_by"] = resolver
+                self._persist()
+                return True
+        return False
 
     def get_pending_feedback(self) -> List[Dict]:
         """Get all feedback that hasn't been applied yet."""
         return [
-            feedback.copy()
-            for feedback in self.state.structured_feedback
+            self._format_feedback_item(feedback)
+            for feedback in self.state["structured_feedback"]
             if feedback.get("status") == "pending"
         ]
 
     def get_feedback_for_section(self, section_name: str) -> List[Dict]:
         """Get all feedback that targets a specific section."""
         return [
-            feedback.copy()
-            for feedback in self.state.structured_feedback
+            self._format_feedback_item(feedback)
+            for feedback in self.state["structured_feedback"]
             if feedback.get("target_section") == section_name
         ]
 
@@ -343,7 +529,7 @@ class SharedMemory:
             sections = self._extract_sections_from_draft(draft)
 
         # Store sections for current iteration
-        self.store_article_sections(self.state.iteration, sections)
+        self.store_article_sections(self.state["iteration"], sections)
 
     def _extract_sections_from_draft(self, draft: str) -> Dict[str, str]:
         """Extract sections from draft content based on markdown headers."""
@@ -370,3 +556,35 @@ class SharedMemory:
             sections[current_section] = "\n".join(current_content).strip()
 
         return sections
+
+    def update_article_state(self, article: Any) -> None:
+        """
+        Centralized method to update article state consistently.
+
+        This is the ONLY method that should be used to update article content
+        to avoid state inconsistencies. Agents should return results and let
+        this method handle all state updates.
+
+        Args:
+            article: Article object with content, sections, and metadata
+        """
+        # Update main content
+        self.state["article_content"] = article.content
+
+        # Store draft for persistence
+        self.store_draft(article.content, self.state["iteration"])
+
+        # Update sections for current iteration
+        if hasattr(article, "sections") and article.sections:
+            self.store_article_sections(self.state["iteration"], article.sections)
+        else:
+            # Extract sections if not provided
+            sections = self._extract_sections_from_draft(article.content)
+            self.store_article_sections(self.state["iteration"], sections)
+
+        # Update metadata if provided
+        if hasattr(article, "metadata") and article.metadata:
+            self.state["metadata"].update(article.metadata)
+
+        # Persist changes
+        self._persist()

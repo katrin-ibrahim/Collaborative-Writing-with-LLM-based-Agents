@@ -124,6 +124,7 @@ def main():
         retrieval_config=retrieval_config,
         collaboration_config=collaboration_config,
         backend=args.backend,
+        **backend_kwargs,
     )
 
     # Setup output directory

@@ -32,12 +32,12 @@ def create_method(method_name: str) -> BaseMethod:
     elif method_name == "writer_reviewer":
         from src.methods.writer_reviewer_method import WriterReviewerMethod
 
-        return WriterReviewerMethod()
+        return WriterReviewerMethod(tom_enabled=False)
 
     elif method_name == "writer_reviewer_tom":
-        from src.methods.writer_reviewer_tom_method import WriterReviewerTomMethod
+        from src.methods.writer_reviewer_method import WriterReviewerMethod
 
-        return WriterReviewerTomMethod()
+        return WriterReviewerMethod(tom_enabled=True)
 
     elif method_name == "direct":
         from src.methods.direct_method import DirectMethod

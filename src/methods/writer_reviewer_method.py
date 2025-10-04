@@ -1,6 +1,12 @@
 # src/methods/writer_reviewer_method.py
 """
-Collaborative writer-reviewer method with iterative improvement.
+Collaborative             # Initialize shared memory
+            memory = SharedMemory(
+                topic=topic,
+                max_iterations=self.max_iterations,
+                min_feedback_threshold=1,
+                tom_enabled=self.tom_enabled,  # Use parameter to control ToM
+            )reviewer method with iterative improvement.
 """
 
 import time
@@ -22,6 +28,9 @@ class WriterReviewerMethod(BaseMethod):
     """
     Collaborative method with writer and reviewer agents.
 
+    Args:
+        tom_enabled: Whether to enable Theory of Mind for inter-agent reasoning
+
     Workflow:
     1. Writer creates initial draft
     2. Reviewer provides feedback
@@ -29,9 +38,10 @@ class WriterReviewerMethod(BaseMethod):
     4. Repeat until convergence or max iterations
     """
 
-    def __init__(self):
+    def __init__(self, tom_enabled: bool = False):
         super().__init__()
         self.collab_config = ConfigContext.get_collaboration_config()
+        self.tom_enabled = tom_enabled
 
         # Extract key parameters for easy access
         self.max_iterations = self.collab_config.max_iterations
@@ -60,6 +70,7 @@ class WriterReviewerMethod(BaseMethod):
                 topic=topic,
                 max_iterations=self.max_iterations,
                 min_feedback_threshold=1,
+                tom_enabled=False,  # Regular writer-reviewer without ToM
             )
 
             # Set memory instance for tools to access via ConfigContext
@@ -75,34 +86,36 @@ class WriterReviewerMethod(BaseMethod):
                 writer_start = time.time()
 
                 # Store topic in shared memory for writer to access
-                memory.state.article_content = f"# {topic}\n\n"  # Initial structure
+                seed_article = Article(
+                    title=topic,
+                    content=f"# {topic}\n\n",
+                    sections={},
+                    metadata=memory.state.get("metadata", {}).copy(),
+                )
+                memory.update_article_state(seed_article)
 
                 # Writer creates initial draft using shared memory
                 writer.process()
 
                 # Get the created article from shared memory
-                created_content = memory.state.article_content
+                created_content = memory.state["article_content"]
                 current_article = Article(
                     title=topic,
                     content=created_content,
-                    sections=memory.state.article_sections_by_iteration.get(
+                    sections=memory.state["article_sections_by_iteration"].get(
                         str(memory.get_current_iteration()), {}
                     ),
-                    metadata=memory.state.metadata,
+                    metadata=memory.state["metadata"],
                 )
 
                 writer_time += time.time() - writer_start
-                memory.store_draft(current_article.content)
             else:
                 # Resume from existing draft
                 current_article = Article(title=topic, content=current_draft)
                 logger.info(f"Resuming collaboration from existing draft")
 
             # Store article in shared memory for reviewer to access
-            memory.state.article_content = current_article.content
-            memory.store_article_sections(
-                memory.get_current_iteration(), current_article.sections
-            )
+            memory.update_article_state(current_article)
 
             # Initial review
             reviewer_start = time.time()
@@ -110,7 +123,7 @@ class WriterReviewerMethod(BaseMethod):
             reviewer_time += time.time() - reviewer_start
 
             # Get review results from shared memory
-            review_results = memory.state.metadata.get("review_results", [])
+            review_results = memory.state["metadata"].get("review_results", [])
             if review_results:
                 latest_review = review_results[-1]  # Get most recent review
                 initial_score = latest_review.get("overall_score", 0.0)
@@ -153,23 +166,20 @@ class WriterReviewerMethod(BaseMethod):
                 # Writer improves based on feedback
                 writer_start = time.time()
                 # Store current article in shared memory for writer to access
-                memory.state.article_content = current_article.content
-                memory.store_article_sections(
-                    memory.get_current_iteration(), current_article.sections
-                )
+                memory.update_article_state(current_article)
 
                 # Writer now uses shared memory for input and output
                 writer.process()
 
                 # Get improved article from shared memory
-                improved_content = memory.state.article_content
+                improved_content = memory.state["article_content"]
                 improved_article = Article(
                     title=topic,
                     content=improved_content,
-                    sections=memory.state.article_sections_by_iteration.get(
+                    sections=memory.state["article_sections_by_iteration"].get(
                         str(memory.get_current_iteration()), {}
                     ),
-                    metadata=memory.state.metadata,
+                    metadata=memory.state["metadata"],
                 )
                 writer_time += time.time() - writer_start
 
@@ -181,11 +191,7 @@ class WriterReviewerMethod(BaseMethod):
                     break
 
                 # Store improved draft and update shared memory
-                memory.store_draft(improved_article.content)
-                memory.state.article_content = improved_article.content
-                memory.store_article_sections(
-                    memory.get_current_iteration(), improved_article.sections
-                )
+                memory.update_article_state(improved_article)
 
                 # Review improved article
                 reviewer_start = time.time()
@@ -193,21 +199,23 @@ class WriterReviewerMethod(BaseMethod):
                 reviewer_time += time.time() - reviewer_start
 
                 # Get review results from shared memory
-                review_results = memory.state.metadata.get("review_results", [])
+                review_results = memory.state["metadata"].get("review_results", [])
                 if review_results:
                     latest_review = review_results[-1]  # Get most recent review
                     new_score = latest_review.get("overall_score", 0.0)
                     feedback_text = latest_review.get("feedback_text", "")
+                    issues_count = latest_review.get("issues", [])
+                    recommendations_count = latest_review.get("recommendations", [])
                 else:
                     logger.error("No review results found in shared memory")
                     new_score = 0.0
                     feedback_text = ""
+                    issues_count = []
+                    recommendations_count = []
 
                 logger.info(f"📊 REVIEWER ITERATION {iteration} OUTPUT VALIDATION:")
                 logger.info(f"  New score: {new_score} (from shared memory)")
                 logger.info(f"  New feedback length: {len(feedback_text)} chars")
-                issues_count = latest_review.get("issues", [])
-                recommendations_count = latest_review.get("recommendations", [])
                 logger.info(
                     f"  New issues count: {len(issues_count) if isinstance(issues_count, list) else 0}"
                 )
@@ -232,7 +240,7 @@ class WriterReviewerMethod(BaseMethod):
                 )
 
                 # Check for minimal improvement
-                if score_improvement > self.min_improvement_threshold:
+                if score_improvement < self.min_improvement_threshold:
                     convergence_reason = "minimal_improvement"
                     logger.info(
                         f"Minimal improvement detected (< {self.min_improvement_threshold})"
@@ -253,7 +261,7 @@ class WriterReviewerMethod(BaseMethod):
             total_time = time.time() - start_time
 
             # Get final score from shared memory
-            review_results = memory.state.metadata.get("review_results", [])
+            review_results = memory.state["metadata"].get("review_results", [])
             if review_results:
                 final_score = review_results[-1].get("overall_score", initial_score)
             else:

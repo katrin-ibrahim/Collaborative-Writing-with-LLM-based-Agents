@@ -8,7 +8,7 @@ import hashlib
 import logging
 import re
 from langchain_core.tools import tool
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from src.config.config_context import ConfigContext
 from src.retrieval.factory import create_retrieval_manager
@@ -17,8 +17,127 @@ from src.utils.data import ResearchChunk
 logger = logging.getLogger(__name__)
 
 
+def _smart_chunk_filtering(
+    chunks: List[ResearchChunk], query: str, top_n_full: int = 3
+) -> List[ResearchChunk]:
+    """
+    Smart hybrid chunk filtering: full content for top chunks, summaries for the rest.
+
+    Strategy:
+    1. Take top N chunks (by relevance score) and provide full content to LLM
+    2. For remaining chunks, provide only summaries for quick filtering
+    3. This gives LLM deep context for most relevant chunks while efficiently filtering the rest
+
+    Args:
+        chunks: List of research chunks to filter
+        query: Search query for relevance assessment
+        top_n_full: Number of top chunks to provide full content for (default: 3)
+
+    Returns:
+        Filtered list of relevant chunks
+    """
+    if not chunks or len(chunks) <= top_n_full:
+        return chunks
+
+    logger.info(
+        f"Smart filtering {len(chunks)} chunks: top {top_n_full} with full content, rest with summaries"
+    )
+
+    try:
+        llm_client = ConfigContext.get_client("writing")
+
+        # Sort chunks by relevance score (if available)
+        def get_relevance_score(chunk):
+            return chunk.metadata.get(
+                "relevance_score", chunk.metadata.get("relevance_rank", 999)
+            )
+
+        sorted_chunks = sorted(chunks, key=get_relevance_score, reverse=True)
+
+        # Split into high-priority (full content) and low-priority (summaries)
+        high_priority_chunks = sorted_chunks[:top_n_full]
+        remaining_chunks = sorted_chunks[top_n_full:]
+
+        # Process high-priority chunks with full content
+        high_priority_analysis = []
+        for i, chunk in enumerate(high_priority_chunks):
+            content_preview = (
+                chunk.content[:800] if chunk.content else chunk.description
+            )
+            analysis_entry = f"{i+1}. [HIGH_PRIORITY] {chunk.chunk_id}:\nCONTENT: {content_preview}\nSOURCE: {chunk.source}"
+            high_priority_analysis.append(analysis_entry)
+
+        # Process remaining chunks with summaries only
+        remaining_analysis = []
+        for i, chunk in enumerate(remaining_chunks):
+            summary_entry = f"{i+top_n_full+1}. [SUMMARY] {chunk.chunk_id}: {chunk.description} (Source: {chunk.source})"
+            remaining_analysis.append(summary_entry)
+
+        # Create comprehensive filtering prompt
+        prompt = f"""You are filtering research chunks for writing about: "{query}"
+
+TASK: Evaluate relevance for content creation. Keep chunks with specific, useful information.
+
+TOP CHUNKS (Full Content Analysis):
+{chr(10).join(high_priority_analysis)}
+
+REMAINING CHUNKS (Summary Analysis):
+{chr(10).join(remaining_analysis)}
+
+INSTRUCTIONS:
+- HIGH_PRIORITY chunks: Evaluate based on full content - keep if directly relevant
+- SUMMARY chunks: Evaluate based on description - keep if potentially useful
+
+Respond with numbers to KEEP (comma-separated):"""
+
+        response = llm_client.call_api(prompt)
+        logger.info(
+            f"🧠 SMART_FILTER: LLM response for '{query}': '{response.strip()}'"
+        )
+
+        # Parse response to get relevant indices
+        import re
+
+        numbers = re.findall(r"\b(\d+)\b", response.strip())
+        keep_indices = []
+
+        for num_str in numbers:
+            idx = int(num_str) - 1  # Convert to 0-indexed
+            if 0 <= idx < len(sorted_chunks):
+                keep_indices.append(idx)
+
+        # If filtering failed or no chunks selected, keep top chunks
+        if not keep_indices:
+            logger.warning(
+                f"Smart filtering failed for '{query}', keeping top {min(5, len(chunks))} chunks"
+            )
+            return sorted_chunks[: min(5, len(chunks))]
+
+        # Return selected chunks in original relevance order
+        filtered_chunks = [sorted_chunks[i] for i in sorted(keep_indices)]
+        logger.info(
+            f"Smart filtering: {len(chunks)} → {len(filtered_chunks)} chunks kept"
+        )
+
+        return filtered_chunks
+
+    except Exception as e:
+        logger.warning(
+            f"Smart chunk filtering failed: {e}, keeping top {min(5, len(chunks))} chunks"
+        )
+        # Fallback to keeping top chunks by relevance
+        sorted_chunks = sorted(
+            chunks,
+            key=lambda c: c.metadata.get(
+                "relevance_score", c.metadata.get("relevance_rank", 999)
+            ),
+            reverse=True,
+        )
+        return sorted_chunks[: min(5, len(chunks))]
+
+
 @tool
-def search_and_retrieve(query: str, rm_type: str = "wiki") -> Dict[str, Any]:
+def search_and_retrieve(query: str, rm_type: str = None) -> Dict[str, Any]:
     """
     Search external sources, store chunks in memory, and return summaries for context.
 
@@ -31,7 +150,7 @@ def search_and_retrieve(query: str, rm_type: str = "wiki") -> Dict[str, Any]:
 
     Args:
         query: Search query for external sources
-        rm_type: Retrieval manager ("wiki", "supabase_faiss")
+        rm_type: Retrieval manager ("wiki", "supabase_faiss") - defaults to config setting
 
     Returns:
         Dictionary with chunk_summaries (id+summary pairs) and success status
@@ -58,6 +177,15 @@ def search_and_retrieve(query: str, rm_type: str = "wiki") -> Dict[str, Any]:
                 "error": "Memory system not available",
             }
 
+        # Get retrieval manager from config if not explicitly provided
+        if rm_type is None:
+            retrieval_config = ConfigContext.get_retrieval_config()
+            rm_type = (
+                retrieval_config.retrieval_manager
+                if retrieval_config
+                else "supabase_faiss"
+            )
+
         # Get retrieval manager
         retrieval_manager = create_retrieval_manager(rm_type)
 
@@ -67,8 +195,8 @@ def search_and_retrieve(query: str, rm_type: str = "wiki") -> Dict[str, Any]:
             topic=query,  # Use query as topic for context
         )
 
-        # Process results: create ResearchChunk objects and store in memory
-        chunk_summaries = []
+        # Process results: create ResearchChunk objects
+        chunks = []
         for i, result in enumerate(raw_results):
             # Generate simple chunk ID
             chunk_id = f"search_{rm_type}_{i}_{hashlib.md5(str(result).encode()).hexdigest()[:8]}"
@@ -77,9 +205,15 @@ def search_and_retrieve(query: str, rm_type: str = "wiki") -> Dict[str, Any]:
             if isinstance(result, dict):
                 chunk = ResearchChunk.from_retrieval_result(chunk_id, result)
                 # Add search-specific metadata
-                chunk.metadata.update(
-                    {"rm_type": rm_type, "search_query": query, "relevance_rank": i + 1}
-                )
+                meta_update = {
+                    "rm_type": rm_type,
+                    "search_query": query,
+                    "relevance_rank": i + 1,
+                }
+                # Persist retriever similarity score if available
+                if "relevance_score" in result:
+                    meta_update["relevance_score"] = result.get("relevance_score")
+                chunk.metadata.update(meta_update)
             else:
                 # Fallback for unexpected formats (should not happen with current RMs)
                 content = str(result)
@@ -99,24 +233,30 @@ def search_and_retrieve(query: str, rm_type: str = "wiki") -> Dict[str, Any]:
                     },
                 )
 
-            # Store chunk in memory
+            chunks.append(chunk)
+
+        # Apply smart chunk filtering (full content for top chunks, summaries for rest)
+        filtered_chunks = _smart_chunk_filtering(chunks, query, top_n_full=3)
+
+        # Store filtered chunks in memory and build summaries
+        chunk_summaries = []
+        for i, chunk in enumerate(filtered_chunks):
             memory.store_research_chunk(chunk)
 
             # Add to summaries list for agent context
-            chunk_summaries.append(
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "description": chunk.description,
-                    "source": chunk.source,
-                    "relevance_rank": i + 1,
-                }
-            )
+            summary = {
+                "chunk_id": chunk.chunk_id,
+                "description": chunk.description,
+                "source": chunk.source,
+                "relevance_rank": i + 1,
+            }
+            # Surface score for transparency if stored
+            if "relevance_score" in chunk.metadata:
+                summary["relevance_score"] = chunk.metadata["relevance_score"]
+            chunk_summaries.append(summary)
 
-        logger.info(
-            f"Search completed: '{query}' → {len(chunk_summaries)} chunks stored in memory"
-        )
-
-        return {
+        # Store search summary in memory for later use
+        search_result = {
             "query": query,
             "rm_type": rm_type,
             "chunk_summaries": chunk_summaries,
@@ -124,6 +264,13 @@ def search_and_retrieve(query: str, rm_type: str = "wiki") -> Dict[str, Any]:
             "message": f"Found and stored {len(chunk_summaries)} chunks for '{query}'. Use get_chunks_by_ids to retrieve full content.",
             "success": True,
         }
+        memory.store_search_summary(query, search_result)
+
+        logger.info(
+            f"Search completed: '{query}' → {len(chunk_summaries)} chunks stored in memory"
+        )
+
+        return search_result
 
     except Exception as e:
         logger.error(f"Search failed for query '{query}': {e}")
@@ -522,7 +669,7 @@ def mark_feedback_ignored(feedback_id: str, notes: str = "") -> Dict[str, Any]:
 
 
 @tool
-def verify_claims_with_research(claims: str) -> Dict[str, Any]:
+def verify_claims_with_research(claims) -> Dict[str, Any]:
     """
     Comprehensive fact-checking tool: takes claims, gets research summary,
     selects relevant chunks, retrieves content, and returns verification results.
@@ -531,7 +678,7 @@ def verify_claims_with_research(claims: str) -> Dict[str, Any]:
     using only the research chunks that the writer actually had access to.
 
     Args:
-        claims: Comma-separated list of factual claims to verify
+        claims: Either a comma-separated string or list of factual claims to verify
 
     Returns:
         Dictionary with verification results for each claim
@@ -543,15 +690,22 @@ def verify_claims_with_research(claims: str) -> Dict[str, Any]:
     logger = logging.getLogger(__name__)
 
     try:
-        # Parse claims
-        if not claims or not claims.strip():
+        # Parse claims (support string or list inputs)
+        if claims is None:
             return {
                 "success": False,
                 "error": "No claims provided for verification",
                 "verifications": [],
             }
 
-        claims_list = [claim.strip() for claim in claims.split(",") if claim.strip()]
+        if isinstance(claims, str):
+            raw_claims = [part.strip() for part in claims.split(",") if part.strip()]
+        elif isinstance(claims, list):
+            raw_claims = [str(part).strip() for part in claims if str(part).strip()]
+        else:
+            raw_claims = [str(claims).strip()]
+
+        claims_list = [claim for claim in raw_claims if claim]
         if not claims_list:
             return {
                 "success": False,
@@ -569,24 +723,13 @@ def verify_claims_with_research(claims: str) -> Dict[str, Any]:
             }
 
         # Get research chunks summary from memory
-        research_chunks = memory.data.get("research_chunks", {})
-        if not research_chunks:
+        stored_chunks = {chunk.chunk_id: chunk for chunk in memory.get_stored_chunks()}
+        if not stored_chunks:
             return {
                 "success": False,
                 "error": "No research chunks available for verification",
                 "verifications": [],
             }
-
-        # Create research summary for LLM analysis
-        chunk_summaries = []
-        for chunk_id, chunk_data in research_chunks.items():
-            summary = {
-                "chunk_id": chunk_id,
-                "description": chunk_data.get("description", ""),
-                "source": chunk_data.get("source", ""),
-                "url": chunk_data.get("url", ""),
-            }
-            chunk_summaries.append(summary)
 
         # Select relevant chunks for each claim using simple keyword matching
         # (Could be enhanced with embedding similarity later)
@@ -597,9 +740,9 @@ def verify_claims_with_research(claims: str) -> Dict[str, Any]:
             claim_lower = claim.lower()
 
             # Find chunks that might be relevant to this claim
-            for chunk_id, chunk_data in research_chunks.items():
-                description = chunk_data.get("description", "").lower()
-                source = chunk_data.get("source", "").lower()
+            for chunk_id, chunk in stored_chunks.items():
+                description = chunk.description.lower()
+                source = chunk.source.lower()
 
                 # Simple relevance scoring based on keyword overlap
                 claim_words = set(claim_lower.split())
@@ -651,14 +794,16 @@ def verify_claims_with_research(claims: str) -> Dict[str, Any]:
             # Get full content for relevant chunks
             chunk_contents = []
             for chunk_id in top_chunks:
-                chunk_data = research_chunks.get(chunk_id, {})
-                content = chunk_data.get("content", chunk_data.get("description", ""))
+                chunk = stored_chunks.get(chunk_id)
+                if not chunk:
+                    continue
                 chunk_contents.append(
                     {
                         "chunk_id": chunk_id,
-                        "content": content[:500],  # Limit content length
-                        "source": chunk_data.get("source", ""),
-                        "url": chunk_data.get("url", ""),
+                        "content": chunk.content[:500],  # Limit content length
+                        "source": chunk.source,
+                        "url": chunk.url,
+                        "description": chunk.description,
                     }
                 )
 
@@ -684,7 +829,7 @@ def verify_claims_with_research(claims: str) -> Dict[str, Any]:
         return {
             "success": True,
             "total_claims": len(claims_list),
-            "research_chunks_available": len(research_chunks),
+            "research_chunks_available": len(stored_chunks),
             "verifications": verifications,
         }
 
