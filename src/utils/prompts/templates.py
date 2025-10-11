@@ -15,10 +15,9 @@ def build_direct_prompt(topic: str) -> str:
     2. Create 4-6 main sections with specific, descriptive headings (NOT generic ones like "Overview")
     3. Each section should contain 2-3 substantial paragraphs with specific details
     4. Include dates, numbers, names, and concrete facts wherever possible
-    5. Use proper Wikipedia-style citations format [1], [2], etc. (even if hypothetical)
-    6. Maintain an encyclopedic, neutral tone throughout
-    7. Target 1600-2000 words for comprehensive coverage
-    8. Include entity-rich content with proper nouns, technical terms, and specific details
+    5. Maintain an encyclopedic, neutral tone throughout
+    6. Target 1600-2000 words for comprehensive coverage
+    7. Include entity-rich content with proper nouns, technical terms, and specific details
 
     SECTION STRATEGY:
     - Choose section headings that are specific to the topic domain
@@ -28,18 +27,21 @@ def build_direct_prompt(topic: str) -> str:
     - For places: Geography, History, Demographics, Economy, Culture
     - For concepts: Definition, Development, Applications, Criticism
 
+
+    You must write from general knowledge WITHOUT any citations, references, URLs, or source attributions whatsoever.
+
     FORMAT:
     # {topic}
 
-    [Write a comprehensive 2-3 paragraph introduction that defines the topic, explains its significance, and provides key contextual information. Include specific dates, locations, and quantitative details.]
+    [Write a comprehensive 2-3 paragraph introduction that defines the topic, explains its significance, and provides key contextual information. Include specific dates, locations, and quantitative details but NO citations.]
 
     ## [Section 1 - Specific heading related to topic]
 
-    [2-3 detailed paragraphs with specific facts, dates, names, and quantitative information. Include proper citations.]
+    [2-3 detailed paragraphs with specific facts, dates, names, and quantitative information. NO citations allowed.]
 
     ## [Section 2 - Another specific heading]
 
-    [2-3 detailed paragraphs continuing the comprehensive coverage.]
+    [2-3 detailed paragraphs continuing the comprehensive coverage. NO citations allowed.]
 
     ## [Section 3 - Third specific heading]
 
@@ -51,13 +53,13 @@ def build_direct_prompt(topic: str) -> str:
 
     ## [Section 5 - Fifth specific heading if needed]
 
-    [2-3 detailed paragraphs for comprehensive coverage.]
+    [2-3 detailed paragraphs for comprehensive coverage. NO citations.]
 
     ## [Section 6 - Final specific heading if needed]
 
-    [2-3 detailed paragraphs completing the comprehensive article.]
+    [2-3 detailed paragraphs completing the comprehensive article. NO citations.]
 
-    Write the complete article now."""
+    Write the complete article NOW with ZERO citations or references."""
 
 
 def build_query_generator_prompt(topic: str, num_queries: int = 5) -> str:
@@ -88,37 +90,47 @@ def build_query_generator_prompt(topic: str, num_queries: int = 5) -> str:
 
 
 def build_rag_prompt(topic: str, context: str) -> str:
-    return f"""Write a comprehensive Wikipedia-style article about "{topic}" using the provided context.
+    return f"""
+    SYSTEM INSTRUCTION (do not ignore):
 
-    Context Information:
+    You are writing a *Wikipedia-style* article using ONLY the provided context.
+    If a fact is not explicitly supported by the context, DO NOT include it.
+
+    ===================================================
+    == MANDATORY STRUCTURE (must match exactly) ==
+    ===================================================
+
+    # {topic}
+
+    ## Introduction
+    [2–3 paragraphs defining the topic with inline citations like [1], [2]]
+
+    ## Section 1 - [Descriptive Heading]
+    [Detailed paragraphs with inline citations like [3], [4]]
+
+    ## Section 2 - [Descriptive Heading]
+    [Detailed paragraphs continuing coverage with citations like [5], [6]]
+
+    ## References
+    1. [chunk_id] Title - URL
+    2. [chunk_id] Title (Source: source_name)
+
+    ===================================================
+    == MANDATORY CITATION RULES (STRICT) ==
+    ===================================================
+
+    1. Every paragraph must contain at least one numbered inline citation in the form [N].
+    2. Each [N] must correspond to a valid chunk_id present in the context below.
+    3. NEVER invent citations or URLs.
+    4. If a statement cannot be supported by context, omit it.
+    5. The '## References' section must enumerate all used citations exactly as above.
+
+    ===================================================
+    == CONTEXT INFORMATION ==
+    ===================================================
     {context}
-    Formatting Rules (must follow exactly):
-    - The article title must be exactly:
-      # {topic}
-    - Do not include any additional text before or after the title.
-    - Each section heading must use level-2 markdown only:
-      ## Heading
-    - DO NOT use bold text (**) or colons (:) for headings, you must use level-2 markdown.
-    - The first section must be titled "Introduction".
-    - After "Introduction", create other appropriate sections with ## headings.
-    - Write in neutral encyclopedic style.
-    - Target length: 1600–2000 words.
-    - Example of a good structure:
-        # Topic Title
-        ## Introduction
-        [2-3 paragraphs introducing the topic, defining it, and providing key context]
-        ## Section 1 - Specific Heading
-        [2-3 detailed paragraphs with specific facts, dates, names, and quantitative information]
-        ## Section 2 - Another Specific Heading
-        [2-3 detailed paragraphs continuing the comprehensive coverage]
 
-        And so on for additional sections.
-    - Example of a bad structure:
-        # Topic Title
-        **Overview**
-        [Generic overview, not specific to the topic]
-
-   CRITICAL INSTRUCTION: Use markdown syntax for headings and sections, do not use bold text or colons for headings.
-
-    Now write the full article:
-"""
+    ===================================================
+    BEGIN ARTICLE OUTPUT BELOW — FOLLOW FORMAT EXACTLY
+    ===================================================
+    """

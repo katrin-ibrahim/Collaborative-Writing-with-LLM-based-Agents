@@ -4,7 +4,7 @@ Hybrid retrieval manager combining WikiRM (live data) with FAISS (broad coverage
 """
 
 import logging
-from typing import Dict, List, Union
+from typing import Dict, List
 
 from src.retrieval.rms.base_retriever import BaseRetriever
 from src.retrieval.rms.supabase_faiss_rm import FaissRM
@@ -89,21 +89,6 @@ class HybridRM(BaseRetriever):
 
         logger.info(f"Hybrid search combined to {len(combined_results)} total results")
         return combined_results
-
-    def search(
-        self,
-        *args,
-        max_results: int = None,
-        topic: str = None,
-        deduplicate: bool = True,
-        query_or_queries: Union[str, List[str]] = None,
-        **kwargs,
-    ) -> List:
-        """
-        Hybrid search that combines WikiRM and FAISS approaches.
-        This method uses the base class search orchestration.
-        """
-        return super().search(query_or_queries=query_or_queries, topic=topic, **kwargs)
 
     def _merge_and_rank_results(
         self, wiki_results: List[Dict], faiss_results: List[Dict], query: str

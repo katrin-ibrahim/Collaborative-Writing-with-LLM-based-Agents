@@ -3,6 +3,7 @@
 RAG (Retrieval-Augmented Generation) method.
 """
 
+import hashlib
 import time
 
 import logging
@@ -12,8 +13,8 @@ from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
 from src.retrieval.factory import create_retrieval_manager
 from src.utils.data import Article
-from src.utils.prompts import build_rag_prompt
-from src.utils.prompts.templates import build_query_generator_prompt
+from src.utils.data.models import ResearchChunk
+from src.utils.prompts.templates import build_query_generator_prompt, build_rag_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +68,21 @@ class RagMethod(BaseMethod):
                         query_or_queries=query,
                         max_results=self.retrieval_config.results_per_query,
                     )
-                    all_passages.extend(results)
+                    # Convert dictionary results to ResearchChunk objects
+                    converted_passages = self._convert_to_research_chunks(
+                        results, query
+                    )
+                    all_passages.extend(converted_passages)
                 except Exception as e:
                     logger.warning(f"Search failed for query '{query}': {e}")
 
+            context_passages_count = getattr(
+                self.retrieval_config, "max_content_pieces", 10
+            )
+            context_passages = all_passages[:context_passages_count]
+
             # Create context from passages
-            context = self._create_context_from_passages(all_passages)
+            context = self._create_context_from_passages(context_passages)
             logger.info(f"Retrieved context: {len(context)} characters")
 
             # Generate article with context
@@ -94,7 +104,12 @@ class RagMethod(BaseMethod):
                     "method": "rag",
                     "generation_time": generation_time,
                     "word_count": content_words,
-                    "model": getattr(writing_client, "model_path", "unknown"),
+                    "model": getattr(
+                        writing_client,
+                        "model_path",
+                        getattr(writing_client, "model", "unknown"),
+                    ),
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "retrieval_manager": self.retrieval_config.retrieval_manager,
                     "num_queries": len(queries),
                     "num_passages": len(all_passages),
@@ -160,24 +175,49 @@ class RagMethod(BaseMethod):
             return [topic]
 
     def _create_context_from_passages(self, passages: List) -> str:
-        """Convert search results to context string."""
+        """Convert ResearchChunk objects to context string matching writer_v2 chunk formatting."""
         if not passages:
             return ""
 
+        # Format chunks like writer_v2: {chunk_id} {content: {full_content}, score: {score}, url: {url}}
         context_parts = []
-        for i, passage in enumerate(passages[: self.retrieval_config.final_passages]):
-            # Handle different passage formats
-            if hasattr(passage, "content"):
-                content = passage.content
-            elif isinstance(passage, dict):
-                content = passage.get("content", passage.get("text", str(passage)))
+        for passage in passages[: self.retrieval_config.final_passages]:
+            # All passages are now ResearchChunk objects
+            chunk_id = passage.chunk_id
+            content = passage.content
+            score = passage.metadata.get("relevance_score", "N/A")
+            url = passage.url or "N/A"
+
+            context_parts.append(
+                f"{chunk_id} {{content: {content}, score: {score}, url: {url}}}"
+            )
+
+        return ", ".join(context_parts)
+
+    def _convert_to_research_chunks(
+        self, results: List, query: str
+    ) -> List[ResearchChunk]:
+        """Convert retrieval results to ResearchChunk objects."""
+        research_chunks = []
+        rm_type = self.retrieval_config.retrieval_manager
+
+        for i, result in enumerate(results):
+            if isinstance(result, dict):
+                # Generate chunk ID matching the format used in collaborative tools
+                chunk_id = f"search_{rm_type}_{i}_{hashlib.md5(str(result).encode()).hexdigest()[:8]}"
+                # Convert using the existing method
+                research_chunk = ResearchChunk.from_retrieval_result(chunk_id, result)
+                # Add RAG-specific metadata
+                research_chunk.metadata.update(
+                    {
+                        "method": "rag",
+                        "search_query": query,
+                        "relevance_rank": i + 1,
+                        "rm_type": rm_type,
+                    }
+                )
+                research_chunks.append(research_chunk)
             else:
-                content = str(passage)
-
-            # Limit passage length
-            if len(content) > self.retrieval_config.passage_max_length:
-                content = content[: self.retrieval_config.passage_max_length] + "..."
-
-            context_parts.append(f"Source {i+1}: {content}")
-
-        return "\n\n".join(context_parts)
+                # If it's already a ResearchChunk or other object, pass it through
+                research_chunks.append(result)
+        return research_chunks
