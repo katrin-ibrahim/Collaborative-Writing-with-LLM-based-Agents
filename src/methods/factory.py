@@ -29,6 +29,11 @@ def create_method(method_name: str) -> BaseMethod:
 
         return WriterMethod()
 
+    elif method_name == "writer_only_v2":
+        from src.methods.writer_only_v2_method import WriterOnlyV2Method
+
+        return WriterOnlyV2Method()
+
     elif method_name == "writer_reviewer":
         from src.methods.writer_reviewer_method import WriterReviewerMethod
 
@@ -54,11 +59,24 @@ def create_method(method_name: str) -> BaseMethod:
 
         return StormMethod()
 
+    elif method_name == "writer_reviewer_v2":
+        from src.methods.writer_reviewer_v2_method import WriterReviewerV2Method
+
+        return WriterReviewerV2Method(tom_enabled=False)
+
+    elif method_name == "writer_reviewer_v2_tom":
+        from src.methods.writer_reviewer_v2_method import WriterReviewerV2Method
+
+        return WriterReviewerV2Method(tom_enabled=True)
+
     else:
         supported_methods = [
             "writer_only",
+            "writer_only_v2",
             "writer_reviewer",
             "writer_reviewer_tom",
+            "writer_reviewer_v2",
+            "writer_reviewer_v2_tom",
             "direct",
             "rag",
             "storm",
@@ -78,8 +96,11 @@ def get_supported_methods() -> list[str]:
     """
     return [
         "writer_only",
+        "writer_only_v2",
         "writer_reviewer",
         "writer_reviewer_tom",
+        "writer_reviewer_v2",
+        "writer_reviewer_v2_tom",
         "direct",
         "rag",
         "storm",
