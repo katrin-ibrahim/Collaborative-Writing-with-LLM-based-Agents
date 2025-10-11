@@ -91,8 +91,14 @@ class HybridRM(BaseRetriever):
         return combined_results
 
     def search(
-        self, query_or_queries: Union[str, List[str]], topic: str = None, **kwargs
-    ) -> List[Dict]:
+        self,
+        *args,
+        max_results: int = None,
+        topic: str = None,
+        deduplicate: bool = True,
+        query_or_queries: Union[str, List[str]] = None,
+        **kwargs,
+    ) -> List:
         """
         Hybrid search that combines WikiRM and FAISS approaches.
         This method uses the base class search orchestration.
