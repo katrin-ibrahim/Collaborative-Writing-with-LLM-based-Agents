@@ -352,6 +352,70 @@ class BaseRetriever(ABC):
         )
         return all_results
 
+    def _generate_description(self, content: str, title: str = "") -> str:
+        """
+        Extract substantive content from chunks, skipping headers and fluff.
+        Optimized for individual chunks rather than full articles.
+
+        Args:
+            content: The chunk content text to generate description from
+            title: Optional title for fallback if content is empty
+
+        Returns:
+            A meaningful description string (usually 150-250 characters)
+        """
+        if not content:
+            return title if title else "No content available"
+
+        lines = content.split("\n")
+        content_lines = []
+
+        # Filter out headers, short lines, and navigation text
+        for line in lines:
+            line = line.strip()
+            if (
+                len(line) > 30
+                and not line.startswith("#")
+                and not line.startswith("=")
+                and not line.lower().startswith("see also")
+                and not line.lower().startswith("references")
+                and not line.lower().startswith("external links")
+                and not line.lower().startswith("category:")
+                and not line.lower().startswith("file:")
+                and not "{{" in line
+            ):  # Skip wiki templates
+                content_lines.append(line)
+
+        if not content_lines:
+            # Fallback: use original content but clean it
+            clean_content = content.replace("\n", " ").strip()
+            return (
+                clean_content[:200] + "..."
+                if len(clean_content) > 200
+                else clean_content
+            )
+
+        # Take the first substantial content line
+        first_content = content_lines[0]
+
+        # If it's very long, trim to sentence boundary
+        if len(first_content) > 200:
+            import re
+
+            sentences = re.split(r"[.!?]+", first_content)
+            first_content = sentences[0].strip()
+            if len(first_content) < 100 and len(sentences) > 1:
+                second_sentence = sentences[1].strip()
+                if second_sentence:
+                    first_content += ". " + second_sentence
+
+        # Final cleanup and length check
+        first_content = first_content.strip()
+        if len(first_content) > 250:
+            first_content = first_content[:247] + "..."
+
+        return first_content if first_content else (title or "No content available")
+
     @abstractmethod
     def _retrieve_article(
         self, query: str, topic: str = None, max_results: int = None

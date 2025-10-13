@@ -141,7 +141,9 @@ class WikiRM(BaseRetriever):
                             "title": page.title,
                             "section": section_name,
                             "snippets": [content.strip()],
-                            "description": content.strip()[:100],
+                            "description": self._generate_description(
+                                content.strip(), f"{page.title} - {section_name}"
+                            ),
                             "url": page.url,
                             "source": "wikipedia",
                         }

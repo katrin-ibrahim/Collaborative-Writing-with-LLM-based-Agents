@@ -104,7 +104,9 @@ class FaissRM(BaseRetriever):
                 result = {
                     "title": article.get("title", "Unknown"),
                     "snippets": [article["content"]],
-                    "description": article["content"][:100],
+                    "description": self._generate_description(
+                        article["content"], article.get("title", "")
+                    ),
                     "url": article["url"],
                     "source": "faiss_wikipedia",
                     "relevance_score": float(score),

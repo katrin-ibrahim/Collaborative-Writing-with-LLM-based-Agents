@@ -1,6 +1,9 @@
+import logging
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class ResearchChunk(BaseModel):
@@ -45,10 +48,12 @@ class ResearchChunk(BaseModel):
 
         # Extract description from various possible fields (prefer summary/description over content)
         description = result.get("description")
+
         if not description and content:
-            # Generate description from content if not provided
-            words = content.split()
-            description = " ".join(words[:25]) + ("..." if len(words) > 25 else "")
+            logger.error(
+                f"Missing description in retrieval result for chunk_id {chunk_id}"
+            )
+            description = ""
 
         return cls(
             chunk_id=chunk_id,
