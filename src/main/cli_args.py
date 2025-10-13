@@ -36,11 +36,8 @@ def parse_arguments() -> argparse.Namespace:
         nargs="+",
         choices=[
             "writer_only",
-            "writer_only_v2",
             "writer_reviewer",
             "writer_reviewer_tom",
-            "writer_reviewer_v2",
-            "writer_reviewer_v2_tom",
             "direct",
             "rag",
             "storm",
