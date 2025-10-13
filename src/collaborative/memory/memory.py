@@ -180,6 +180,13 @@ class SharedMemory:
         current_iteration = str(self.state["iteration"])
         return self.state["drafts_by_iteration"].get(current_iteration, "")
 
+    def get_previous_draft(self) -> Optional[str]:
+        """Get draft from previous iteration, if available."""
+        prev_iteration = self.state["iteration"] - 1
+        if prev_iteration < 0:
+            return None
+        return self.state["drafts_by_iteration"].get(str(prev_iteration))
+
     def get_current_article(self) -> Optional[Any]:
         """Get current article as Article object."""
         from src.utils.data import Article
