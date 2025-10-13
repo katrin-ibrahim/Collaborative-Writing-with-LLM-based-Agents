@@ -5,10 +5,17 @@ ollama_host: 'http://localhost:11434'
 
 # Task-specific model assignments
 outline_model: 'qwen3:4b'
-writing_model: 'gemma3:1b'
-critique_model: 'gemma3:1b'
+writing_model: 'qwen3:4b'
+critique_model: 'qwen3:4b'
 polish_model: 'qwen3:4b'
 default_model: 'qwen3:4b'
+
+# Writer-Reviewer task assignments
+query_generation_model: 'qwen3:4b'
+section_selection_model: 'qwen3:4b'
+section_writing_model: 'qwen3:4b'
+section_revision_model: 'qwen3:4b'
+review_model: 'qwen3:4b'
 
 # Temperature settings per task
 temperatures:
@@ -17,11 +24,21 @@ temperatures:
   writing: 0.6
   critique: 0.2
   polish: 0.3
+  query_generation: 0.3
+  section_selection: 0.2
+  section_writing: 0.6
+  section_revision: 0.4
+  review: 0.3
 
 # Token limits per task
 token_limits:
-  fast: 5000
-  outline: 1000
-  writing: 8000
-  critique: 1500
-  polish: 1500
+  fast: 1200
+  outline: 1200
+  writing: 2500
+  critique: 1200
+  polish: 1200
+  query_generation: 800
+  section_selection: 600
+  section_writing: 2500
+  section_revision: 2000
+  review: 2000

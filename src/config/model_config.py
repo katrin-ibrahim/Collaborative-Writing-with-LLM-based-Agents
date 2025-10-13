@@ -17,11 +17,20 @@ class ModelConfig(BaseConfig):
     # Ollama host URL
     ollama_host: Optional[str] = None
 
-    # Task-specific model assignments
+    # Task-specific model assignments (baseline methods)
     outline_model: str = "qwen3:4b"  # Balanced, for structure
     writing_model: str = "qwen3:4b"  # Quality, for content
     critique_model: str = "qwen3:4b"  # Reasoning, for self-critique
     polish_model: str = "qwen3:4b"  # Final polish
+
+    # Writer-Reviewer specific model assignments
+    query_generation_model: str = "qwen3:4b"  # Fast model for generating search queries
+    section_selection_model: str = "qwen3:4b"  # Model for selecting relevant chunks
+    section_writing_model: str = "qwen3:4b"  # High-quality model for writing content
+    section_revision_model: str = (
+        "qwen3:4b"  # Model for revising sections based on feedback
+    )
+    review_model: str = "qwen3:4b"  # Model for holistic review and feedback generation
 
     # Default fallback
     default_model: str = "gemma3:4b"
@@ -41,20 +50,34 @@ class ModelConfig(BaseConfig):
     def __post_init__(self):
         if self.temperatures is None:
             self.temperatures = {
+                # Baseline method temperatures
                 "fast": 0.5,  # Reduced for more focused queries
                 "outline": 0.4,  # More structured outlines
                 "writing": 0.6,  # Balanced creativity and accuracy
                 "critique": 0.2,  # More conservative critique
                 "polish": 0.3,  # More conservative polishing
+                # Writer-Reviewer specific temperatures
+                "query_generation": 0.3,  # Low for focused query generation
+                "section_selection": 0.2,  # Very low for analytical chunk selection
+                "section_writing": 0.6,  # Balanced for creative content generation
+                "section_revision": 0.4,  # Moderate for thoughtful revision
+                "review": 0.3,  # Low for analytical review and feedback
             }
 
         if self.token_limits is None:
             self.token_limits = {
+                # Baseline method token limits
                 "fast": 1200,  # Increased for better query generation
                 "outline": 1200,  # Increased for better structure
                 "writing": 2500,  # Increased for better articles
                 "critique": 1200,  # Increased for thorough critique
                 "polish": 1200,  # Increased for better polishing
+                # Writer-Reviewer specific token limits
+                "query_generation": 800,  # Short for focused queries
+                "section_selection": 600,  # Short for chunk ID selection
+                "section_writing": 2000,  # Long for detailed section content
+                "section_revision": 1500,  # Medium for revision with feedback
+                "review": 1800,  # Long for comprehensive review and feedback
             }
 
         if self.local_model_mapping is None:
@@ -82,11 +105,18 @@ class ModelConfig(BaseConfig):
 
         # Otherwise use task-specific models
         task_model_map = {
+            # Baseline method tasks
             "fast": self.default_model,
             "outline": self.outline_model,
             "writing": self.writing_model,
             "critique": self.critique_model,
             "polish": self.polish_model,
+            # Writer-Reviewer specific tasks
+            "query_generation": self.query_generation_model,
+            "section_selection": self.section_selection_model,
+            "section_writing": self.section_writing_model,
+            "section_revision": self.section_revision_model,
+            "review": self.review_model,
         }
         return task_model_map.get(task, self.default_model)
 
@@ -129,7 +159,7 @@ class ModelConfig(BaseConfig):
         return cls()
 
     def get_file_pattern(self):
-        return f"model_ollama_localhost.yaml"
+        return "model_{}.yaml"
 
 
 DEFAULT_MODEL_CONFIG = ModelConfig.get_default()

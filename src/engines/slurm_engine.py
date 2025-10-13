@@ -231,9 +231,24 @@ class SlurmEngine(BaseEngine):
                 )
 
             # Decode only the new tokens
-            generated_text = self.tokenizer.decode(
-                outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
-            )
+            input_length = inputs["input_ids"].shape[1]
+            output_length = outputs[0].shape[0]
+
+            if output_length > input_length:
+                # Decode new tokens only
+                generated_text = self.tokenizer.decode(
+                    outputs[0][input_length:], skip_special_tokens=True
+                )
+            else:
+                # Fallback: decode everything and try to extract new content
+                full_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                input_text = self.tokenizer.decode(
+                    inputs["input_ids"][0], skip_special_tokens=True
+                )
+                if full_text.startswith(input_text):
+                    generated_text = full_text[len(input_text) :].strip()
+                else:
+                    generated_text = full_text
 
             generation_time = time.time() - start_time
             self.stats["generation_time"] += generation_time
@@ -248,6 +263,36 @@ class SlurmEngine(BaseEngine):
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             raise RuntimeError(f"Local model generation error: {e}")
+
+    def call_api(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stop: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Direct API call compatible with OllamaEngine interface.
+        Returns just the text content.
+        """
+        # Combine system prompt and user prompt if system prompt provided
+        full_prompt = prompt
+        if system_prompt:
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+
+        # Generate using the internal _generate method
+        try:
+            response = self._generate(
+                full_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.strip()
+        except Exception as e:
+            logger.error(f"SLURM API call failed: {e}")
+            raise RuntimeError(f"SLURM API error: {e}")
 
     def get_stats(self) -> Dict[str, float]:
         """Get performance statistics."""

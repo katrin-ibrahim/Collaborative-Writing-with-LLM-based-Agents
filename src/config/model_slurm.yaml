@@ -9,6 +9,13 @@ critique_model: 'qwen2.5:14b'
 polish_model: 'qwen2.5:7b'
 default_model: 'qwen2.5:32b'
 
+# Writer-Reviewer task assignments
+query_generation_model: 'qwen2.5:7b'
+section_selection_model: 'qwen2.5:7b'
+section_writing_model: 'qwen2.5:32b'
+section_revision_model: 'qwen2.5:14b'
+review_model: 'qwen2.5:14b'
+
 # Temperature settings per task
 temperatures:
   fast: 0.5
@@ -16,6 +23,11 @@ temperatures:
   writing: 0.6
   critique: 0.2
   polish: 0.3
+  query_generation: 0.3
+  section_selection: 0.2
+  section_writing: 0.6
+  section_revision: 0.4
+  review: 0.3
 
 # Token limits per task
 token_limits:
@@ -24,6 +36,11 @@ token_limits:
   writing: 2500
   critique: 1200
   polish: 1200
+  query_generation: 800
+  section_selection: 600
+  section_writing: 2500
+  section_revision: 2000
+  review: 2000
 
 # Local model mappings
 local_model_mapping:
