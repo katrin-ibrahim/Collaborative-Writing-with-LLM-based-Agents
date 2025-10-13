@@ -8,132 +8,13 @@ import hashlib
 import logging
 import re
 from langchain_core.tools import tool
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from src.config.config_context import ConfigContext
 from src.retrieval.factory import create_retrieval_manager
 from src.utils.data import ResearchChunk
 
 logger = logging.getLogger(__name__)
-
-
-def _smart_chunk_filtering(
-    chunks: List[ResearchChunk], query: str, top_n_full: int = 3
-) -> List[ResearchChunk]:
-    """
-    Smart hybrid chunk filtering: full content for top chunks, summaries for the rest.
-
-    Strategy:
-    1. Take top N chunks (by relevance score) and provide full content to LLM
-    2. For remaining chunks, provide only summaries for quick filtering
-    3. This gives LLM deep context for most relevant chunks while efficiently filtering the rest
-
-    Args:
-        chunks: List of research chunks to filter
-        query: Search query for relevance assessment
-        top_n_full: Number of top chunks to provide full content for (default: 3)
-
-    Returns:
-        Filtered list of relevant chunks
-    """
-    if not chunks or len(chunks) <= top_n_full:
-        return chunks
-
-    logger.info(
-        f"Smart filtering {len(chunks)} chunks: top {top_n_full} with full content, rest with summaries"
-    )
-
-    try:
-        llm_client = ConfigContext.get_client("writing")
-
-        # Sort chunks by relevance score (if available)
-        def get_relevance_score(chunk):
-            return chunk.metadata.get(
-                "relevance_score", chunk.metadata.get("relevance_rank", 999)
-            )
-
-        sorted_chunks = sorted(chunks, key=get_relevance_score, reverse=True)
-
-        # Split into high-priority (full content) and low-priority (summaries)
-        high_priority_chunks = sorted_chunks[:top_n_full]
-        remaining_chunks = sorted_chunks[top_n_full:]
-
-        # Process high-priority chunks with full content
-        high_priority_analysis = []
-        for i, chunk in enumerate(high_priority_chunks):
-            content_preview = (
-                chunk.content[:800] if chunk.content else chunk.description
-            )
-            analysis_entry = f"{i+1}. [HIGH_PRIORITY] {chunk.chunk_id}:\nCONTENT: {content_preview}\nSOURCE: {chunk.source}"
-            high_priority_analysis.append(analysis_entry)
-
-        # Process remaining chunks with summaries only
-        remaining_analysis = []
-        for i, chunk in enumerate(remaining_chunks):
-            summary_entry = f"{i+top_n_full+1}. [SUMMARY] {chunk.chunk_id}: {chunk.description} (Source: {chunk.source})"
-            remaining_analysis.append(summary_entry)
-
-        # Create comprehensive filtering prompt
-        prompt = f"""You are filtering research chunks for writing about: "{query}"
-
-TASK: Evaluate relevance for content creation. Keep chunks with specific, useful information.
-
-TOP CHUNKS (Full Content Analysis):
-{chr(10).join(high_priority_analysis)}
-
-REMAINING CHUNKS (Summary Analysis):
-{chr(10).join(remaining_analysis)}
-
-INSTRUCTIONS:
-- HIGH_PRIORITY chunks: Evaluate based on full content - keep if directly relevant
-- SUMMARY chunks: Evaluate based on description - keep if potentially useful
-
-Respond with numbers to KEEP (comma-separated):"""
-
-        response = llm_client.call_api(prompt)
-        logger.info(
-            f"🧠 SMART_FILTER: LLM response for '{query}': '{response.strip()}'"
-        )
-
-        # Parse response to get relevant indices
-        import re
-
-        numbers = re.findall(r"\b(\d+)\b", response.strip())
-        keep_indices = []
-
-        for num_str in numbers:
-            idx = int(num_str) - 1  # Convert to 0-indexed
-            if 0 <= idx < len(sorted_chunks):
-                keep_indices.append(idx)
-
-        # If filtering failed or no chunks selected, keep top chunks
-        if not keep_indices:
-            logger.warning(
-                f"Smart filtering failed for '{query}', keeping top {min(5, len(chunks))} chunks"
-            )
-            return sorted_chunks[: min(5, len(chunks))]
-
-        # Return selected chunks in original relevance order
-        filtered_chunks = [sorted_chunks[i] for i in sorted(keep_indices)]
-        logger.info(
-            f"Smart filtering: {len(chunks)} → {len(filtered_chunks)} chunks kept"
-        )
-
-        return filtered_chunks
-
-    except Exception as e:
-        logger.warning(
-            f"Smart chunk filtering failed: {e}, keeping top {min(5, len(chunks))} chunks"
-        )
-        # Fallback to keeping top chunks by relevance
-        sorted_chunks = sorted(
-            chunks,
-            key=lambda c: c.metadata.get(
-                "relevance_score", c.metadata.get("relevance_rank", 999)
-            ),
-            reverse=True,
-        )
-        return sorted_chunks[: min(5, len(chunks))]
 
 
 @tool
@@ -235,25 +116,8 @@ def search_and_retrieve(query: str, rm_type: str = None) -> Dict[str, Any]:
 
             chunks.append(chunk)
 
-        # Apply smart chunk filtering (full content for top chunks, summaries for rest)
-        filtered_chunks = _smart_chunk_filtering(chunks, query, top_n_full=3)
-
         # Store filtered chunks in memory and build summaries
-        chunk_summaries = []
-        for i, chunk in enumerate(filtered_chunks):
-            memory.store_research_chunk(chunk)
-
-            # Add to summaries list for agent context
-            summary = {
-                "chunk_id": chunk.chunk_id,
-                "description": chunk.description,
-                "source": chunk.source,
-                "relevance_rank": i + 1,
-            }
-            # Surface score for transparency if stored
-            if "relevance_score" in chunk.metadata:
-                summary["relevance_score"] = chunk.metadata["relevance_score"]
-            chunk_summaries.append(summary)
+        chunk_summaries = memory.store_research_chunks(chunks)
 
         # Store search summary in memory for later use
         search_result = {
@@ -288,11 +152,16 @@ def search_and_retrieve(query: str, rm_type: str = None) -> Dict[str, Any]:
 @tool
 def get_article_metrics(content: str, title: str) -> Dict[str, Any]:
     """Get objective metrics about article structure."""
-    return {
-        "word_count": len(content.split()),
-        "heading_count": len(re.findall(r"^#+\\s+(.+)$", content, re.MULTILINE)),
-        "paragraph_count": len([p for p in content.split("\\n\\n") if p.strip()]),
-    }
+    try:
+        metrics = {
+            "word_count": len(content.split()),
+            "heading_count": len(re.findall(r"^#+\s+(.+)$", content, re.MULTILINE)),
+            "paragraph_count": len([p for p in content.split("\n\n") if p.strip()]),
+        }
+
+        return {"success": True, "metrics": metrics}
+    except Exception as e:
+        return {"success": False, "error": str(e), "metrics": {}}
 
 
 # =================== Memory Tools ===================
@@ -306,33 +175,23 @@ def get_chunks_by_ids(chunk_ids) -> Dict[str, Any]:
     ESSENTIAL WORKFLOW TOOL: Get complete content after using search_and_retrieve.
     The main way to access actual content for reading, analysis, and writing.
 
-    USAGE PATTERNS:
-    - Content access: get_chunks_by_ids(["id1", "id2", "id3"]) - list of chunk IDs
-    - Content access: get_chunks_by_ids("id1,id2,id3") - comma-separated string of chunk IDs
-    - Writing workflow: search_and_retrieve() returns summaries → pick relevant IDs → get full content
-    - Research analysis: Retrieve multiple related chunks for comprehensive understanding
-    - Fact verification: Get detailed content to verify specific claims or information
-
-    STRATEGIC CHAINING:
-    1. search_and_retrieve("topic") → get chunk summaries with IDs
-    2. Choose most relevant chunk IDs from summaries
-    3. get_chunks_by_ids(["chosen_id1", "chosen_id2"]) → get full content
-    4. Use detailed content for writing, analysis, or verification
-
     Args:
         chunk_ids: List of chunk IDs from search results, or a comma-separated string
-
-    Returns:
-        Dictionary with:
-        - chunks: Full content, descriptions, sources, and metadata for each chunk
-        - retrieved_count: Number of chunks successfully found
-        - missing_ids: Any IDs that couldn't be found
-        - success: Whether operation completed successfully
     """
-    # Accept both list of strings and comma-separated string
     if isinstance(chunk_ids, str):
-        chunk_ids = [cid.strip() for cid in chunk_ids.split(",") if cid.strip()]
-    elif not isinstance(chunk_ids, list):
+        req_ids = [cid.strip() for cid in chunk_ids.split(",") if cid.strip()]
+    elif isinstance(chunk_ids, list):
+        # Validate list items are strings
+        bad = [x for x in chunk_ids if not isinstance(x, str)]
+        if bad:
+            return {
+                "success": False,
+                "error": f"All chunk_ids must be strings. Bad values: {bad}",
+            }
+        # De-dup while preserving order
+        seen = set()
+        req_ids = [x for x in chunk_ids if not (x in seen or seen.add(x))]
+    else:
         return {
             "success": False,
             "error": "chunk_ids must be a list of strings or a comma-separated string",
@@ -343,37 +202,32 @@ def get_chunks_by_ids(chunk_ids) -> Dict[str, Any]:
         return {"success": False, "error": "Memory not initialized"}
 
     try:
-        chunks = memory.get_chunks_by_ids(chunk_ids)
+        # Expecting: Dict[str, ResearchChunk]
+        chunks = memory.get_chunks_by_ids(req_ids)
 
-        # Create summary of retrieved content for LLM context
-        content_summaries = []
-        for chunk_id, chunk in chunks.items():
-            content_summaries.append(f"[{chunk_id}] {chunk.description[:100]}...")
-        summary = (
-            "\n".join(content_summaries) if content_summaries else "No chunks retrieved"
-        )
+        # Build short summary for LLM context (ordered by request)
+        previews = []
+        for cid in req_ids:
+            c = chunks.get(cid)
+            if c:
+                previews.append(f"[{cid}] {c.description[:100]}...")
+        summary = "\n".join(previews) if previews else "No chunks retrieved"
 
+        found_ids = set(chunks.keys())
+        missing_ids = [cid for cid in req_ids if cid not in found_ids]
+
+        # Keep existing JSON shape; switch to model_dump() and include url
         return {
             "success": True,
-            "retrieved_count": len(chunks),
-            "requested_count": len(chunk_ids),
-            "chunks": {
-                chunk_id: {
-                    "content": chunk.content,
-                    "description": chunk.description,
-                    "source": chunk.source,
-                    "metadata": chunk.metadata,
-                }
-                for chunk_id, chunk in chunks.items()
-            },
-            "missing_ids": [
-                chunk_id for chunk_id in chunk_ids if chunk_id not in chunks
-            ],
+            "retrieved_count": len(found_ids),
+            "requested_count": len(req_ids),
+            "chunks": {cid: c.model_dump() for cid, c in chunks.items()},
+            "missing_ids": missing_ids,
             "summary": summary,
         }
     except Exception as e:
-        logger.error(f"Error retrieving chunks {chunk_ids}: {e}")
-        return {"success": False, "error": f"Failed to retrieve chunks: {str(e)}"}
+        logger.error(f"Error retrieving chunks {req_ids}: {e}")
+        return {"success": False, "error": f"Failed to retrieve chunks: {e}"}
 
 
 @tool

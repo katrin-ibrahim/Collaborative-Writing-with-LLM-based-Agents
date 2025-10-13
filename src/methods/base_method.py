@@ -5,8 +5,6 @@ Abstract base class for all methods in the AI Writer Agent Framework.
 
 from abc import ABC, abstractmethod
 
-from typing import List
-
 from src.utils.data import Article
 
 
@@ -29,21 +27,6 @@ class BaseMethod(ABC):
         Returns:
             Generated article
         """
-
-    def run_batch(self, topics: List[str]) -> List[Article]:
-        """
-        Run the method on multiple topics.
-
-        Default implementation runs sequentially. Can be overridden
-        for parallel processing in subclasses.
-
-        Args:
-            topics: List of topics to generate articles about
-
-        Returns:
-            List of generated articles
-        """
-        return [self.run(topic) for topic in topics]
 
     def get_method_name(self) -> str:
         """Get the method name for logging and metadata."""

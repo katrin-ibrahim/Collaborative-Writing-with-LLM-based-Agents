@@ -19,7 +19,7 @@ class ConvergenceChecker:
         structured_feedback: list = None,
     ) -> tuple[bool, str]:
         # Rule 1: Max iterations reached
-        if iteration >= self.max_iterations:
+        if iteration > self.max_iterations:
             return True, "max_iterations"
 
         # Rule 2: No feedback for current iteration

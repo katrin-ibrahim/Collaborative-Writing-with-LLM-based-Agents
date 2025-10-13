@@ -3,7 +3,10 @@ import time
 import uuid
 from pathlib import Path
 
-from typing import Any, Dict, List, Optional, TypedDict
+import logging
+from typing import Any, Dict, Iterable, List, Optional, TypedDict
+
+logger = logging.getLogger(__name__)
 
 from src.collaborative.memory.convergence import ConvergenceChecker
 from src.collaborative.memory.storage import SessionStorage
@@ -25,7 +28,6 @@ class MemoryState(TypedDict, total=False):
 
     # Current workflow state
     initial_outline: Optional[Outline]
-    article_content: str
 
     # Content by iteration
     drafts_by_iteration: Dict[str, str]  # iteration -> full draft content
@@ -44,17 +46,6 @@ class MemoryState(TypedDict, total=False):
 
     # Workflow metadata (decisions, timing, etc.)
     metadata: Dict[str, Any]
-
-    # Reviewer workflow temporary state (for LangGraph)
-    _current_article: Optional[Any]  # Article object being reviewed
-    _metrics: Optional[Dict[str, Any]]  # Article metrics
-    _potential_claims: Optional[List[str]]  # Claims to fact-check
-    _selected_tools: Optional[List[str]]  # Tools selected for review
-    _inspect_chunks: Optional[List[str]]  # Chunks to inspect
-    _fact_check_results: Optional[List[Dict[str, Any]]]  # Fact check results
-    _review_notes: Optional[List[str]]  # Review planning notes
-    _overall_score: Optional[float]  # Overall review score
-    _qualitative_feedback: Optional[str]  # Generated feedback text
 
 
 class SharedMemory:
@@ -97,7 +88,6 @@ class SharedMemory:
                 "converged": False,
                 "convergence_reason": None,
                 "initial_outline": None,
-                "article_content": "",
                 "drafts_by_iteration": {},
                 "article_sections_by_iteration": {},
                 "research_chunks": {},
@@ -190,27 +180,62 @@ class SharedMemory:
         current_iteration = str(self.state["iteration"])
         return self.state["drafts_by_iteration"].get(current_iteration, "")
 
+    def get_current_article(self) -> Optional[Any]:
+        """Get current article as Article object."""
+        from src.utils.data import Article
+
+        current_draft = self.get_current_draft()
+        if not current_draft:
+            return None
+
+        current_sections = self.get_sections_from_iteration(self.state["iteration"])
+
+        # Create Article object
+        article = Article(
+            title=self.state.get("topic", "Untitled"),
+            content=current_draft,
+            sections=current_sections,
+            metadata=self.state.get("metadata", {}),
+        )
+        return article
+
     def get_current_iteration(self) -> int:
         """Get current iteration number."""
         return self.state["iteration"]
 
-    def get_draft_by_iteration(self, iteration: int) -> str:
-        """Get draft for specific iteration."""
-        return self.state["drafts_by_iteration"].get(str(iteration), "")
-
     def next_iteration(self) -> None:
         """Move to next iteration."""
+        old_iteration = self.state["iteration"]
         self.state["iteration"] += 1
+        logger.info(
+            f"🔍 ITERATION DEBUG: Moving from iteration {old_iteration} to {self.state['iteration']}"
+        )
         self._persist()
 
     def check_convergence(self) -> tuple[bool, str]:
-        # Get current iteration feedback (pending feedback for this iteration)
+        # Get feedback from the current iteration (the one just completed by reviewer)
+        # For iteration 0, we check iteration 0. For iteration 1+, we check current iteration.
+        current_iteration = self.state["iteration"]
         current_feedback = [
             fb
             for fb in self.state["structured_feedback"]
-            if fb.get("iteration") == self.state["iteration"]
+            if fb.get("iteration") == current_iteration
             and fb.get("status") == "pending"
         ]
+
+        # DEBUG: Log convergence check details
+        logger.info(f"🔍 CONVERGENCE DEBUG: iteration={current_iteration}")
+        logger.info(
+            f"🔍 CONVERGENCE DEBUG: total structured_feedback={len(self.state['structured_feedback'])}"
+        )
+        logger.info(
+            f"🔍 CONVERGENCE DEBUG: current_feedback for iteration {current_iteration}={len(current_feedback)}"
+        )
+        if self.state["structured_feedback"]:
+            for i, fb in enumerate(self.state["structured_feedback"]):
+                logger.info(
+                    f"🔍 CONVERGENCE DEBUG: feedback[{i}]: iteration={fb.get('iteration')}, status={fb.get('status')}"
+                )
 
         converged, reason = self.convergence_checker.check_convergence(
             self.state["iteration"],
@@ -231,18 +256,43 @@ class SharedMemory:
 
     # =================== Research Chunks Management ===================
 
-    def store_research_chunk(self, chunk: ResearchChunk) -> None:
-        """Store research chunk information."""
-        # Serialize for LangGraph compatibility
-        self.state["research_chunks"][chunk.chunk_id] = chunk.to_dict()
+    def store_research_chunks(
+        self, chunks: Iterable["ResearchChunk"]
+    ) -> List[Dict[str, Any]]:
+        # Materialize once (in case `chunks` is a generator)
+        chunk_list = list(chunks)
+
+        # Ensure the bucket exists
+        store = self.state.setdefault("research_chunks", {})
+
+        # Batch serialize + store
+        store.update({c.chunk_id: c.to_dict() for c in chunk_list})
+
+        # Single persist for atomicity
         self._persist()
+
+        # Build summaries for agent context
+        summaries: List[Dict[str, Any]] = []
+        for i, c in enumerate(chunk_list, start=1):
+            summary = {
+                "chunk_id": c.chunk_id,
+                "description": c.description,
+                "source": c.source,
+                "relevance_rank": i,
+            }
+            score = (c.metadata or {}).get("relevance_score")
+            if score is not None:
+                summary["relevance_score"] = score
+            summaries.append(summary)
+
+        return summaries
 
     def get_stored_chunks(self) -> List[ResearchChunk]:
         """Retrieve all stored research chunks."""
         chunks = []
         for chunk_data in self.state["research_chunks"].values():
             if isinstance(chunk_data, dict):
-                chunks.append(ResearchChunk.from_dict(chunk_data))
+                chunks.append(ResearchChunk.model_validate(chunk_data))
             else:
                 # Already a ResearchChunk object
                 chunks.append(chunk_data)
@@ -267,7 +317,7 @@ class SharedMemory:
         for chunk_id in chunk_ids:
             if chunk_id in self.state["research_chunks"]:
                 chunk_data = self.state["research_chunks"][chunk_id]
-                chunks[chunk_id] = ResearchChunk.from_dict(chunk_data)
+                chunks[chunk_id] = ResearchChunk.model_validate(chunk_data)
         return chunks
 
     def get_chunk_by_id(self, chunk_id: str) -> Optional[ResearchChunk]:
@@ -276,7 +326,7 @@ class SharedMemory:
         if not chunk_data:
             return None
         if isinstance(chunk_data, dict):
-            return ResearchChunk.from_dict(chunk_data)
+            return ResearchChunk.model_validate(chunk_data)
         return chunk_data
 
     # =================== Typed Feedback Management ===================
@@ -291,7 +341,7 @@ class SharedMemory:
         feedback_list = []
         for feedback_data in self.state["structured_feedback"]:
             if isinstance(feedback_data, dict) and "overall_score" in feedback_data:
-                feedback_list.append(ReviewFeedback.from_dict(feedback_data))
+                feedback_list.append(ReviewFeedback.model_validate(feedback_data))
         return feedback_list
 
     # =================== Article Sections Management ===================
@@ -568,10 +618,10 @@ class SharedMemory:
         Args:
             article: Article object with content, sections, and metadata
         """
-        # Update main content
-        self.state["article_content"] = article.content
-
         # Store draft for persistence
+        logger.info(
+            f"🔍 STORE DEBUG: Storing draft in iteration {self.state['iteration']} (length: {len(article.content)})"
+        )
         self.store_draft(article.content, self.state["iteration"])
 
         # Update sections for current iteration

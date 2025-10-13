@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
@@ -23,21 +23,6 @@ class ResearchChunk(BaseModel):
             "url": self.url,
             "metadata": self.metadata,
         }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ResearchChunk":
-        """Create ResearchChunk from dictionary (e.g., from storage)."""
-        # Handle backward compatibility for summary -> description
-        description = data.get("description") or data.get("summary", "")
-
-        return cls(
-            chunk_id=data.get("chunk_id", ""),
-            description=description,
-            content=data.get("content", ""),
-            source=data.get("source", ""),
-            url=data.get("url"),
-            metadata=data.get("metadata", {}),
-        )
 
     @classmethod
     def from_retrieval_result(
@@ -271,7 +256,7 @@ class EvaluationResult(BaseModel):
 
 
 @dataclass
-class ReviewFeedback:
+class ReviewFeedback(BaseModel):
     """Structured feedback from reviewer agent."""
 
     overall_score: float
@@ -287,70 +272,3 @@ class ReviewFeedback:
             "issues_count": self.issues_count,
             "recommendations": self.recommendations,
         }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ReviewFeedback":
-        """Create from dictionary."""
-        return cls(
-            overall_score=data["overall_score"],
-            feedback_text=data["feedback_text"],
-            issues_count=data["issues_count"],
-            recommendations=data["recommendations"],
-        )
-
-
-@dataclass
-class CollaborationMetrics:
-    """Metrics for tracking collaboration progress."""
-
-    iterations: int
-    initial_score: float
-    final_score: float
-    improvement: float
-    total_time: float
-    convergence_reason: str
-
-
-@dataclass
-class ToolContext:
-    """Structured context from tool usage that persists across sections."""
-
-    # Research context
-    retrieved_chunks: Dict[str, str] = field(
-        default_factory=dict
-    )  # chunk_id -> content
-    chunk_summaries: Dict[str, str] = field(default_factory=dict)  # chunk_id -> summary
-
-    # Section context
-    previous_sections: Dict[str, str] = field(
-        default_factory=dict
-    )  # section_name -> content
-    current_iteration: int = 0
-
-    # Feedback context
-    feedback_items: List[Dict[str, Any]] = field(default_factory=list)
-
-    def add_chunks(self, chunks: Dict[str, str]) -> None:
-        """Add retrieved chunks to context."""
-        self.retrieved_chunks.update(chunks)
-
-    def add_section(self, section_name: str, content: str) -> None:
-        """Add completed section to context."""
-        self.previous_sections[section_name] = content
-
-    def get_context_summary(self) -> str:
-        """Get formatted summary of available context."""
-        parts = []
-
-        if self.retrieved_chunks:
-            parts.append(f"Retrieved chunks: {len(self.retrieved_chunks)} available")
-
-        if self.previous_sections:
-            parts.append(
-                f"Previous sections: {', '.join(self.previous_sections.keys())}"
-            )
-
-        if self.feedback_items:
-            parts.append(f"Feedback items: {len(self.feedback_items)} available")
-
-        return "; ".join(parts) if parts else "No context available"

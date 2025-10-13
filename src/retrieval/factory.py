@@ -8,6 +8,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Global cache for retrieval manager instances to prevent multiple model downloads
+_retrieval_manager_cache = {}
+
 
 def create_retrieval_manager(
     rm_type: Optional[str] = None,
@@ -26,6 +29,18 @@ def create_retrieval_manager(
     Returns:
         Configured retrieval manager instance
     """
+
+    # Create cache key from rm_type and kwargs
+    cache_key = (
+        f"{rm_type}_{hash(frozenset(kwargs.items()) if kwargs else frozenset())}"
+    )
+
+    # Return cached instance if available
+    if cache_key in _retrieval_manager_cache:
+        logger.debug(f"Using cached retrieval manager: {rm_type}")
+        return _retrieval_manager_cache[cache_key]
+
+    logger.info(f"Creating new retrieval manager: {rm_type}")
 
     # Default arguments for all managers
     default_args = {
@@ -65,5 +80,9 @@ def create_retrieval_manager(
         logger.error(f"Unknown retrieval manager type: {rm_type}")
         logger.error(f"Supported types: wiki, supabase_faiss, hybrid")
         raise ValueError(f"Unsupported retrieval manager type: {rm_type}")
+
+    # Cache the instance to avoid repeated model downloads
+    _retrieval_manager_cache[cache_key] = base_rm
+    logger.debug(f"Cached retrieval manager: {rm_type}")
 
     return base_rm

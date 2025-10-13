@@ -63,7 +63,10 @@ class DirectMethod(BaseMethod):
                     "method": "direct",
                     "generation_time": generation_time,
                     "word_count": content_words,
-                    "model": getattr(client, "model_path", "unknown"),
+                    "model": getattr(
+                        client, "model_path", getattr(client, "model", "unknown")
+                    ),
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "prompt_length": len(prompt),
                     "response_length": len(response) if response else 0,
                 },
