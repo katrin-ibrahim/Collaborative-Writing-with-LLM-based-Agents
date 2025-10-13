@@ -274,6 +274,84 @@ class BaseRetriever(ABC):
 
         return search_results
 
+    def search_concurrent(
+        self,
+        query_list: List[str],
+        max_results: int = None,
+        max_workers: int = 3,
+        topic: str = None,
+        deduplicate: bool = True,
+        **kwargs,
+    ) -> List:
+        """
+        Concurrent version of search() for multiple queries.
+        Preserves existing search() signature for STORM compatibility.
+
+        Args:
+            query_list: List of query strings to search concurrently
+            max_results: Maximum number of results per query
+            max_workers: Maximum number of concurrent threads (default: 3)
+            topic: Optional topic to filter results
+            deduplicate: Whether to remove duplicate results
+            **kwargs: Additional retrieval parameters
+
+        Returns:
+            Flattened list of all results from all queries
+        """
+        if not query_list:
+            return []
+
+        if len(query_list) == 1:
+            # Single query - no concurrency overhead
+            return self.search(
+                query_or_queries=query_list[0],
+                max_results=max_results,
+                topic=topic,
+                deduplicate=deduplicate,
+                **kwargs,
+            )
+
+        # Multiple queries - concurrent execution
+        import concurrent.futures
+
+        logger.info(
+            f"Executing {len(query_list)} queries concurrently with {min(max_workers, len(query_list))} workers"
+        )
+
+        all_results = []
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(max_workers, len(query_list))
+        ) as executor:
+            # Submit all queries
+            future_to_query = {
+                executor.submit(
+                    self.search,
+                    query_or_queries=query,
+                    max_results=max_results,
+                    topic=topic,
+                    deduplicate=deduplicate,
+                    **kwargs,
+                ): query
+                for query in query_list
+            }
+
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_query):
+                query = future_to_query[future]
+                try:
+                    results = future.result()
+                    all_results.extend(results)
+                    logger.debug(
+                        f"Concurrent search for '{query}' returned {len(results)} results"
+                    )
+                except Exception as exc:
+                    logger.error(f"Concurrent search query '{query}' failed: {exc}")
+
+        logger.info(
+            f"Concurrent search completed: {len(all_results)} total results from {len(query_list)} queries"
+        )
+        return all_results
+
     @abstractmethod
     def _retrieve_article(
         self, query: str, topic: str = None, max_results: int = None

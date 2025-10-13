@@ -60,21 +60,43 @@ class RagMethod(BaseMethod):
             queries = self._generate_search_queries(writing_client, topic)
             logger.info(f"Generated {len(queries)} search queries for {topic}")
 
-            # Retrieve relevant passages
+            # Retrieve relevant passages using concurrent search
             all_passages = []
-            for query in queries:
-                try:
-                    results = retrieval_manager.search(
-                        query_or_queries=query,
-                        max_results=self.retrieval_config.results_per_query,
-                    )
-                    # Convert dictionary results to ResearchChunk objects
-                    converted_passages = self._convert_to_research_chunks(
-                        results, query
-                    )
-                    all_passages.extend(converted_passages)
-                except Exception as e:
-                    logger.warning(f"Search failed for query '{query}': {e}")
+            try:
+                # Use concurrent search for better performance with multiple queries
+                all_results = retrieval_manager.search_concurrent(
+                    query_list=queries,
+                    max_results=self.retrieval_config.results_per_query,
+                )
+                # Convert all results to ResearchChunk objects
+                # Note: concurrent search returns flattened results, so we create a generic query context
+                converted_passages = self._convert_to_research_chunks(
+                    all_results,
+                    f"Multiple queries: {', '.join(queries[:3])}{'...' if len(queries) > 3 else ''}",
+                )
+                all_passages.extend(converted_passages)
+                logger.info(
+                    f"Concurrent search retrieved {len(all_results)} total results"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Concurrent search failed, falling back to sequential: {e}"
+                )
+                # Fallback to sequential search if concurrent fails
+                for query in queries:
+                    try:
+                        results = retrieval_manager.search(
+                            query_or_queries=query,
+                            max_results=self.retrieval_config.results_per_query,
+                        )
+                        converted_passages = self._convert_to_research_chunks(
+                            results, query
+                        )
+                        all_passages.extend(converted_passages)
+                    except Exception as seq_e:
+                        logger.warning(
+                            f"Sequential search failed for query '{query}': {seq_e}"
+                        )
 
             context_passages_count = getattr(
                 self.retrieval_config, "max_content_pieces", 10
