@@ -178,6 +178,14 @@ python -m src.main \
 python -m src.main --resume_dir results/ollama/writer_reviewer_N=10_T=14.10_15:30
 ```
 
+### Evaluating Performance
+
+- To evaluate the performance simply run the evaluation module with the experiment output directory as an argument
+
+```
+python -m src.evaluation results/ollama/writer_reviewer_N=10_T=14.10_15:30
+```
+
 ## 🔍 Evaluation Metrics
 
 The system evaluates content quality using several research-grade metrics:
