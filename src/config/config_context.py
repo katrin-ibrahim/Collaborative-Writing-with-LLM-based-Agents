@@ -84,10 +84,9 @@ class ConfigContext:
                 max_tokens=max_tokens,
             )
         elif cls._backend == "slurm":
-            model_path = cls._model_config.get_model_path(task)
             client = SlurmEngine(
                 device=cls._backend_kwargs.get("device"),
-                model_path=model_path,
+                model_path=model,
                 temperature=temp,
             )
 

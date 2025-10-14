@@ -1,10 +1,7 @@
-import logging
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 from src.config.base_config import BaseConfig
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -135,18 +132,14 @@ class ModelConfig(BaseConfig):
         """Get full model path based on mode and task."""
         model_name = self.get_model_for_task(task)
 
-        if self.mode in ["slurm"]:
-            # For local/slurm mode, convert the model name to a local path
+        if self.mode == "local":
+            # For local mode, convert the model name to a local path
             local_path = self.local_model_mapping.get(model_name)
-            logger.debug(f"get_model_path: task={task}, model_name={model_name}, mode={self.mode}, local_path={local_path}")
-            logger.debug(f"local_model_mapping keys: {list(self.local_model_mapping.keys())}")
             if local_path:
                 # Ensure path is properly formatted
                 return local_path
             # Fallback to a default model directory
-            fallback_path = f"models/{model_name.replace(':', '-')}"
-            logger.warning(f"No local mapping found for {model_name}, using fallback: {fallback_path}")
-            return fallback_path
+            return f"models/{model_name.replace(':', '-')}"
         elif self.mode == "ollama":
             # For ollama mode, convert to appropriate ollama model name
             ollama_name = self.ollama_model_mapping.get(model_name, model_name)

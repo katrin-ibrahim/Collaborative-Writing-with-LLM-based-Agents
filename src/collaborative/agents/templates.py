@@ -101,37 +101,24 @@ Prompt template functions for WriterAgent workflow.
 
 
 def outline_prompt(topic: str, top_chunk: str, chunk_summaries) -> str:
+    # Include full research context - the issue was prompt complexity, not length
+    research_context = ""
     if top_chunk or chunk_summaries:
-        research_context = f"Research Context: {top_chunk}\n{chunk_summaries}"
-    else:
-        research_context = ""
+        research_context = f"\nResearch Context: {top_chunk}\n{chunk_summaries}\n"
 
-    prompt = f"""Create an article structure for: {topic}
-
+    prompt = f"""Write an article outline for: {topic}
 {research_context}
-
-Requirements:
-Create exactly ONE article outline for topic
-Plan exactly 6 meaningful sections with concise titles that logically cover the topic.
-
-Respond with headings ONLY using this exact template (do not add explanations, bullet points, or extra text):
+Create exactly 6 section headings. Use this format:
 
 # {topic}
-## [Short Title (max 8 words)]
-## [Short Title (max 8 words)]
-## [Short Title (max 8 words)]
-## [Short Title (max 8 words)]
-## [Short Title (max 8 words)]
-## [Short Title (max 8 words)]
+## Introduction
+## [Section 2 title]
+## [Section 3 title]
+## [Section 4 title]
+## [Section 5 title]
+## Conclusion
 
-Rules:
-Rules:
-- Produce ONE outline only — do NOT repeat or restate it.
-- Include exactly six (6) section titles, concise and ≤8 words.
-- Do NOT add paragraphs, explanations, or duplicates.
-- End output immediately after the sixth heading.
-- After completing the outline, write the single word **[END]** on a new line.
-"""
+Make each section title clear and specific to the topic."""
     return prompt
 
 
