@@ -46,11 +46,11 @@ class HybridRM(BaseRetriever):
         if not self.wiki_rm and not self.faiss_rm:
             raise RuntimeError("Both WikiRM and FAISS RM failed to initialize")
 
-        # Configuration for hybrid behavior
-        self.wiki_weight = 0.7  # Prefer wiki results (more current/specific)
-        self.faiss_weight = 0.3  # Use faiss for broader coverage
-        self.max_wiki_results = 8  # Limit wiki results to avoid API overload
-        self.max_faiss_results = 5  # Limit faiss results for efficiency
+        # Configuration for hybrid behavior - balanced approach (optimal from evaluation)
+        self.wiki_weight = 0.5  # Equal weight for current/specific info
+        self.faiss_weight = 0.5  # Equal weight for broad coverage
+        self.max_wiki_results = 6  # Balanced results from wiki
+        self.max_faiss_results = 6  # Balanced results from faiss
 
     def _retrieve_article(
         self, query: str, topic: str = None, max_results: int = None
