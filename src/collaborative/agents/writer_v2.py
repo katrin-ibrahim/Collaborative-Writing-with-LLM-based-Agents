@@ -1,8 +1,6 @@
 # src/collaborative/agents/writer_v2.py
-import asyncio
-
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
@@ -17,7 +15,6 @@ from src.collaborative.tools.tool_definitions import (
     search_and_retrieve,
 )
 from src.config.config_context import ConfigContext
-from src.utils.async_wrapper import AsyncWrapper
 from src.utils.data import Article, Outline, ResearchChunk
 
 logger = logging.getLogger(__name__)
@@ -41,9 +38,6 @@ class WriterV2(BaseAgent):
             raise RuntimeError("SharedMemory instance not found in ConfigContext")
 
         self.tom_module = self.shared_memory.tom_module
-        self.aw = AsyncWrapper(
-            max_concurrency=4, default_timeout_s=60, default_retries=2
-        )
 
         # Minimal tool set - Python makes all decisions
         self.search_tool = search_and_retrieve
@@ -85,25 +79,25 @@ class WriterV2(BaseAgent):
         logger.info("Step 2: Retrieving top chunk for context")
         top_chunk = self._get_best_chunk()
 
-        # Step 3: Generate secondary queries (LLM reasoning)
+        # Step 3: Generate secondary queries (LLM reasoning) - using fast model
         logger.info("Step 3: Generating secondary queries with LLM")
         queries = self._generate_queries(topic, top_chunk)
 
-        # Step 4: Execute secondary searches (Python loop)
-        logger.info(f"Step 4: Executing {len(queries)} secondary searches")
-        for i, query in enumerate(queries):
-            self._search(query)  # Default rm_type, result stored in memory
+        # Step 4: Execute secondary searches (concurrent execution)
+        logger.info(f"Step 4: Executing {len(queries)} secondary searches concurrently")
+        self._search_concurrent(queries)
 
-        # Step 5: Create outline (LLM reasoning with top chunk)
+        # Step 5: Create outline (LLM reasoning with top chunk) - using outline model
         logger.info("Step 5: Creating outline with LLM")
         chunk_summaries = self.shared_memory.get_search_summaries()
+        max_content_pieces = self.retrieval_config.max_content_pieces
         formatted_chunk_summaries = (
             "["
             + "; ".join(
                 f"{q}: {{"
                 + ", ".join(
-                    f"{c.get('description','').strip()} (score: {c.get('relevance_score','N/A')})"
-                    for c in v.get("chunk_summaries", [])
+                    f"{c.get('description','').strip()}"  # Use full smart descriptions from generate_description
+                    for c in v.get("chunk_summaries", [])[:max_content_pieces]
                 )
                 + "}}"
                 for q, v in chunk_summaries.items()
@@ -157,6 +151,112 @@ class WriterV2(BaseAgent):
         else:
             return search_and_retrieve.invoke({"query": query, "rm_type": rm_type})
 
+    def _search_concurrent(self, queries: List[str]) -> None:
+        """Execute multiple secondary searches concurrently and store results in shared memory."""
+        if not queries:
+            return
+
+        if len(queries) == 1:
+            # Single query - use existing method to avoid overhead
+            self._search(queries[0])
+            return
+
+        logger.info(f"Executing {len(queries)} searches concurrently")
+
+        # Import here to avoid circular imports
+        from src.retrieval.factory import create_retrieval_manager
+
+        try:
+            # Get rm_type from config context (same logic as search_and_retrieve tool)
+            retrieval_config = (
+                self.config_context.retrieval_config
+                if hasattr(self, "config_context")
+                else None
+            )
+            rm_type = (
+                retrieval_config.retrieval_manager
+                if retrieval_config
+                else "supabase_faiss"
+            )
+
+            # Get cached retrieval manager instance with proper type
+            retrieval_manager = create_retrieval_manager(rm_type)
+
+            # Execute concurrent search
+            all_results = retrieval_manager.search_concurrent(
+                query_list=queries,
+                max_results=None,  # Use config defaults
+            )
+
+            # Store results in shared memory - we need to simulate the search_and_retrieve tool format
+            # Since concurrent search returns flattened results, we'll distribute them among queries
+            # For now, we'll create aggregated results for each query
+            results_per_query = len(all_results) // len(queries) if all_results else 0
+
+            for i, query in enumerate(queries):
+                # Create a search result in the format expected by shared memory
+                start_idx = i * results_per_query
+                end_idx = (
+                    start_idx + results_per_query
+                    if i < len(queries) - 1
+                    else len(all_results)
+                )
+                query_results = all_results[start_idx:end_idx]
+
+                # Convert raw retrieval results to ResearchChunk objects (same as search tool)
+                import hashlib
+
+                from src.utils.data.models import ResearchChunk
+
+                chunks = []
+                for j, result in enumerate(query_results):
+                    # Generate chunk ID (same pattern as search tool)
+                    chunk_id = f"{self.retrieval_config.retrieval_manager}_{j}_{hashlib.md5(str(result).encode()).hexdigest()[:8]}"
+
+                    if isinstance(result, dict):
+                        chunk = ResearchChunk.from_retrieval_result(chunk_id, result)
+                        # Add search-specific metadata
+                        chunk.metadata.update(
+                            {
+                                "search_query": query,
+                                "relevance_rank": j + 1,
+                            }
+                        )
+                        if "relevance_score" in result:
+                            chunk.metadata["relevance_score"] = result.get(
+                                "relevance_score"
+                            )
+                        chunks.append(chunk)
+
+                # Store chunks and get summaries (same as search tool)
+                chunk_summaries = self.shared_memory.store_research_chunks(chunks)
+
+                search_result = {
+                    "success": True,
+                    "query": query,
+                    "total_chunks": len(chunk_summaries),
+                    "chunk_summaries": chunk_summaries,  # Use correct key name
+                }
+
+                # Store in shared memory using the same format as search_and_retrieve tool
+                self.shared_memory.store_search_summary(
+                    query, search_result
+                )  # TODO: NOT CONSISTENT WITH TOOL, REPEATED LOGIC, COULD BE IMPROVED
+                logger.debug(
+                    f"Stored {len(chunk_summaries)} results for query: {query}"
+                )
+
+        except Exception as exc:
+            logger.error(f"Concurrent search failed, falling back to sequential: {exc}")
+            # Fallback to sequential search
+            for query in queries:
+                try:
+                    self._search(query)
+                except Exception as seq_exc:
+                    logger.error(
+                        f"Sequential fallback failed for query '{query}': {seq_exc}"
+                    )
+
     def _get_best_chunk(self) -> Optional[ResearchChunk]:
         """Get the highest-scoring chunk for context."""
         chunks = self.shared_memory.get_stored_chunks()
@@ -185,7 +285,9 @@ class WriterV2(BaseAgent):
         prompt = search_query_generation_prompt(topic, top_chunk, self.num_queries)
 
         try:
-            response = self.api_client.call_api(prompt=prompt)
+            # Use query generation model
+            query_client = self.get_task_client("query_generation")
+            response = query_client.call_api(prompt=prompt)
             queries = self._parse_queries_from_response(response)
             logger.info(f"Generated {len(queries)} secondary queries: {queries}")
             return queries
@@ -208,14 +310,19 @@ class WriterV2(BaseAgent):
             tom_prediction = self.tom_module.predict_agent_response(
                 predictor=AgentRole.WRITER,
                 target=AgentRole.REVIEWER,
-                action="outline_review",
-                context={"topic": topic, "has_research": bool(top_chunk)},
+                context={
+                    "topic": topic,
+                    "has_research": bool(top_chunk),
+                    "action": "outline_review",
+                },
             )
             tom_context = tom_prediction.reasoning
             logger.info(f"ToM prediction: {tom_context}")
 
         try:
-            response = self.api_client.call_api(
+            # Use outline model for creating outline
+            outline_client = self.get_task_client("outline")
+            response = outline_client.call_api(
                 prompt=self._enhance_prompt_with_tom(prompt, tom_context)
             )
             outline = self._parse_outline_from_response(response)
@@ -231,19 +338,19 @@ class WriterV2(BaseAgent):
             raise RuntimeError(f"Failed to create outline: {e}") from e
 
     def _write_all_sections(self, outline: Outline):
-        return asyncio.run(self._write_all_sections_async(outline))
-
-    async def _write_all_sections_async(self, outline: Outline):
-        """Parallelized writer using AsyncWrapper (retries, timeouts, bounded concurrency)."""
+        """Sequential section writer - clean and reliable."""
+        # Get Theory of Mind prediction if enabled
+        tom_context = None  # TODO: currently unused
         if self.tom_module and self.tom_module.enabled:
             from src.collaborative.theory_of_mind import AgentRole
 
-            tom_prediction = await asyncio.to_thread(
-                self.tom_module.predict_agent_response,
+            tom_prediction = self.tom_module.predict_agent_response(
                 AgentRole.WRITER,
                 AgentRole.REVIEWER,
-                "content_review",
-                {"article_metrics": {"sections": len(outline.headings)}},
+                {
+                    "article_metrics": {"sections": len(outline.headings)},
+                    "action": "content_review",
+                },
             )
             getattr(tom_prediction, "reasoning", None)
 
@@ -254,7 +361,7 @@ class WriterV2(BaseAgent):
             + "; ".join(
                 f"{q}: {{"
                 + ", ".join(
-                    f"{c.get('chunk_id', '')}: {c.get('description', '').strip()} (score: {c.get('relevance_score', 'N/A')})"
+                    f"{c.get('chunk_id', '')}: {c.get('description', '').strip()}"
                     for c in v.get("chunk_summaries", [])
                 )
                 + "}}"
@@ -263,78 +370,28 @@ class WriterV2(BaseAgent):
             + "]"
         )
 
-        async def write_section(section: str) -> Tuple[str, str] | None:
+        # Write sections sequentially - simple and reliable
+        article_sections = {}
+        logger.info(f"Writing {len(outline.headings)} sections sequentially")
+
+        for i, section in enumerate(outline.headings, 1):
+            logger.info(f"Writing section {i}/{len(outline.headings)}: '{section}'")
+
             try:
-                # 1. Ask LLM to select chunks
-                select_prompt = select_section_chunks_prompt(
-                    section, topic, chunk_summaries_str, self.num_chunks
+                content = self._write_single_section(
+                    section, topic, chunk_summaries_str
                 )
-                select_resp = await self.aw.call_api_async(
-                    self.api_client.call_api, select_prompt
-                )
-
-                # 2. Parse and dedupe chunk IDs
-                chunk_ids = self.parse_chunk_ids_from_response(select_resp)
-                chunk_ids = [
-                    cid.strip()
-                    for cid in chunk_ids
-                    if isinstance(cid, str) and cid.strip()
-                ]
-                seen = set()
-                chunk_ids = [c for c in chunk_ids if not (c in seen or seen.add(c))][
-                    : self.num_chunks
-                ]
-                if not chunk_ids:
-                    logger.warning(f"No chunks for section '{section}'")
-                    return None
-
-                # 3. Retrieve chunks via tool
-                tool_resp = await self.aw.invoke_tool_async(
-                    get_chunks_by_ids, {"chunk_ids": chunk_ids}
-                )
-                if not tool_resp.get("success"):
-                    logger.error(
-                        f"Tool failed for '{section}': {tool_resp.get('error')}"
+                if content:
+                    article_sections[section] = content
+                    logger.info(
+                        f"✅ Completed section '{section}' ({len(content)} chars)"
                     )
-                    return None
-
-                chunks_obj = tool_resp["chunks"]
-                chunk_models = (
-                    {
-                        cid: ResearchChunk.model_validate(data)
-                        for cid, data in chunks_obj.items()
-                    }
-                    if isinstance(chunks_obj, dict)
-                    else {
-                        d["chunk_id"]: ResearchChunk.model_validate(d)
-                        for d in chunks_obj
-                    }
-                )
-
-                # 4. Build chunk string with proper citation info
-                chunks_str = ", ".join(
-                    f"{cid} {{content: {m.content[:120]}..., "
-                    f"score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
-                    for cid, m in chunk_models.items()
-                )
-
-                # 5. Write section
-                write_prompt = write_section_content_prompt(section, topic, chunks_str)
-                write_resp = await self.aw.call_api_async(
-                    self.api_client.call_api, write_prompt
-                )
-                content = self._clean_section_content(write_resp)
-
-                return section, content
+                else:
+                    logger.warning(f"⚠️ Section '{section}' returned no content")
 
             except Exception as e:
-                logger.error(f"Section '{section}' failed: {e}", exc_info=True)
-                return None
-
-        # Run all sections concurrently
-        tasks = [write_section(s) for s in outline.headings]
-        results = await asyncio.gather(*tasks, return_exceptions=False)
-        article_sections = {sec: c for pair in results if pair for sec, c in [pair]}
+                logger.error(f"❌ Section '{section}' failed: {e}", exc_info=True)
+                # Continue with other sections
 
         # Persist article
         article = Article(
@@ -347,6 +404,68 @@ class WriterV2(BaseAgent):
         # Set article_content for reviewer compatibility
         self.shared_memory.state["article_content"] = article.content
         logger.info(f"Completed writing {len(article_sections)} sections")
+
+    def _write_single_section(
+        self, section: str, topic: str, chunk_summaries_str: str
+    ) -> Optional[str]:
+        """Write a single section with proper error handling."""
+        try:
+            # 1. Ask LLM to select chunks (Step 6a) - using section selection model
+            select_prompt = select_section_chunks_prompt(
+                section, topic, chunk_summaries_str, self.num_chunks
+            )
+            selection_client = self.get_task_client("section_selection")
+            select_resp = selection_client.call_api(prompt=select_prompt)
+
+            # 2. Parse and dedupe chunk IDs
+            chunk_ids = self.parse_chunk_ids_from_response(select_resp)
+            chunk_ids = [
+                cid.strip() for cid in chunk_ids if isinstance(cid, str) and cid.strip()
+            ]
+            seen = set()
+            chunk_ids = [c for c in chunk_ids if not (c in seen or seen.add(c))][
+                : self.num_chunks
+            ]
+            if not chunk_ids:
+                logger.warning(f"No chunks selected for section '{section}'")
+                return None
+
+            # 3. Retrieve chunks via tool
+            tool_resp = get_chunks_by_ids.invoke({"chunk_ids": chunk_ids})
+            if not tool_resp.get("success"):
+                logger.error(f"Tool failed for '{section}': {tool_resp.get('error')}")
+                return None
+
+            chunks_obj = tool_resp["chunks"]
+            chunk_models = (
+                {
+                    cid: ResearchChunk.model_validate(data)
+                    for cid, data in chunks_obj.items()
+                }
+                if isinstance(chunks_obj, dict)
+                else {
+                    d["chunk_id"]: ResearchChunk.model_validate(d) for d in chunks_obj
+                }
+            )
+
+            # 4. Build chunk string with proper citation info
+            chunks_str = ", ".join(
+                f"{cid} {{content: {m.content}, "
+                f"score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
+                for cid, m in chunk_models.items()
+            )
+
+            # 5. Write section content (Step 6b) - using section writing model
+            write_prompt = write_section_content_prompt(section, topic, chunks_str)
+            writing_client = self.get_task_client("section_writing")
+            write_resp = writing_client.call_api(prompt=write_prompt)
+            content = self._clean_section_content(write_resp)
+
+            return content
+
+        except Exception as e:
+            logger.error(f"Failed to write section '{section}': {e}", exc_info=True)
+            return None
 
     @staticmethod
     def parse_chunk_ids_from_response(response: str) -> List[str]:
@@ -401,8 +520,8 @@ class WriterV2(BaseAgent):
                 f"No previous content found for section '{section}', creating new content"
             )
 
-        # Get relevant chunks
-        relevant_chunks = self.shared_memory.get_search_summaries()
+        # Get relevant chunks as ResearchChunk objects
+        relevant_chunks = self.shared_memory.get_stored_chunks()
 
         # Use ToM to predict reviewer response (only if enabled)
         tom_context = None
@@ -413,22 +532,48 @@ class WriterV2(BaseAgent):
             tom_prediction = self.tom_module.predict_agent_response(
                 predictor=AgentRole.WRITER,
                 target=AgentRole.REVIEWER,
-                action="section_revision_review",
                 context={
                     "section": section,
                     "has_previous_content": bool(previous_content),
                     "feedback_count": len(section_feedback),
+                    "action": "section_revision_review",
                 },
             )
             tom_context = tom_prediction.reasoning
 
         # Generate revised content
-        revised_content = self._revise_section(
+        revised_content = self._revise_section_content(
             section, previous_content, section_feedback, relevant_chunks, tom_context
         )
 
         # Update section in current article
         current_article = self.shared_memory.get_current_article()
+        logger.info(
+            f"🔍 REVISION DEBUG: current_article is {'None' if current_article is None else 'available'} in iteration {self.shared_memory.get_current_iteration()}"
+        )
+
+        if not current_article:
+            # During revision, get article from previous iteration if current iteration has no draft
+            current_iteration = self.shared_memory.get_current_iteration()
+            if current_iteration > 0:
+                # Get draft from previous iteration
+                prev_draft = self.shared_memory.get_previous_draft()
+                if prev_draft:
+                    logger.info(
+                        f"🔍 REVISION DEBUG: Using draft from iteration {current_iteration - 1} for revision"
+                    )
+                    prev_sections = self.shared_memory.get_sections_from_iteration(
+                        current_iteration - 1
+                    )
+                    from src.utils.data import Article
+
+                    current_article = Article(
+                        title=self.shared_memory.state.get("topic", "Untitled"),
+                        content=prev_draft,
+                        sections=prev_sections,
+                        metadata=self.shared_memory.state.get("metadata", {}),
+                    )
+
         if current_article:
             current_article.sections[section] = revised_content
             # Rebuild full content
@@ -438,6 +583,13 @@ class WriterV2(BaseAgent):
             self.shared_memory.update_article_state(current_article)
             # Set article_content for reviewer compatibility
             self.shared_memory.state["article_content"] = current_article.content
+            logger.info(
+                f"🔍 REVISION DEBUG: Successfully stored revised article in iteration {self.shared_memory.get_current_iteration()}"
+            )
+        else:
+            logger.error(
+                f"🔍 REVISION DEBUG: No article available for revision in iteration {self.shared_memory.get_current_iteration()}"
+            )
 
         logger.info(f"Revised section '{section}' successfully")
 
@@ -463,7 +615,74 @@ class WriterV2(BaseAgent):
         """Get feedback specific to a section."""
         return self.shared_memory.get_feedback_for_section(section)
 
-    def _revise_section(
+    def _build_revision_prompt(
+        self,
+        section: str,
+        previous_content: Optional[str],
+        feedback: List[Dict],
+        chunks: List[ResearchChunk],
+        tom_context: Optional[str] = None,
+    ) -> str:
+        """Build revision prompt for section content based on feedback."""
+        prompt_parts = [
+            f"You are an expert writer revising the '{section}' section of an article.",
+            "",
+            "TASK: Revise the section content based on the feedback provided.",
+            "",
+        ]
+
+        if previous_content:
+            prompt_parts.extend(
+                [
+                    "PREVIOUS CONTENT:",
+                    previous_content,
+                    "",
+                ]
+            )
+
+        if feedback:
+            prompt_parts.append("FEEDBACK TO ADDRESS:")
+            for i, fb in enumerate(feedback, 1):
+                prompt_parts.append(
+                    f"{i}. {fb.get('feedback', 'No feedback provided')}"
+                )
+            prompt_parts.append("")
+
+        if chunks:
+            prompt_parts.extend(
+                [
+                    "AVAILABLE RESEARCH SOURCES:",
+                    'Use these sources for citations with format <c cite="chunk_id"/>:',
+                ]
+            )
+            for chunk in chunks[:5]:  # Limit to top 5 chunks
+                prompt_parts.append(f"- {chunk.chunk_id}: {chunk.content[:200]}...")
+            prompt_parts.append("")
+
+        if tom_context:
+            prompt_parts.extend(
+                [
+                    "REVIEWER EXPECTATIONS:",
+                    tom_context,
+                    "",
+                ]
+            )
+
+        prompt_parts.extend(
+            [
+                "REQUIREMENTS:",
+                "- Address all feedback points",
+                "- Maintain factual accuracy",
+                '- Use proper citations with <c cite="chunk_id"/> format',
+                "- Keep content well-structured and engaging",
+                "",
+                f"Write the revised content for the '{section}' section:",
+            ]
+        )
+
+        return "\n".join(prompt_parts)
+
+    def _revise_section_content(
         self,
         section: str,
         previous_content: Optional[str],
@@ -477,7 +696,9 @@ class WriterV2(BaseAgent):
         )
 
         try:
-            response = self.api_client.call_api(prompt=prompt)
+            # Use section revision model for revising sections (Iteration 1+)
+            revision_client = self.get_task_client("section_revision")
+            response = revision_client.call_api(prompt=prompt)
             return self._clean_section_content(response)
         except Exception as e:
             logger.error(
@@ -580,8 +801,8 @@ class WriterV2(BaseAgent):
 
         citations = {}
 
-        # Find all chunk ID citations in square brackets
-        citation_pattern = r"\[([a-zA-Z0-9_]+)\]"
+        # Find all chunk ID citations in citation tags
+        citation_pattern = r'<c cite="([a-zA-Z0-9_]+)"/>'
         matches = re.findall(citation_pattern, content)
 
         if not matches:

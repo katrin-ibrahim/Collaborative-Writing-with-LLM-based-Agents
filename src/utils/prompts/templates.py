@@ -93,8 +93,8 @@ def build_rag_prompt(topic: str, context: str) -> str:
     return f"""
     SYSTEM INSTRUCTION (do not ignore):
 
-    You are writing a *Wikipedia-style* article using ONLY the provided context.
-    If a fact is not explicitly supported by the context, DO NOT include it.
+    You are writing a *Wikipedia-style* article using the provided context.
+    Some of the context may be irrelevant or low-quality, so you must carefully select and use only the most relevant information.
 
     ===================================================
     == MANDATORY STRUCTURE (must match exactly) ==
