@@ -9,10 +9,10 @@ from datetime import datetime
 
 # =================== Search Space ===================
 backends = ["ollama"]
-methods = [["storm", "rag"]]
-num_topics = [20]
-model_configs = ["ollama_localhost"]
-retrieval_managers = ["wiki", "supabase_faiss"]
+methods = [["rag", "direct", "writer_only", "writer_reviewer", "writer_reviewer_tom", "storm"]]
+num_topics = [100]
+model_configs = ["small_writer", "balanced_writer", "large_writer"]
+retrieval_managers = ["hybrid"]
 semantic_filtering = [True]
 
 
@@ -34,7 +34,7 @@ def make_dir_name(cfg: dict) -> str:
 
 def make_command(cfg: dict, exp_name: str) -> str:
     """Make python command string based on args."""
-    cmd = ["python", "-m", "src.baselines"]
+    cmd = ["python", "-m", "src.main"]
     cmd += ["--backend", cfg["backend"]]
     cmd += ["--methods"] + cfg["methods"]
     cmd += ["--num_topics", str(cfg["num_topics"])]
@@ -49,7 +49,7 @@ def make_command(cfg: dict, exp_name: str) -> str:
         cmd += ["--semantic_filtering", val]
     # Use experiment_name - OutputManager will handle backend directory structure
     cmd += ["--experiment_name", exp_name]
-    return shlex.join(cmd)
+    return " ".join(shlex.quote(arg) for arg in cmd)
 
 
 # =================== Generate ===================
