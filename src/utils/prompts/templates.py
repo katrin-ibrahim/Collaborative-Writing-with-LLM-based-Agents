@@ -90,47 +90,30 @@ def build_query_generator_prompt(topic: str, num_queries: int = 5) -> str:
 
 
 def build_rag_prompt(topic: str, context: str) -> str:
-    return f"""
-    SYSTEM INSTRUCTION (do not ignore):
+    return f"""Write a comprehensive Wikipedia-style article about "{topic}" using the provided context.
 
-    You are writing a *Wikipedia-style* article using the provided context.
-    Some of the context may be irrelevant or low-quality, so you must carefully select and use only the most relevant information.
-
-    ===================================================
-    == MANDATORY STRUCTURE (must match exactly) ==
-    ===================================================
-
-    # {topic}
-
-    ## Introduction
-    [2–3 paragraphs defining the topic with inline citations like [1], [2]]
-
-    ## Section 1 - [Descriptive Heading]
-    [Detailed paragraphs with inline citations like [3], [4]]
-
-    ## Section 2 - [Descriptive Heading]
-    [Detailed paragraphs continuing coverage with citations like [5], [6]]
-
-    ## References
-    1. [chunk_id] Title - URL
-    2. [chunk_id] Title (Source: source_name)
-
-    ===================================================
-    == MANDATORY CITATION RULES (STRICT) ==
-    ===================================================
-
-    1. Every paragraph must contain at least one numbered inline citation in the form [N].
-    2. Each [N] must correspond to a valid chunk_id present in the context below.
-    3. NEVER invent citations or URLs.
-    4. If a statement cannot be supported by context, omit it.
-    5. The '## References' section must enumerate all used citations exactly as above.
-
-    ===================================================
-    == CONTEXT INFORMATION ==
-    ===================================================
+    Context Information:
     {context}
 
-    ===================================================
-    BEGIN ARTICLE OUTPUT BELOW — FOLLOW FORMAT EXACTLY
-    ===================================================
-    """
+    ARTICLE REQUIREMENTS:
+    1. Write a comprehensive, well-structured article about the topic
+    2. Use the provided context where relevant and appropriate
+    3. When context supports specific facts, include inline citations [1], [2], etc.
+    4. When context is general or partially relevant, use it to inform your writing but focus on creating useful content
+    5. If context is insufficient for certain aspects, use your knowledge to create a complete article while being clear about what is directly supported
+
+    FORMATTING RULES:
+    - Title format: # {topic}
+    - Use ## for section headings
+    - Create logical sections appropriate for the topic
+    - Target 1600-2000 words for comprehensive coverage
+    - Use neutral, encyclopedic tone
+    - Include specific details, dates, and facts where available
+
+    CITATION APPROACH:
+    - Include citations [N] for facts directly supported by the provided context
+    - List citations in a References section if used
+    - Focus on creating informative content even when context is partial
+    - You may supplement with general knowledge while prioritizing context-supported information
+
+    Write the complete article now:"""
