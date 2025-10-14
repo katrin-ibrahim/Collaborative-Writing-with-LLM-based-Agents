@@ -4,17 +4,17 @@ override_model: null
 
 # Task-specific model assignments
 outline_model: 'qwen2.5:7b'
-writing_model: 'qwen2.5:32b'
-critique_model: 'qwen2.5:14b'
+writing_model: 'qwen2.5:7b'
+critique_model: 'qwen2.5:7b'
 polish_model: 'qwen2.5:7b'
-default_model: 'qwen2.5:32b'
+default_model: 'qwen2.5:7b'
 
 # Writer-Reviewer task assignments
 query_generation_model: 'qwen2.5:7b'
 section_selection_model: 'qwen2.5:7b'
-section_writing_model: 'qwen2.5:32b'
-section_revision_model: 'qwen2.5:14b'
-review_model: 'qwen2.5:14b'
+section_writing_model: 'qwen2.5:7b'
+section_revision_model: 'qwen2.5:7b'
+review_model: 'qwen2.5:7b'
 
 # Temperature settings per task
 temperatures:

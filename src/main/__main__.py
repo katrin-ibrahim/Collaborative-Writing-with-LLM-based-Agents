@@ -136,7 +136,7 @@ def main():
     )
 
     # Load topics
-    freshwiki = FreshWikiLoader()
+    freshwiki = FreshWikiLoader(backend=args.backend)
     topics = [entry.topic for entry in freshwiki.load_topics(args.num_topics)]
 
     # Run experiment

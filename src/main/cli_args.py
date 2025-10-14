@@ -173,6 +173,11 @@ def parse_arguments() -> argparse.Namespace:
     args = parser.parse_args()
     # =================== Post-Processing & Validation ===================
 
+    # Auto-set model config based on backend if using defaults
+    if args.model_config == "ollama_localhost" and args.backend == "slurm":
+        args.model_config = "slurm"
+        print(f"Auto-setting model config to '{args.model_config}' for backend '{args.backend}'")
+
     # Convert resume_dir to resume flag
     if args.resume_dir:
         args.resume = True

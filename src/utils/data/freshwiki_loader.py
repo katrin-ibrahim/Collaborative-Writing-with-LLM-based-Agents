@@ -32,12 +32,22 @@ class FreshWikiLoader:
 
     def __init__(
         self,
-        data_path: str = "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/fw",
-        # data_path: str = "/storage/ukp/work/ibrahim1/Writer-Reviewer/data/freshwiki",
+        data_path: str = None,
+        backend: str = None,
     ):
+        if data_path is None:
+            data_path = self._get_default_data_path(backend)
+        
         self.data_path = Path(data_path)
         abs_path = self.data_path.resolve()
         logger.info(f"Loading FreshWiki dataset from {abs_path}")
+
+    def _get_default_data_path(self, backend: str = None) -> str:
+        """Determine the appropriate data path based on backend."""
+        if backend == "ollama":
+            return "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/fw"
+        else:
+            return "/storage/ukp/work/ibrahim1/Writer-Reviewer/data/fw"
 
     def load_topics(self, num_topics: int = 5) -> List[FreshWikiEntry]:
         """Load only the requested number of topics efficiently."""
