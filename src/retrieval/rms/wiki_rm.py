@@ -1,15 +1,27 @@
+import hashlib
+from pathlib import Path
+from urllib.parse import quote
+
 import logging
 import wikipedia
+from matplotlib.pyplot import title
 from sentence_transformers import SentenceTransformer
-from typing import Dict, List
+from typing import List, Optional
 
 from src.config.config_context import ConfigContext
 from src.retrieval.rms.base_retriever import BaseRetriever
+from src.retrieval.utils.chunker import ContentChunker
+from src.retrieval.utils.description_generator import DescriptionGenerator
+from src.utils.data.models import ResearchChunk
+from src.utils.experiment.experiment_setup import find_project_root
 
 logger = logging.getLogger(__name__)
 
 
 class WikiRM(BaseRetriever):
+    """Wikipedia-based retrieval manager using live Wikipedia API.
+    Returns structured ResearchChunk objects (Pydantic model).
+    """
 
     def __init__(
         self,
@@ -19,54 +31,59 @@ class WikiRM(BaseRetriever):
     ):
         # Use passed config or default
         self.retrieval_config = ConfigContext.get_retrieval_config()
+        if self.retrieval_config is None:
+            raise RuntimeError(
+                "Retrieval config is None. Ensure ConfigContext is properly initialized before using FaissRM."
+            )
 
-        # Initialize parent class with caching and config
+        # Automatically resolve cache_dir to absolute path from project root
+        project_root_path = Path(find_project_root())
+        if not Path(cache_dir).is_absolute():
+            cache_dir = str(project_root_path / cache_dir)
+
+        logger.debug(f"WikiRM using cache_dir for results: {cache_dir}")
+
+        self.embedding_model_name = self.retrieval_config.embedding_model
+
+        # Store cache_dir for _load_index method
+        self.cache_dir = cache_dir
+        # Initialize parent class with absolute cache path
         super().__init__(
             cache_dir=cache_dir,
             cache_results=cache_results,
             config=self.retrieval_config,
-            format_type=format_type,
         )
 
         self.format_type = format_type
         self.results_per_query = self.retrieval_config.results_per_query
 
-        # Add semantic filtering setup
-        self.semantic_enabled = self.retrieval_config.semantic_filtering_enabled
-        self.embedding_model = None
-        self._extracted_pages = set()
+        self.encoder = SentenceTransformer(self.embedding_model_name, device="cpu")
+        self.chunker = ContentChunker()
+        self.description_generator = DescriptionGenerator()
 
-        if self.semantic_enabled:
-            try:
-                self.embedding_model = SentenceTransformer(
-                    self.retrieval_config.embedding_model,
-                    device="cpu",  # Use "cuda" if available
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to load embedding model: {e}. Disabling semantic filtering."
-                )
-                self.semantic_enabled = False
+        self._extracted_pages = set()
 
         # Setup Wikipedia client
         wikipedia.set_rate_limiting(True)
         wikipedia.set_lang("en")
 
     def _retrieve_article(
-        self, query: str, topic: str = None, max_results: int = None
-    ) -> List[Dict]:
+        self,
+        query: str,
+        topic: Optional[str] = None,
+        max_results: Optional[int] = None,
+        **kwargs,
+    ) -> List[ResearchChunk]:
         """Search for a single query and return structured results."""
         # Use config default if max_results not provided
         if max_results is None:
+            if self.retrieval_config is None:
+                raise RuntimeError(
+                    "retrieval_config is None. Cannot determine results_per_query."
+                )
             max_results = self.retrieval_config.results_per_query
 
-        # Check cache first
-        cache_key = self._get_cache_key(query)
-        cached_results = self._load_from_cache(cache_key)
-        if cached_results:
-            return cached_results
-
-        results = []
+        results: List[ResearchChunk] = []
 
         try:
             # Search Wikipedia
@@ -98,78 +115,64 @@ class WikiRM(BaseRetriever):
             logger.error(f"Wikipedia search failed for '{query}': {e}")
             return []
 
-        # Cache the results
-        self._save_to_cache(cache_key, results)
-
         return results
 
-    def _extract_page_content(self, page_title: str) -> List[Dict]:
+    def _extract_page_content(self, page_title: str) -> List[ResearchChunk]:
         """Extract content from a single Wikipedia page."""
         results = []
 
         try:
             page = wikipedia.page(page_title, auto_suggest=False)
 
-            content_items = []
             # Get all available content items
-            if hasattr(page, "sections") and page.sections:
-                content_items = page.sections
-                content_type = "sections"
-            elif hasattr(page, "content") and page.content:
+            if hasattr(page, "content") and page.content:
                 # Create chunks from full content
-                content_items = self._create_content_chunks(page.content)
-                content_type = "chunks"
+                chunks = self.chunker.chunk_text(page.content)
             else:
-                return results
+                raise ValueError("Page has no content")
 
-            # Process all content items - filtering happens later in BaseRetriever
-            for i, item in enumerate(content_items):
-                try:
-                    if content_type == "sections":
-                        content = page.section(item)
-                        section_name = item
-                    else:  # chunks
-                        content = item  # item is already the content chunk
-                        section_name = f"Content Part {i + 1}"
+            url = f"https://en.wikipedia.org/wiki/{quote(page.title.replace(' ', '_'))}"
 
-                    if (
-                        content
-                        and len(content.strip())
-                        > self.retrieval_config.passage_min_length
-                    ):
-                        result_item = {
-                            "title": page.title,
-                            "section": section_name,
-                            "snippets": [content.strip()],
-                            "description": self._generate_description(
-                                content.strip(), f"{page.title} - {section_name}"
-                            ),
-                            "url": page.url,
-                            "source": "wikipedia",
-                        }
-                        results.append(result_item)
-                        logger.debug(f"Added result: {page.title} - {section_name}")
-                    else:
-                        logger.debug(
-                            f"Skipped item {i}: content too short ({len(content) if content else 0} chars)"
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Error processing item {i} for page '{page_title}': {e}"
-                    )
-                    continue  # Skip problematic sections/chunks
+            for idx, chunk in enumerate(chunks):
+                description = self.description_generator.create_description(
+                    content=chunk,
+                    source_type="Wikipedia Simple English",
+                    title=page.title,
+                    chunk_idx=idx,
+                    categories=page.categories if hasattr(page, "categories") else None,
+                    include_categories=True,
+                    max_preview_length=200,
+                )
+
+                research_chunk = ResearchChunk(
+                    chunk_id=self.make_chunk_id(page.title, idx),
+                    description=description,
+                    content=chunk,
+                    source="wikipedia_simple_english",
+                    url=url,
+                    metadata={
+                        "article_title": title,
+                        "article_id": page.pageid if hasattr(page, "pageid") else None,
+                        "chunk_index": idx,
+                        "total_chunks": len(chunks),
+                        "chunk_size": len(chunk),
+                        "overlap": self.chunker.overlap,
+                        "embedding_model": self.embedding_model_name,
+                        "categories": (
+                            page.categories if hasattr(page, "categories") else None
+                        ),
+                        "language": "simple_english",
+                    },
+                )
+                results.append(research_chunk)
 
         except Exception as e:
             logger.error(f"Failed to extract content from page '{page_title}': {e}")
 
         return results
 
-    def _create_content_chunks(self, content: str) -> List[str]:
-        """Create content chunks from full page content."""
-        from src.utils.content.chunker import ContentChunker
-
-        # Chunk content for processing
-        chunker = ContentChunker(
-            chunk_size=self.retrieval_config.passage_max_length, overlap=100
-        )
-        return chunker.chunk_text(content)
+    @staticmethod
+    def make_chunk_id(title: str, chunk_idx: int) -> str:
+        """Generate consistent chunk_id"""
+        raw = f"wikipedia|{title}|{chunk_idx}"
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()

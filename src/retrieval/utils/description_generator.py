@@ -152,12 +152,12 @@ class DescriptionGenerator:
 
         Args:
             content: The chunk content text
-            source_type: Type of source (e.g., "Wikipedia", "ArXiv", "PubMed")
+            source_type: Type of source (e.g., "Wikipedia")
             title: Document/article title
             chunk_idx: Zero-based index of this chunk
             total_chunks: Total chunks in the document
             categories: Optional list of categories/topics
-            metadata: Optional additional metadata (e.g., authors, year, journal)
+            metadata: Optional additional metadata
             max_preview_length: Maximum length for content preview
             include_position: Whether to include chunk position info
             include_categories: Whether to include category information

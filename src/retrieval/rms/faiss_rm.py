@@ -63,9 +63,6 @@ class FaissRM(BaseRetriever):
 
         self.encoder = SentenceTransformer(self.embedding_model_name, device="cpu")
 
-        # Add semantic filtering setup
-        self.semantic_enabled = self.retrieval_config.semantic_filtering_enabled
-
     def _retrieve_article(
         self,
         query: str,

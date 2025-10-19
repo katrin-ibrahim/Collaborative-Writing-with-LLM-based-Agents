@@ -3,11 +3,12 @@ STORM configuration class.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict
+
+from src.config.base_config import BaseConfig
 
 
 @dataclass
-class StormConfig:
+class StormConfig(BaseConfig):
     """
     Configuration for STORM method parameters.
 
@@ -24,29 +25,6 @@ class StormConfig:
     max_search_queries_per_turn: int = 3
     search_top_k: int = 5
     max_thread_num: int = 2
-
-    @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "StormConfig":
-        """Create StormConfig from dictionary."""
-        return cls(
-            max_conv_turn=config_dict.get("max_conv_turn", 3),
-            max_perspective=config_dict.get("max_perspective", 2),
-            max_search_queries_per_turn=config_dict.get(
-                "max_search_queries_per_turn", 3
-            ),
-            search_top_k=config_dict.get("search_top_k", 5),
-            max_thread_num=config_dict.get("max_thread_num", 2),
-        )
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert StormConfig to dictionary."""
-        return {
-            "max_conv_turn": self.max_conv_turn,
-            "max_perspective": self.max_perspective,
-            "max_search_queries_per_turn": self.max_search_queries_per_turn,
-            "search_top_k": self.search_top_k,
-            "max_thread_num": self.max_thread_num,
-        }
 
     def adapt_to_retrieval_config(self, retrieval_config) -> "StormConfig":
         """
@@ -65,3 +43,15 @@ class StormConfig:
             search_top_k=retrieval_config.results_per_query,
             max_thread_num=self.max_thread_num,
         )
+
+    def get_file_pattern(self) -> str:
+        return "storm"
+
+    @classmethod
+    def get_default(cls) -> "StormConfig":
+        """Get default configuration."""
+        return cls()
+
+
+# Global default instance
+DEFAULT_STORM_CONFIG = StormConfig.get_default()
