@@ -28,22 +28,15 @@ class RetrievalConfig(BaseConfig):
     final_passages: int = (
         10  # Final context size (replaces max_final_passages, retrieve_top_k)
     )
-    queries_per_turn: int = 2
 
     # Content Processing
-    passage_max_length: int = 2048
-    passage_min_length: int = 1500
-
-    # Batch Processing Configuration
-    parallel_threshold: int = 20  # Threshold for parallel processing
-    max_workers_direct: int = 3
-    max_workers_rag: int = 3
-    max_workers_storm: int = 3
+    embedding_model: str = "thenlper/gte-small"
+    chunk_size: int = 512
+    chunk_overlap: int = 50
 
     # Semantic Filtering Configuration
     semantic_filtering_enabled: bool = True
-    embedding_model: str = "all-MiniLM-L6-v2"
-    supabase_embedding_model_name: str = "all-MiniLM-L6-v2"
+    # gte-small for better embeddings, gte-base for better quality (slower)
     similarity_threshold: float = 0.4
     semantic_cache_size: int = 1000
 

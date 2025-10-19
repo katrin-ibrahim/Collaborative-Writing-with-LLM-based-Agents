@@ -1,19 +1,18 @@
 """
 Base retriever interface for unified retrieval architecture.
-Eliminates inconsistent interfaces across different retrieval sources.
+Defines the essential contract for all retrieval sources.
 """
 
-import hashlib
 from abc import ABC, abstractmethod
 
-import json
 import logging
-import os
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from src.config.retrieval_config import RetrievalConfig
-from src.utils.content.filter import ContentFilter
-from src.utils.content.scorer import RelevanceScorer
+from src.retrieval.utils.cache_manager import CacheManager
+from src.retrieval.utils.filter import ContentFilter
+from src.retrieval.utils.scorer import RelevanceScorer
+from src.utils.data.models import ResearchChunk
 from src.utils.experiment.experiment_setup import find_project_root
 
 logger = logging.getLogger(__name__)
@@ -22,324 +21,303 @@ logger = logging.getLogger(__name__)
 class BaseRetriever(ABC):
     """
     Abstract base class for all retrieval systems.
-    Defines the standard interface that all retrievers must implement.
+    Defines the standard interface and implements shared caching/processing logic.
     """
 
     def __init__(
         self,
         cache_dir: str = "data/wiki_cache",
         cache_results: bool = True,
-        config: RetrievalConfig = None,
+        config: Optional[RetrievalConfig] = None,
         format_type: str = "rag",
     ):
-        """Initialize base retriever with caching functionality."""
-        self.cache_dir = cache_dir
-        self.cache_results = cache_results
-        self._result_cache = {} if cache_results else None
-        self.semantic_cache = {}
-
-        # Store config for use in search orchestration
+        """Initialize base retriever with caching and core utilities."""
         self.config = config or RetrievalConfig()
 
-        # Initialize content processing utilities
-        self.content_filter = ContentFilter(find_project_root())
+        # Initialize Cache Manager, which handles all caching concerns
+        self.cache_manager = CacheManager(
+            cache_dir=cache_dir,
+            cache_enabled=cache_results,
+            retriever_class_name=self.__class__.__name__,
+        )
+
+        # Expose the semantic cache reference from the manager for semantic filtering access
+        self.semantic_cache: Dict[str, Any] = self.cache_manager.semantic_cache
+        self.cache_results = self.cache_manager.cache_enabled
+
+        # Initialize content processing utilities (critical path dependencies)
+        project_root = find_project_root()
+        self.content_filter = ContentFilter(project_root)
         self.relevance_scorer = RelevanceScorer()
+
         self.semantic_enabled = self.config.semantic_filtering_enabled
         self.format_type = format_type
 
-        # Create cache directory if it doesn't exist
-        if cache_results:
-            os.makedirs(cache_dir, exist_ok=True)
-
-    def __call__(self, query=None, k=None, *args, **kwargs):
+    def __call__(
+        self, query: str, k: Optional[int] = None, **kwargs
+    ) -> List[Dict[str, Any]]:
         """
-        Allow direct call to search method for convenience.
-        Handles STORM's calling convention: search_rm(query, k=5)
+        Allow direct call to search method for convenience (single query).
+        The final output is converted back to a list of dictionaries for the consumer framework.
         """
-        if query is not None:
-            # STORM-style call: search_rm(query, k=5)
-            max_results = k if k is not None else kwargs.get("max_results", None)
-            return self.search(
-                query_or_queries=query, max_results=max_results, **kwargs
-            )
-        else:
-            # Standard call: search_rm(queries=..., max_results=...)
-            return self.search(*args, **kwargs)
+        max_results = (
+            k
+            if k is not None
+            else kwargs.get("max_results", self.config.results_per_query)
+        )
 
-    # =================== Cache Methods ===================
+        # Pass the single query positionally to search, which now returns List[ResearchChunk]
+        chunk_results: List[ResearchChunk] = self.search(
+            query, max_results=max_results, **kwargs  # Passed positionally
+        )
 
-    def _generate_result_cache_key(
-        self, queries: List[str], max_results: int, format_type: str
-    ) -> str:
-        """Generate a cache key for search results."""
-        queries_str = "|".join(sorted(queries))
-        content = f"{queries_str}_{max_results}_{format_type}_{self.__class__.__name__}"
-        return hashlib.md5(content.encode()).hexdigest()
+        # Convert List[ResearchChunk] back to List[Dict[str, Any]] (as requested)
+        dict_results = [chunk.__dict__ for chunk in chunk_results]
+        return dict_results
 
-    def _get_cache_key(self, query: str) -> str:
-        """Generate cache key for a single query."""
-        content = f"{query}_{self.config.results_per_query}_{self.config.max_content_pieces}_{self.__class__.__name__}"
-        return hashlib.md5(content.encode()).hexdigest()
+    # =================== Cache Methods (Delegated to CacheManager) ===================
 
-    def _load_from_cache(self, cache_key: str) -> Optional[List[Dict]]:
-        """Load results from cache file."""
-        if not self.cache_results:
-            return None
+    def _generate_result_cache_key(self, query: str, max_results: int) -> str:
+        """Delegate cache key generation to the manager."""
+        return self.cache_manager.generate_result_cache_key(query, max_results)
 
-        cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
+    def _load_from_cache(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        """Delegate cache loading to the manager."""
+        return self.cache_manager.load_from_cache(cache_key)
 
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    cached_data = json.load(f)
-                    logger.debug(f"Loaded cached results for key: {cache_key}")
-                    return cached_data
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Failed to load cache file {cache_file}: {e}")
-                # Clean up corrupted cache file
-                try:
-                    os.remove(cache_file)
-                except OSError:
-                    pass
-
-        return None
-
-    def _save_to_cache(self, cache_key: str, results: List[Dict]) -> None:
-        """Save results to cache file."""
-        if not self.cache_results or not results:
-            return
-
-        cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
-
-        try:
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(results, f, ensure_ascii=False, indent=2)
-                logger.debug(f"Saved {len(results)} results to cache: {cache_key}")
-        except (IOError, TypeError) as e:
-            logger.warning(f"Failed to save cache file {cache_file}: {e}")
+    def _save_to_cache(self, cache_key: str, results: List[Dict[str, Any]]) -> None:
+        """Delegate cache saving to the manager."""
+        self.cache_manager.save_to_cache(cache_key, results)
 
     def clear_cache(self) -> None:
-        """Clear all cached results."""
-        if self._result_cache:
-            self._result_cache.clear()
-
-        if self.semantic_cache:
-            self.semantic_cache.clear()
-
-        # Clear file cache
-        if self.cache_results and os.path.exists(self.cache_dir):
-            try:
-                for file in os.listdir(self.cache_dir):
-                    if file.endswith(".json"):
-                        os.remove(os.path.join(self.cache_dir, file))
-                logger.info("Cleared all cache files")
-            except OSError as e:
-                logger.warning(f"Failed to clear cache directory: {e}")
+        """Clear all cached results (memory and disk) via the manager."""
+        self.cache_manager.clear_cache()
 
     def get_cache_stats(self) -> Dict[str, int]:
-        """Get cache statistics."""
-        stats = {
-            "memory_cache_size": len(self._result_cache) if self._result_cache else 0,
-            "semantic_cache_size": (
-                len(self.semantic_cache) if self.semantic_cache else 0
-            ),
-            "file_cache_size": 0,
-        }
+        """Get cache statistics via the manager."""
+        return self.cache_manager.get_cache_stats()
 
-        if self.cache_results and os.path.exists(self.cache_dir):
-            try:
-                cache_files = [
-                    f for f in os.listdir(self.cache_dir) if f.endswith(".json")
-                ]
-                stats["file_cache_size"] = len(cache_files)
-            except OSError:
-                pass
-
-        return stats
+    # =================== Core Search Logic ===================
 
     def search(
         self,
-        *args,
-        max_results: int = None,
-        topic: str = None,
+        *args,  # For positional argument support
+        max_results: Optional[int] = None,
+        topic: Optional[str] = None,
         deduplicate: bool = True,
-        query_or_queries: Union[str, List[str]] = None,
+        query_list: Optional[List[str]] = None,  # Our preferred internal argument
+        query_or_queries: Optional[
+            Union[str, List[str]]
+        ] = None,  # External storm argument
         **kwargs,
-    ) -> List:
+    ) -> List[ResearchChunk]:
         """
         Unified search method that handles query processing, caching, and result formatting.
-        Subclasses only need to implement _retrieve_article().
+        Returns a list of ResearchChunk objects.
 
         Args:
-            query_or_queries: Single query string or list of query strings
-            max_results: Maximum number of results to return
-            topic: Optional topic to filter results
-            deduplicate: Whether to remove duplicate results
-            **kwargs: Additional retrieval parameters
+            *args: Positional arguments, where the first is often the query.
+            max_results: Maximum number of results to retrieve PER query.
+            topic: Optional topic string for post-retrieval semantic filtering/scoring.
+            deduplicate: Whether to remove duplicate results across queries.
+            query_list: Our internal argument for a list of queries.
+            query_or_queries: External argument that can be a single string or list.
+            **kwargs: Additional retrieval parameters for subclasses.
 
         Returns:
-            List of passages (format_type="rag") or structured results (format_type="storm")
+            List of ResearchChunk objects.
         """
-        # Handle various calling conventions
         logger.debug(
-            f"{self.__class__.__name__}.search called with: args={args}, queries={query_or_queries}, kwargs={kwargs}"
+            f"{self.__class__.__name__}.search called with: args={args}, queries={query_or_queries}, list={query_list}, kwargs={kwargs}"
         )
 
-        if query_or_queries is None:
-            if args:
-                # Positional arguments: search("query", 5) or search("query")
-                query_or_queries = args[0] if len(args) > 0 else None
-                if max_results is None and len(args) > 1:
-                    max_results = args[1]
-            elif (
-                "query_or_queries" in kwargs and kwargs["query_or_queries"] is not None
-            ):
-                # Query in kwargs
-                query_or_queries = kwargs.pop("query_or_queries", None)
-            elif len(args) == 0 and not kwargs:
-                # Called with no arguments - this might be a STORM initialization call
-                logger.warning(
-                    f"{self.__class__.__name__}.search called with no arguments - returning empty list"
-                )
-                return []
-            else:
-                raise ValueError(
-                    "No valid query provided. Expected 'query_or_queries' parameter, or positional argument."
-                )
+        # --- Robust Query Normalization ---
+        # 1. Check the preferred external keyword argument
+        if query_or_queries is not None:
+            raw_queries = query_or_queries
+        # 2. Check the internal keyword argument
+        elif query_list is not None:
+            raw_queries = query_list
+        # 3. Check for positional arguments (This is the path hit when __call__ is used)
+        elif args:
+            raw_queries = args[0]
+        else:
+            logger.warning(
+                f"{self.__class__.__name__}.search called with no valid query argument - returning empty list"
+            )
+            return []
+
+        # Convert raw queries (string or list) into a definitive List[str]
+        if isinstance(raw_queries, str):
+            query_list_final = [raw_queries]
+        elif raw_queries is not None:
+            query_list_final = list(raw_queries)
+        else:
+            return []  # Should not happen if the checks above are correct
 
         # Set defaults using config values
         max_results = (
             max_results if max_results is not None else self.config.results_per_query
         )
 
-        # Normalize input
-        if isinstance(query_or_queries, str):
-            query_list = [query_or_queries]
-        else:
-            query_list = list(query_or_queries)
+        # 1. Check result cache
 
-        # Check result cache first
+        # we need to mark which queries we found cached results for, if for all queries we have cached results, we can return early
+        # if only some queries have cached results, we need to run the retrieval for the missing ones
+        cached_queries = set()
         cache_key = None
-        if self.cache_results:
-            cache_key = self._generate_result_cache_key(
-                query_list, max_results, self.format_type
-            )
-            if cache_key in self._result_cache:
-                logger.debug("Returning cached search results")
-                return self._result_cache[cache_key]
+        for query in query_list_final:
+            if self.cache_results:
+                cache_key = self._generate_result_cache_key(query, max_results)
+                cached_results: Optional[List[Dict[str, Any]]] = self._load_from_cache(
+                    cache_key
+                )
+                if cached_results is not None:
+                    cached_queries.add(query)
+        if self.cache_results and len(cached_queries) == len(query_list_final):
+            all_cached_results: List[ResearchChunk] = []
+            for query in query_list_final:
+                cache_key = self._generate_result_cache_key(query, max_results)
+                cached_results: Optional[List[Dict[str, Any]]] = self._load_from_cache(
+                    cache_key
+                )
+                if cached_results is not None:
+                    # Convert cached dicts to ResearchChunks before returning (as requested)
+                    try:
+                        all_cached_results.extend(
+                            [ResearchChunk(**d) for d in cached_results]
+                        )
+                    except TypeError as e:
+                        logger.error(
+                            f"Failed to convert cached results to ResearchChunk: {e}. Re-running search."
+                        )
+                        # Fall through to perform actual retrieval if conversion fails
+            return all_cached_results
 
-        # Collect all results
-        search_results = []
+        # If not all queries were cached, we need to run the retrieval for the missing ones
+        missing_queries = set(query_list_final) - cached_queries
+        query_list_final = list(missing_queries)
+        # 2. Collect all results
+        search_results: List[Dict[str, Any]] = []
 
-        # 1. Get all candidate results for each query
-        for i, query in enumerate(query_list):
-            logger.info(f"Searching for query {i + 1}/{len(query_list)}: {query}")
+        for i, query in enumerate(query_list_final):
             if not self.content_filter.validate_query(query):
                 logger.warning(
                     f"{self.__class__.__name__}.search called with malformed query, skipping: '{query[:100]}...'"
                 )
                 continue
 
-            # Transform STORM queries if needed
-            if self.format_type == "storm":
-                query = self.content_filter.transform_storm_query(query)
+            # Transform queries (e.g., STORM-specific query reformatting)
+            processed_query = (
+                self.content_filter.transform_storm_query(query)
+                if self.format_type == "storm"
+                else query
+            )
 
+            # --- Abstract Retrieval Step ---
             query_results = self._retrieve_article(
-                query, topic=topic, max_results=max_results
+                processed_query, topic=topic, max_results=max_results, **kwargs
             )
-            search_results.extend(query_results)
 
-        # 2. Deduplicate if requested
+            query_results_dicts = {
+                res.chunk_id: res.model_dump() for res in query_results
+            }
+            search_results.extend(query_results_dicts.values())
+
+        # 3. Deduplicate
         if deduplicate:
-            search_results = self.content_filter.deduplicate_results(
-                search_results, format_type="dict"
-            )
+            # Assumes content_filter works on the dict format
+            search_results = self.content_filter.deduplicate_results(search_results)
 
-        # 3. Apply semantic/topic relevance scoring
+        # 4. Apply semantic/topic relevance scoring (re-ranking)
         if topic and self.config.semantic_filtering_enabled:
-            # if len(search_results) > self.config.max_content_pieces:
             search_results = self.relevance_scorer.calculate_relevance(
                 topic, search_results
             )
 
-        # 4. Filter out excluded URLs (data leakage prevention)
+        # 5. Filter excluded URLs (data leakage prevention)
         search_results = self.content_filter.filter_excluded_urls(search_results)
 
-        # 5. Limit results to final passages count from config
+        # 6. Limit final result set
         search_results = search_results[: self.config.final_passages]
 
-        # Cache results
+        # 7. Save to cache (still saving dicts for simple I/O)
         if self.cache_results and cache_key:
-            self._result_cache[cache_key] = search_results
+            self._save_to_cache(cache_key, search_results)
 
-        return search_results
+        # 8. Convert final dict list to ResearchChunk list (as requested for search return)
+        try:
+            chunk_results = [ResearchChunk(**d) for d in search_results]
+        except TypeError as e:
+            logger.error(
+                f"Failed to convert final search results to ResearchChunk: {e}. Returning raw list of dicts."
+            )
+            # Fallback for safety, though it violates the type hint
+            return search_results  # type: ignore
+
+        return chunk_results
 
     def search_concurrent(
         self,
         query_list: List[str],
-        max_results: int = None,
+        max_results: Optional[int] = None,
         max_workers: int = 3,
-        topic: str = None,
+        topic: Optional[List[str]] = None,
         deduplicate: bool = True,
         **kwargs,
-    ) -> List:
+    ) -> List[ResearchChunk]:
         """
         Concurrent version of search() for multiple queries.
-        Preserves existing search() signature for STORM compatibility.
+        Returns a flattened and processed list of all results as ResearchChunk objects.
 
         Args:
             query_list: List of query strings to search concurrently
             max_results: Maximum number of results per query
-            max_workers: Maximum number of concurrent threads (default: 3)
+            max_workers: Maximum number of concurrent threads
             topic: Optional topic to filter results
             deduplicate: Whether to remove duplicate results
             **kwargs: Additional retrieval parameters
 
         Returns:
-            Flattened list of all results from all queries
+            Flattened and processed list of all results as ResearchChunk objects.
         """
         if not query_list:
             return []
 
-        if len(query_list) == 1:
-            # Single query - no concurrency overhead
-            return self.search(
-                query_or_queries=query_list[0],
-                max_results=max_results,
-                topic=topic,
-                deduplicate=deduplicate,
-                **kwargs,
-            )
+        # If max_workers is not defined, calculate a safe default
+        max_workers = min(max_workers, len(query_list))
 
-        # Multiple queries - concurrent execution
+        # Use concurrent.futures for simple thread pooling
         import concurrent.futures
 
         logger.info(
-            f"Executing {len(query_list)} queries concurrently with {min(max_workers, len(query_list))} workers"
+            f"Executing {len(query_list)} queries concurrently with {max_workers} workers"
         )
 
-        all_results = []
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(max_workers, len(query_list))
-        ) as executor:
-            # Submit all queries
+        all_results: List[ResearchChunk] = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit each query as a separate search call
             future_to_query = {
                 executor.submit(
+                    # Call the standard search method, which now returns List[ResearchChunk]
                     self.search,
-                    query_or_queries=query,
+                    query,  # Passed positionally
                     max_results=max_results,
-                    topic=topic,
-                    deduplicate=deduplicate,
+                    topic=topic[i] if isinstance(topic, list) else topic,
+                    # Disable deduplication inside the concurrent call
+                    deduplicate=False,
                     **kwargs,
                 ): query
-                for query in query_list
+                for i, query in enumerate(query_list)
             }
 
             # Collect results as they complete
             for future in concurrent.futures.as_completed(future_to_query):
                 query = future_to_query[future]
                 try:
-                    results = future.result()
+                    # Results are List[ResearchChunk]
+                    results: List[ResearchChunk] = future.result()
                     all_results.extend(results)
                     logger.debug(
                         f"Concurrent search for '{query}' returned {len(results)} results"
@@ -347,87 +325,41 @@ class BaseRetriever(ABC):
                 except Exception as exc:
                     logger.error(f"Concurrent search query '{query}' failed: {exc}")
 
-        logger.info(
-            f"Concurrent search completed: {len(all_results)} total results from {len(query_list)} queries"
-        )
+        logger.info(f"Concurrent search completed: {len(all_results)} raw results.")
+
+        # Perform final steps on the aggregated list
+        if deduplicate:
+            # Convert chunks to dicts for content_filter (which assumes dicts)
+            dict_results = [chunk.__dict__ for chunk in all_results]
+            deduped_dict_results = self.content_filter.deduplicate_results(dict_results)
+            # Convert back to chunks
+            all_results = [ResearchChunk(**d) for d in deduped_dict_results]
+
+        # Re-apply final result limit (necessary because each thread might have returned max_results)
+        all_results = all_results[: self.config.final_passages]
+
         return all_results
 
-    def _generate_description(self, content: str, title: str = "") -> str:
-        """
-        Extract substantive content from chunks, skipping headers and fluff.
-        Optimized for individual chunks rather than full articles.
-
-        Args:
-            content: The chunk content text to generate description from
-            title: Optional title for fallback if content is empty
-
-        Returns:
-            A meaningful description string (usually 150-250 characters)
-        """
-        if not content:
-            return title if title else "No content available"
-
-        lines = content.split("\n")
-        content_lines = []
-
-        # Filter out headers, short lines, and navigation text
-        for line in lines:
-            line = line.strip()
-            if (
-                len(line) > 30
-                and not line.startswith("#")
-                and not line.startswith("=")
-                and not line.lower().startswith("see also")
-                and not line.lower().startswith("references")
-                and not line.lower().startswith("external links")
-                and not line.lower().startswith("category:")
-                and not line.lower().startswith("file:")
-                and not "{{" in line
-            ):  # Skip wiki templates
-                content_lines.append(line)
-
-        if not content_lines:
-            # Fallback: use original content but clean it
-            clean_content = content.replace("\n", " ").strip()
-            return (
-                clean_content[:200] + "..."
-                if len(clean_content) > 200
-                else clean_content
-            )
-
-        # Take the first substantial content line
-        first_content = content_lines[0]
-
-        # If it's very long, trim to sentence boundary
-        if len(first_content) > 200:
-            import re
-
-            sentences = re.split(r"[.!?]+", first_content)
-            first_content = sentences[0].strip()
-            if len(first_content) < 100 and len(sentences) > 1:
-                second_sentence = sentences[1].strip()
-                if second_sentence:
-                    first_content += ". " + second_sentence
-
-        # Final cleanup and length check
-        first_content = first_content.strip()
-        if len(first_content) > 250:
-            first_content = first_content[:247] + "..."
-
-        return first_content if first_content else (title or "No content available")
+    # =================== Abstract Method (Contract) ===================
 
     @abstractmethod
     def _retrieve_article(
-        self, query: str, topic: str = None, max_results: int = None
-    ) -> List[Dict]:
+        self,
+        query: str,
+        topic: Optional[str] = None,
+        max_results: Optional[int] = None,
+        **kwargs,
+    ) -> List[ResearchChunk]:
         """
-        Retrieve articles for a single query. Must be implemented by subclasses.
+        Retrieve articles for a single query. **MUST be implemented by subclasses.**
+        The raw results are expected to be returned as a list of dictionaries.
 
         Args:
             query: Single query string
             topic: Optional topic for filtering
-            max_results: Maximum results to return (uses config.results_per_query if None)
+            max_results: Maximum results to return
 
         Returns:
-            List of result dictionaries with 'snippets', 'title', 'url' keys
+            List of result dictionaries. Each dict should conform to a standard
+            structure (e.g., must contain 'snippets', 'title', 'url' keys).
         """

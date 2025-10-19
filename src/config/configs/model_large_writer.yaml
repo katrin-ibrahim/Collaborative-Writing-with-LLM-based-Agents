@@ -1,19 +1,19 @@
-# Ollama configuration for UKP server — Variant: BALANCED WRITER
+# Ollama configuration for UKP server — Variant: LARGE WRITER
 mode: 'ollama'
 override_model: null
 ollama_host: 'http://10.167.31.201:11434/'
 
 outline_model: 'qwen2.5:7b'
-writing_model: 'qwen2.5:7b'                      # <= balanced writer
+writing_model: 'qwen2.5:14b' # <= large writer
 critique_model: 'phi4:latest'
 polish_model: 'qwen2.5:14b'
-default_model: 'qwen2.5:7b'                      # <= for direct/baselines
+default_model: 'qwen2.5:14b' # <= for direct/baselines
 
 query_generation_model: 'qwen2.5:3b'
 section_selection_model: 'qwen2.5:14b'
-section_writing_model: 'qwen2.5:7b'              # <= balanced writer
+section_writing_model: 'qwen2.5:14b' # <= large writer
 section_revision_model: 'qwen2.5:14b'
-review_model: 'phi4:latest'                      # also used for ToM passes
+review_model: 'phi4:latest' # also used for ToM passes
 
 temperatures:
   fast: 0.2

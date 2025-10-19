@@ -2,6 +2,9 @@
 
 import logging
 
+from src.config.collaboration_config import CollaborationConfig
+from src.config.retrieval_config import RetrievalConfig
+from src.config.storm_config import StormConfig
 from src.engines import OllamaEngine, SlurmEngine
 
 logger = logging.getLogger(__name__)
@@ -23,7 +26,6 @@ class ConfigContext:
     _collaboration_config = None
     _storm_config = None
     _memory_instance = None
-    _tool_adapter_cache = None
 
     @classmethod
     def initialize(
@@ -33,7 +35,7 @@ class ConfigContext:
         collaboration_config,
         backend,
         storm_config=None,
-        **backend_kwargs
+        **backend_kwargs,
     ):
         """
         Initialize context once from CLI/main entry point.
@@ -51,6 +53,7 @@ class ConfigContext:
         cls._collaboration_config = collaboration_config
         cls._backend = backend
         cls._backend_kwargs = backend_kwargs
+        cls._initialized = True
 
         # Initialize STORM config with defaults if not provided
         if storm_config is None:
@@ -61,12 +64,15 @@ class ConfigContext:
             storm_config = storm_config.adapt_to_retrieval_config(retrieval_config)
         cls._storm_config = storm_config
         cls._client_cache = {}
-        cls._tool_adapter_cache = {}
 
         logger.info("ConfigContext initialized with runner and configs")
 
     @classmethod
     def get_client(cls, task: str):
+        if not cls._initialized or cls._model_config is None:
+            raise RuntimeError(
+                "ConfigContext is not initialized. Call ConfigContext.initialize(...) before using get_client()."
+            )
         if task in cls._client_cache:
             return cls._client_cache[task]
 
@@ -74,21 +80,24 @@ class ConfigContext:
         model = cls._model_config.get_model_for_task(task)
         temp = cls._model_config.get_temperature_for_task(task)
         max_tokens = cls._model_config.get_token_limit_for_task(task)
+        max_tokens = cls._model_config.get_token_limit_for_task(task)
 
         # Create backend-specific client
         if cls._backend == "ollama":
             client = OllamaEngine(
-                host=cls._backend_kwargs.get("ollama_host"),
+                host=cls._backend_kwargs.get("ollama_host", "http://localhost:11434"),
                 model=model,
                 temperature=temp,
                 max_tokens=max_tokens,
             )
         elif cls._backend == "slurm":
             client = SlurmEngine(
-                device=cls._backend_kwargs.get("device"),
+                device=cls._backend_kwargs.get("device", "cpu"),
                 model_path=model,
                 temperature=temp,
             )
+        else:
+            raise ValueError(f"Unsupported backend: {cls._backend}")
 
         cls._client_cache[task] = client
         return client
@@ -98,28 +107,30 @@ class ConfigContext:
         """Get model configuration."""
         return cls._model_config
 
+    from typing import Optional
+
     @classmethod
-    def get_retrieval_config(cls):
+    def get_retrieval_config(cls) -> Optional["RetrievalConfig"]:
         """Get retrieval configuration."""
         return cls._retrieval_config
 
     @classmethod
-    def get_collaboration_config(cls):
+    def get_collaboration_config(cls) -> Optional["CollaborationConfig"]:
         """Get collaboration configuration."""
         return cls._collaboration_config
 
     @classmethod
-    def get_storm_config(cls):
+    def get_storm_config(cls) -> Optional["StormConfig"]:
         """Get STORM configuration."""
         return cls._storm_config
 
     @classmethod
-    def get_backend(cls):
+    def get_backend(cls) -> str:
         """Get backend type."""
         return cls._backend
 
     @classmethod
-    def get_backend_kwargs(cls):
+    def get_backend_kwargs(cls) -> dict:
         """Get backend parameters."""
         return cls._backend_kwargs
 
@@ -133,20 +144,3 @@ class ConfigContext:
     def get_memory_instance(cls):
         """Get the current memory instance."""
         return cls._memory_instance
-
-    @classmethod
-    def get_tool_chat_client(cls, task: str):
-        """Get a LangGraph-compatible chat adapter bound to the task's engine."""
-
-        if cls._tool_adapter_cache is None:
-            cls._tool_adapter_cache = {}
-
-        if task in cls._tool_adapter_cache:
-            return cls._tool_adapter_cache[task]
-
-        from src.engines.tool_chat_adapter import ToolChatAdapter
-
-        engine = cls.get_client(task)
-        adapter = ToolChatAdapter(engine)
-        cls._tool_adapter_cache[task] = adapter
-        return adapter

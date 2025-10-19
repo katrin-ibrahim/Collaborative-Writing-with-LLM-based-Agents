@@ -56,7 +56,7 @@ def create_retrieval_manager(
 
     elif rm_type == "supabase_faiss":
         try:
-            from src.retrieval.rms.supabase_faiss_rm import FaissRM
+            from retrieval.rms.faiss_rm import FaissRM
 
             base_rm = FaissRM(**default_args)
         except ImportError as e:

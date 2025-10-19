@@ -1,20 +1,23 @@
-# Ollama configuration for UKP server — Variant: LARGE WRITER
+# Ollama configuration for UKP server — Variant: SMALL WRITER
 mode: 'ollama'
 override_model: null
 ollama_host: 'http://10.167.31.201:11434/'
 
+# Task-specific model assignments (UKP-only; single endpoint per run)
 outline_model: 'qwen2.5:7b'
-writing_model: 'qwen2.5:14b'                     # <= large writer
-critique_model: 'phi4:latest'
+writing_model: 'llama3.2:3b-instruct-q4_K_M' # <= small writer
+critique_model: 'phi4:latest' # fixed reviewer/ToM
 polish_model: 'qwen2.5:14b'
-default_model: 'qwen2.5:14b'                     # <= for direct/baselines
+default_model: 'llama3.2:3b-instruct-q4_K_M' # <= for direct/baselines
 
+# Writer-Reviewer task assignments
 query_generation_model: 'qwen2.5:3b'
 section_selection_model: 'qwen2.5:14b'
-section_writing_model: 'qwen2.5:14b'             # <= large writer
+section_writing_model: 'llama3.2:3b-instruct-q4_K_M' # <= small writer
 section_revision_model: 'qwen2.5:14b'
-review_model: 'phi4:latest'                      # also used for ToM passes
+review_model: 'phi4:latest' # also used for ToM passes
 
+# Temperature settings per task (repro-friendly)
 temperatures:
   fast: 0.2
   outline: 0.2
@@ -27,6 +30,7 @@ temperatures:
   section_revision: 0.25
   review: 0.15
 
+# Token limits per task (tight for cost/latency control)
 token_limits:
   fast: 2000
   outline: 600

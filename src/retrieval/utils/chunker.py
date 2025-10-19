@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class ContentChunker:
     """Handles text chunking for large content."""
 
-    def __init__(self, chunk_size: int = 1000, overlap: int = 100):
+    def __init__(self, chunk_size: int = 512, overlap: int = 50):
         """
         Initialize content chunker.
 

@@ -10,7 +10,7 @@ from .rms.wiki_rm import WikiRM
 
 # Retrieval Managers (with graceful imports)
 try:
-    from .rms.supabase_faiss_rm import FaissRM
+    from .rms.faiss_rm import FaissRM
 except ImportError as e:
     print(f"Warning: Could not import FaissRM: {e}")
     FaissRM = None

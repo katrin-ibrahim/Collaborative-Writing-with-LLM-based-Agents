@@ -17,7 +17,7 @@ from src.config.config_context import ConfigContext
 from src.main.cli_args import parse_arguments
 from src.main.runner import Runner
 from src.utils.data import FreshWikiLoader
-from src.utils.experiment import setup_output_directory
+from src.utils.experiment import save_final_results, setup_output_directory
 from src.utils.io import OutputManager
 
 logger = logging.getLogger(__name__)
@@ -115,8 +115,13 @@ def main():
     # Create runner instance
     model_config, retrieval_config, collaboration_config = load_configurations(args)
     backend_kwargs = {}
+
+    # Get ollama_host from model config first, then allow CLI override
+    if hasattr(model_config, "ollama_host") and model_config.ollama_host:
+        backend_kwargs["ollama_host"] = model_config.ollama_host
     if hasattr(args, "ollama_host") and args.ollama_host:
-        backend_kwargs["ollama_host"] = args.ollama_host
+        backend_kwargs["ollama_host"] = args.ollama_host  # CLI override
+
     if hasattr(args, "device") and args.device:
         backend_kwargs["device"] = args.device
     ConfigContext.initialize(
@@ -140,7 +145,17 @@ def main():
     topics = [entry.topic for entry in freshwiki.load_topics(args.num_topics)]
 
     # Run experiment
+    run_start = time.time()
     runner.run(topics, args.methods)
+
+    # Persist results.json based on generated articles
+    try:
+        total_time = time.time() - run_start
+        save_final_results(
+            output_dir, topics, args.methods, total_time, backend=args.backend
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save final results.json after generation: {e}")
 
 
 if __name__ == "__main__":
