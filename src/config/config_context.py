@@ -2,6 +2,8 @@
 
 import logging
 
+from collaborative.memory.memory import SharedMemory
+from config.model_config import ModelConfig
 from src.config.collaboration_config import CollaborationConfig
 from src.config.retrieval_config import RetrievalConfig
 from src.config.storm_config import StormConfig
@@ -21,20 +23,22 @@ class ConfigContext:
 
     # Singleton state
     _initialized = False
-    _model_config = None
-    _retrieval_config = None
-    _collaboration_config = None
-    _storm_config = None
-    _memory_instance = None
+    _model_config: ModelConfig
+    _retrieval_config: RetrievalConfig
+    _collaboration_config: CollaborationConfig
+    _storm_config: StormConfig
+    _memory_instance: SharedMemory
+
+    from typing import Optional
 
     @classmethod
     def initialize(
         cls,
-        model_config,
-        retrieval_config,
-        collaboration_config,
-        backend,
-        storm_config=None,
+        model_config: ModelConfig,
+        retrieval_config: RetrievalConfig,
+        collaboration_config: CollaborationConfig,
+        backend: str,
+        storm_config: Optional[StormConfig] = None,
         **backend_kwargs,
     ):
         """
@@ -48,6 +52,14 @@ class ConfigContext:
             storm_config: StormConfig instance (optional)
             backend_kwargs: Additional backend parameters
         """
+        if (
+            model_config is None
+            or retrieval_config is None
+            or collaboration_config is None
+        ):
+            raise RuntimeError(
+                "ConfigContext: All configs must be provided and non-None."
+            )
         cls._model_config = model_config
         cls._retrieval_config = retrieval_config
         cls._collaboration_config = collaboration_config
@@ -60,7 +72,6 @@ class ConfigContext:
             from src.config.storm_config import StormConfig
 
             storm_config = StormConfig()
-            # Adapt to retrieval config for compatibility
             storm_config = storm_config.adapt_to_retrieval_config(retrieval_config)
         cls._storm_config = storm_config
         cls._client_cache = {}
@@ -107,21 +118,25 @@ class ConfigContext:
         """Get model configuration."""
         return cls._model_config
 
-    from typing import Optional
-
     @classmethod
-    def get_retrieval_config(cls) -> Optional["RetrievalConfig"]:
+    def get_retrieval_config(cls) -> "RetrievalConfig":
         """Get retrieval configuration."""
+        if not cls._initialized or cls._retrieval_config is None:
+            raise RuntimeError("ConfigContext: RetrievalConfig not initialized.")
         return cls._retrieval_config
 
     @classmethod
-    def get_collaboration_config(cls) -> Optional["CollaborationConfig"]:
+    def get_collaboration_config(cls) -> "CollaborationConfig":
         """Get collaboration configuration."""
+        if not cls._initialized or cls._collaboration_config is None:
+            raise RuntimeError("ConfigContext: CollaborationConfig not initialized.")
         return cls._collaboration_config
 
     @classmethod
-    def get_storm_config(cls) -> Optional["StormConfig"]:
+    def get_storm_config(cls) -> "StormConfig":
         """Get STORM configuration."""
+        if not cls._initialized or cls._storm_config is None:
+            raise RuntimeError("ConfigContext: StormConfig not initialized.")
         return cls._storm_config
 
     @classmethod
@@ -141,6 +156,8 @@ class ConfigContext:
         logger.info("Memory instance registered with ConfigContext")
 
     @classmethod
-    def get_memory_instance(cls):
+    def get_memory_instance(cls) -> "SharedMemory":
         """Get the current memory instance."""
+        if cls._memory_instance is None:
+            raise RuntimeError("ConfigContext: SharedMemory instance not set.")
         return cls._memory_instance

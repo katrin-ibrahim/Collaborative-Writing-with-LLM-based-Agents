@@ -79,18 +79,31 @@ class CacheManager:
         return None
 
     def save_to_cache(self, cache_key: str, results: List[Dict[str, Any]]) -> None:
-        """Save results to in-memory cache and disk cache."""
+        """Save results to in-memory cache and disk cache (JSON-safe)."""
         if not self.cache_enabled or not results:
             return
 
-        # 1. Save to in-memory cache
+        # 1. In-memory cache (raw)
         self._result_cache[cache_key] = results
 
-        # 2. Save to file cache
+        # 2. Disk cache: ensure JSON-safe
         cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
+
+        def make_json_safe(obj):
+            if isinstance(obj, dict):
+                return {k: make_json_safe(v) for k, v in obj.items() if not callable(v)}
+            elif isinstance(obj, list):
+                return [make_json_safe(x) for x in obj]
+            elif callable(obj):
+                return str(obj)  # fallback for functions
+            else:
+                return obj
+
+        safe_results = make_json_safe(results)
+
         try:
             with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(results, f, ensure_ascii=False, indent=2)
+                json.dump(safe_results, f, ensure_ascii=False, indent=2)
                 logger.debug(f"Saved {len(results)} results to file cache: {cache_key}")
         except (IOError, TypeError) as e:
             logger.warning(f"Failed to save cache file {cache_file}: {e}")

@@ -1,5 +1,4 @@
 import logging
-from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
@@ -63,35 +62,11 @@ class ResearchChunk(BaseModel):
         )
 
 
-class ArticleMetrics(BaseModel):
-    """Structured metrics for article analysis."""
-
-    title: str
-    word_count: int
-    character_count: int
-    heading_count: int
-    headings: List[str]
-    paragraph_count: int
-    analysis_success: bool = True
-
-
-class FactCheckResult(BaseModel):
-    """Individual fact checking result."""
-
-    claim: str
-    sources_found: int
-    search_successful: bool
-    verified: Optional[bool] = None
-    search_results: List[Dict[str, Any]] = Field(default_factory=list)
-    error: Optional[str] = None
-
-
 class Outline(BaseModel):
     """Hierarchical outline structure."""
 
     title: str
     headings: List[str]
-    subheadings: Dict[str, List[str]] = Field(default_factory=dict)
 
 
 class Article(BaseModel):
@@ -102,23 +77,3 @@ class Article(BaseModel):
     outline: Optional[Outline] = None
     sections: Dict[str, str] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class EvaluationResult(BaseModel):
-    """Evaluation metrics for a generated article."""
-
-    heading_soft_recall: float
-    heading_entity_recall: float
-    rouge_1: float
-    rouge_l: float
-    article_entity_recall: float
-
-
-@dataclass
-class ReviewFeedback(BaseModel):
-    """Structured feedback from reviewer agent."""
-
-    overall_score: float
-    feedback_text: str
-    issues_count: int
-    recommendations: List[str]

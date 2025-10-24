@@ -7,13 +7,20 @@ import time
 import warnings
 from pathlib import Path
 
+import json
 import logging
+import re
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from pydantic import ValidationError
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation.configuration_utils import GenerationConfig
 from transformers.utils import logging as transformers_logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
 from src.engines.base_engine import BaseEngine
+
+T = TypeVar("T")
+
 
 # Suppress unnecessary warnings for performance
 transformers_logging.set_verbosity_error()
@@ -64,11 +71,12 @@ class SlurmEngine(BaseEngine):
         self._prompt_cache = {}
         self._kv_cache = None
         self._warmup_done = False
-        self.stats = {"tokenization_time": 0, "generation_time": 0, "total_calls": 0}
-
-        # Load and optimize model
+        self.stats = {
+            "tokenization_time": 0.0,
+            "generation_time": 0.0,
+            "total_calls": 0.0,
+        }
         self._load_and_optimize_model()
-
         logger.info(f"SlurmEngine initialized with model: {self.model_name}")
 
     def __call__(self, messages=None, **kwargs):
@@ -206,6 +214,12 @@ class SlurmEngine(BaseEngine):
         try:
             start_time = time.time()
 
+            # Check model and tokenizer
+            if self.model is None:
+                raise RuntimeError("Model is not loaded.")
+            if self.tokenizer is None:
+                raise RuntimeError("Tokenizer is not loaded.")
+
             # Tokenize input
             inputs = self.tokenizer(prompt, return_tensors="pt")
 
@@ -296,10 +310,95 @@ class SlurmEngine(BaseEngine):
 
     def get_stats(self) -> Dict[str, float]:
         """Get performance statistics."""
-        return self.stats.copy()
+        # Ensure all values are float for compatibility
+        return {k: float(v) for k, v in self.stats.items()}
 
     def clear_cache(self):
         """Clear any cached data."""
         self._prompt_cache.clear()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    def call_structured_api(
+        self,
+        prompt: str,
+        output_schema: Type[T],
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stop: Optional[List[str]] = None,
+    ) -> T:
+        """
+        Generates text from the local model, enforces structured output by injecting
+        the JSON schema into the prompt, and validates the output against the
+        Pydantic model.
+        """
+        # 1. Generate the JSON Schema and instruction text
+        from pydantic import BaseModel
+
+        if not (
+            isinstance(output_schema, type) and issubclass(output_schema, BaseModel)
+        ):
+            raise TypeError(
+                "output_schema must be a Pydantic model class (subclass of BaseModel) with model_json_schema and model_validate methods."
+            )
+        schema_dict = output_schema.model_json_schema()
+        schema_string = json.dumps(schema_dict, indent=2)
+
+        # NOTE: This system relies on the LLM being instructed to output JSON.
+        schema_instruction = (
+            "\n\n***\nRESPONSE FORMAT INSTRUCTIONS:\n"
+            "Your output MUST be a single JSON object that strictly adheres to the "
+            "following JSON schema. Do not include any other text, preambles, "
+            "or reasoning outside the JSON block."
+            f"\nSCHEMA:\n{schema_string}\n***\n"
+        )
+
+        # 2. Combine prompts
+        full_prompt = f"{prompt}{schema_instruction}"
+        if system_prompt:
+            full_prompt = f"{system_prompt}\n\n{full_prompt}"
+
+        try:
+            # 3. Generate raw text output
+            raw_text_output = self._generate(
+                prompt=full_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                # NOTE: We can't use 'stop' directly with HF generate, so we rely on prompt engineering.
+            )
+
+            # 4. Extract JSON from the potentially messy text (common for HF models)
+            extracted_data = self.extract_json(raw_text_output)
+
+            if not extracted_data:
+                raise ValueError(
+                    "LLM failed to produce a detectable JSON block in its response. "
+                    "Ensure your model is instruction-tuned for JSON output."
+                )
+
+            # 5. Validate the extracted data against the Pydantic model
+            validated_model = output_schema.model_validate(extracted_data)
+            return validated_model
+
+        except (RuntimeError, ValueError, ValidationError) as e:
+            logger.error(f"Structured API failed (Validation/Generation): {e}")
+            raise RuntimeError(f"Local model structured generation error: {e}") from e
+
+    def extract_json(self, text: str) -> Optional[Dict]:
+        """
+        Utility method to extract the first complete JSON object from a string.
+        (Borrowed from your OllamaEngine utility for consistency)
+        """
+        # Pattern to find a block starting with '{' and ending with '}'
+        # This helps ignore preambles/markdown often included by models
+        json_pattern = r"({[\s\S]*})"
+        match = re.search(json_pattern, text)
+        if match:
+            try:
+                # Attempt to load the matched group
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+        return None

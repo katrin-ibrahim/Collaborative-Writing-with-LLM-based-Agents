@@ -64,11 +64,7 @@ class FaissRM(BaseRetriever):
         self.encoder = SentenceTransformer(self.embedding_model_name, device="cpu")
 
     def _retrieve_article(
-        self,
-        query: str,
-        topic: Optional[str] = None,
-        max_results: Optional[int] = None,
-        **kwargs,
+        self, query: str, max_results: Optional[int] = None
     ) -> List[ResearchChunk]:
         """Retrieve chunks for a single query using FAISS search."""
         # Use config default if max_results not provided

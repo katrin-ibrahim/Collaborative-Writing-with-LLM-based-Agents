@@ -17,7 +17,7 @@ class ModelConfig(BaseConfig):
     # Ollama host URL
     ollama_host: Optional[str] = None
 
-    # Task-specific model assignments (baseline methods)
+    # Storm-specific model assignments
     outline_model: str = "qwen3:4b"  # Balanced, for structure
     writing_model: str = "qwen3:4b"  # Quality, for content
     critique_model: str = "qwen3:4b"  # Reasoning, for self-critique
@@ -25,6 +25,7 @@ class ModelConfig(BaseConfig):
 
     # Writer-Reviewer specific model assignments
     query_generation_model: str = "qwen3:4b"  # Fast model for generating search queries
+    create_outline_model: str = "qwen3:4b"  # Model for creating article outlines
     section_selection_model: str = "qwen3:4b"  # Model for selecting relevant chunks
     section_writing_model: str = "qwen3:4b"  # High-quality model for writing content
     section_revision_model: str = (
@@ -58,6 +59,7 @@ class ModelConfig(BaseConfig):
                 "polish": 0.3,  # More conservative polishing
                 # Writer-Reviewer specific temperatures
                 "query_generation": 0.3,  # Low for focused query generation
+                "create_outline": 0.4,  # More structured outlines
                 "section_selection": 0.2,  # Very low for analytical chunk selection
                 "section_writing": 0.6,  # Balanced for creative content generation
                 "section_revision": 0.4,  # Moderate for thoughtful revision
@@ -74,6 +76,7 @@ class ModelConfig(BaseConfig):
                 "polish": 1200,  # Increased for better polishing
                 # Writer-Reviewer specific token limits
                 "query_generation": 800,  # Short for focused queries
+                "create_outline": 600,  # Short for outline creation
                 "section_selection": 600,  # Short for chunk ID selection
                 "section_writing": 2000,  # Long for detailed section content
                 "section_revision": 1500,  # Medium for revision with feedback
@@ -113,6 +116,7 @@ class ModelConfig(BaseConfig):
             "polish": self.polish_model,
             # Writer-Reviewer specific tasks
             "query_generation": self.query_generation_model,
+            "create_outline": self.create_outline_model,
             "section_selection": self.section_selection_model,
             "section_writing": self.section_writing_model,
             "section_revision": self.section_revision_model,
@@ -122,11 +126,13 @@ class ModelConfig(BaseConfig):
 
     def get_temperature_for_task(self, task: str) -> float:
         """Get appropriate temperature for a specific task."""
-        return self.temperatures.get(task, 0.7)
+        temps = self.temperatures or {}
+        return temps.get(task, 0.7)
 
     def get_token_limit_for_task(self, task: str) -> int:
         """Get appropriate token limit for a specific task."""
-        return self.token_limits.get(task, 1000)
+        limits = self.token_limits or {}
+        return limits.get(task, 1000)
 
     def get_model_path(self, task: str) -> str:
         """Get full model path based on mode and task."""
@@ -134,7 +140,8 @@ class ModelConfig(BaseConfig):
 
         if self.mode == "local":
             # For local mode, convert the model name to a local path
-            local_path = self.local_model_mapping.get(model_name)
+            local_map = self.local_model_mapping or {}
+            local_path = local_map.get(model_name)
             if local_path:
                 # Ensure path is properly formatted
                 return local_path
@@ -142,16 +149,12 @@ class ModelConfig(BaseConfig):
             return f"models/{model_name.replace(':', '-')}"
         elif self.mode == "ollama":
             # For ollama mode, convert to appropriate ollama model name
-            ollama_name = self.ollama_model_mapping.get(model_name, model_name)
+            ollama_map = self.ollama_model_mapping or {}
+            ollama_name = ollama_map.get(model_name, model_name)
             return ollama_name
         else:
             # For any other mode, just return the model name as is
             return model_name
-
-    @classmethod
-    def from_dict(cls, config_dict: Dict) -> "ModelConfig":
-        """Create ModelConfig from dictionary."""
-        return cls(**{k: v for k, v in config_dict.items() if hasattr(cls, k)})
 
     @classmethod
     def get_default(cls) -> "ModelConfig":

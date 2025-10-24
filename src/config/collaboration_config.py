@@ -13,20 +13,12 @@ class CollaborationConfig(BaseConfig):
     """Configuration for collaborative writing parameters."""
 
     # Core collaboration parameters
-    max_iterations: int = 3
-    convergence_threshold: float = 0.85
-    min_improvement_threshold: float = 0.02
-
-    # Writer agent configuration
-    writer_use_external_knowledge: bool = True
-
-    # Reviewer agent configuration
-    reviewer_max_claims_per_article: int = 10
-    reviewer_fact_check_timeout: int = 30
-
-    # Convergence detection configuration
-    semantic_similarity_threshold: float = 0.95
-    feedback_delta_threshold: float = 0.1
+    max_iterations: int = 4
+    min_iterations: int = 1  # don't stop before this
+    resolution_rate_threshold: float = 0.9
+    stall_tolerance: int = 2  # consecutive low-improvement iters allowed
+    min_improvement: float = 0.02  # required progress per iter (2%)
+    small_tail_max: int = 5  # e.g., 5 remaining low/medium items
 
     def get_file_pattern(self) -> str:
         return "collaboration_{}.yaml"

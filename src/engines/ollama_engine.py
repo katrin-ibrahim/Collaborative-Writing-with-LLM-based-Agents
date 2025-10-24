@@ -7,15 +7,14 @@ import json
 import logging
 import re
 from ollama import Client
-from typing import Any, Dict, List, Optional, Union
-
-THINKING_LINE_LENGTH_THRESHOLD = (
-    20  # Lines shorter than this are likely thinking fragments
-)
+from pydantic import BaseModel
+from pydantic_core import ValidationError
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
 from src.engines.base_engine import BaseEngine
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T", bound=BaseModel)
 
 
 class OllamaEngine(BaseEngine):
@@ -125,86 +124,149 @@ class OllamaEngine(BaseEngine):
                 options=options,
             )
 
-            content = response.message.content
+            content = (
+                response.message.content if response.message.content is not None else ""
+            )
 
             # Clean up thinking tags
             # Method 1: Remove closed thinking tags
+            # 1. Clean up closed thinking tags (ROBUST)
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
 
-            # Method 2: Handle unclosed thinking tags at the start
-            if content.strip().startswith("<think>"):
-                # Find where actual content starts (look for patterns that indicate real content)
-                lines = content.split("\n")
-                content_start_idx = None
+            # 2. Clean up unclosed tags at start/end (HEURISTIC, but simple)
+            content = re.sub(r"^\s*<think>", "", content, flags=re.IGNORECASE)
+            content = re.sub(r"</think>\s*$", "", content, flags=re.IGNORECASE)
 
-                for i, line in enumerate(lines):
-                    line_stripped = line.strip()
-                    # Skip empty lines and thinking content
-                    if not line_stripped or line_stripped.startswith("<think>"):
-                        continue
-                    # Look for signs of real content (markdown headers, structured text, etc.)
-                    if (
-                        line_stripped.startswith("#")
-                        or line_stripped.startswith("## ")
-                        or len(line_stripped) > 50  # Substantial content line
-                        or any(
-                            keyword in line_stripped.lower()
-                            for keyword in [
-                                "content quality",
-                                "structural",
-                                "improvement",
-                                "overall assessment",
-                            ]
-                        )
-                    ):
-                        content_start_idx = i
-                        break
+            # 3. Aggressively remove any leading lines that are likely garbage/thinking
+            lines = content.split("\n")
+            content_lines = [
+                line
+                for line in lines
+                if line.strip()
+                and len(line.strip()) > 30
+                and not line.strip().startswith(("//", "#", "*"))
+            ]
 
-                if content_start_idx is not None:
-                    content = "\n".join(lines[content_start_idx:])
-                else:
-                    # Fallback: remove first few lines that look like thinking
-                    filtered_lines = []
-                    skip_thinking = True
-                    for line in lines:
-                        if skip_thinking and (
-                            not line.strip()
-                            or line.strip().startswith("<think>")
-                            or len(line.strip()) < THINKING_LINE_LENGTH_THRESHOLD
-                        ):  # Very short lines are likely thinking fragments
-                            continue
-                        skip_thinking = False
-                        filtered_lines.append(line)
-                    content = "\n".join(filtered_lines)
-
-            return content.strip()
+            final_content = "\n".join(content_lines) if content_lines else content
+            return final_content.strip() if isinstance(final_content, str) else ""
 
         except Exception as e:
             logger.error(f"Ollama API call failed: {e}")
             raise RuntimeError(f"Ollama API error: {e}")
+
+    def call_structured_api(
+        self,
+        prompt: str,
+        output_schema: Type[T],
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        stop: Optional[List[str]] = None,
+    ) -> T:
+        """
+        Calls the Ollama API, forcing the output to be a valid JSON object
+        that conforms to the provided Pydantic schema, and returns the
+        validated Pydantic object.
+        """
+        messages = []
+
+        # 1. Prepare system prompt and instructions for JSON output
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        # Add instruction for the model to follow the schema
+        schema_instruction = (
+            "You must output a single JSON object that strictly adheres to the "
+            "following schema. Do not include any other text, reasoning, or markdown "
+            "outside the JSON object."
+        )
+
+        # 2. Add the user prompt and the structure requirement
+        messages.append(
+            {"role": "user", "content": f"{prompt}\n\n{schema_instruction}"}
+        )
+
+        try:
+            # 3. Get parameters
+            options = {
+                "temperature": temperature or self.temperature,
+                "num_predict": max_tokens or self.max_tokens,
+            }
+            if stop:
+                options["stop"] = stop
+
+            # 4. Call Ollama API with JSON format
+            response = self.client.chat(
+                model=model or self.model,
+                messages=messages,
+                options=options,
+                # CRITICAL: This forces Ollama to output JSON
+                format="json",
+                # CRITICAL: Ollama models like Command-R often require schema awareness.
+                # Although not directly supported by all Ollama models, passing
+                # the schema in the prompt/context is the best practice.
+            )
+
+            raw_json_string = (
+                response.message.content.strip()
+                if response.message.content is not None
+                else ""
+            )
+
+            # 5. Validate the JSON against the Pydantic model
+            try:
+                # Use the Pydantic model to parse and validate the raw JSON string
+                validated_model = output_schema.model_validate_json(raw_json_string)
+                return validated_model
+
+            except ValidationError as ve:
+                logger.error(f"Pydantic Validation failed for structured output: {ve}")
+                # Fallback: attempt to extract JSON if LLM added preamble/markdown
+                try:
+                    extracted_data = self.extract_json(raw_json_string)
+                    if extracted_data:
+                        return output_schema.model_validate(extracted_data)
+
+                    raise RuntimeError(
+                        "Failed to extract and validate JSON from LLM response."
+                    )
+                except Exception:
+                    raise ve  # Re-raise the validation error if fallback fails
+
+        except Exception as e:
+            logger.error(f"Ollama Structured API call failed: {e}", exc_info=True)
+            raise RuntimeError(f"Ollama Structured API error: {e}")
 
     def list_available_models(self) -> List[str]:
         """List available models on the Ollama server."""
         if self._available_models is None:
             try:
                 response = self.client.list()
-                self._available_models = [model.model for model in response.models]
+                self._available_models = [
+                    model.model for model in response.models if model.model is not None
+                ]
                 logger.info(f"Available Ollama models: {self._available_models}")
             except Exception as e:
                 logger.error(f"Failed to list models: {e}")
                 self._available_models = []
-        return self._available_models
+        # Ensure return type is List[str]
+        return [m for m in self._available_models if isinstance(m, str)]
 
     def is_available(self) -> bool:
         """Check if Ollama server is accessible."""
         try:
-            self.list_models()
+            self.list_available_models()
+            if self._available_models is None:
+                return False
             return len(self._available_models) > 0
-        except:
+        except Exception:
             return False
 
     def extract_json(self, text: str) -> Optional[Dict]:
         """Extract JSON from text (utility method)."""
+        if not isinstance(text, str) or not text:
+            return None
         json_pattern = r"({[\s\S]*})"
         match = re.search(json_pattern, text)
         if match:
@@ -213,7 +275,3 @@ class OllamaEngine(BaseEngine):
             except json.JSONDecodeError:
                 pass
         return None
-
-
-# Backward compatibility alias for existing STORM integration
-OllamaLiteLLMWrapper = OllamaEngine

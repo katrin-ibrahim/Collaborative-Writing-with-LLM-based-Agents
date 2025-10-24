@@ -1,24 +1,20 @@
-# ---------------------------------------- Reviwer Templates ---------------------------------------
-# src/collaborative/agents/templates/reviewer_prompts.py
-"""
-Prompt template functions for ReviewerAgent workflow.
-"""
-
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from src.utils.data import Article
 
 
-def build_holistic_review_prompt(
+# ---------------------------------------- Reviewer Templates ---------------------------------------
+# region Reviewer Prompt Templates
+def build_review_prompt_for_strategy(
     article: Article,
     metrics: Dict,
-    fact_check_results: Dict,
+    validation_results: Dict,
     tom_context: Optional[str],
-    review_strategy: str,
+    strategy: str,
 ) -> str:
-    """Build prompt for holistic review with section-specific feedback."""
+    """Build strategy-aware review prompt with dynamic sections."""
 
-    # Build metrics summary
+    # Format metrics
     metrics_text = f"""
 Article Metrics:
 - Word count: {metrics.get('word_count', 'N/A')}
@@ -26,128 +22,258 @@ Article Metrics:
 - Average section length: {metrics.get('avg_section_length', 'N/A')}
 """
 
-    # Build fact-check summary
-    verified_claims = fact_check_results.get("verified_claims", [])
-    unverified_claims = fact_check_results.get("unverified_claims", [])
-
-    fact_check_text = f"""
-Fact-checking Results:
-- Verified claims: {len(verified_claims)}
-- Unverified claims: {len(unverified_claims)}
+    # Format citation validation results
+    validation_text = f"""
+Citation Validation:
+- Total citations: {validation_results.get('total_citations', 0)}
+- Valid citations: {validation_results.get('valid_citations', 0)}
+- Missing chunks: {len(validation_results.get('missing_chunks', []))}
+- Needs source tags: {validation_results.get('needs_source_count', 0)}
 """
 
-    if unverified_claims:
-        fact_check_text += f"Unverified claims that need attention:\n"
-        for claim in unverified_claims[:3]:  # Limit to avoid overwhelming
-            fact_check_text += f"- {claim}\n"
+    # Strategy-specific instructions
+    strategy_instructions = {
+        "citation-focused": """
+FOCUS: Citation quality and completeness.
 
-    # Build review strategy guidance
-    strategy_guidance = _get_strategy_guidance(review_strategy)
+Your primary task is to assess citation quality:
+- Identify all claims that lack proper citations
+- Flag invalid or missing chunk IDs
+- Assess overall citation coverage
+- Provide specific guidance on improving citations
 
-    # Build collaborative context
-    tom_guidance = ""
+**IMPORTANT**: Populate the 'citation_issues' field with a list of specific problems found.
+Example: ["Section 'Background' paragraph 2 lacks citation for population claim", "Invalid chunk ID in 'Methods' section"]
+""",
+        "expansion-focused": """
+FOCUS: Content gaps and structural improvements.
+
+Your primary task is to identify areas for expansion:
+- Suggest new sections that would improve coverage
+- Identify existing sections that need more depth
+- Highlight important topics not adequately covered
+- Provide specific suggestions for content additions
+
+**IMPORTANT**: Populate both 'suggested_sections' and 'coverage_gaps' fields with actionable lists.
+Example suggested_sections: ["Economic Impact Analysis", "Historical Context"]
+Example coverage_gaps: ["No discussion of environmental factors", "Missing stakeholder perspectives"]
+""",
+        "accuracy-focused": """
+FOCUS: Factual accuracy and claim verification.
+
+Your primary task is to ensure factual reliability:
+- Flag claims that appear unverified or questionable
+- Check for internal contradictions
+- Assess the quality and appropriateness of sources
+- Identify statements that need stronger evidence
+
+**IMPORTANT**: Populate the 'accuracy_concerns' field with specific claims needing attention.
+Example: ["Population figure in intro needs verification", "Date discrepancy between sections 2 and 4"]
+""",
+        "holistic": """
+FOCUS: Overall article quality and coherence.
+
+Your task is to provide balanced, comprehensive feedback:
+- Assess structure, flow, and organization
+- Evaluate content quality and depth
+- Check citations and accuracy
+- Consider readability and clarity
+- Balance all aspects of article quality
+
+The optional fields (citation_issues, suggested_sections, etc.) can be populated if relevant, but are not required for holistic reviews.
+""",
+    }
+
+    # Build section list for feedback
+    section_list = "\n".join([f"- {name}" for name in article.sections.keys()])
+
+    # ToM context if available
+    tom_section = ""
     if tom_context:
-        tom_guidance = f"\n\nCollaborative Context: {tom_context}\n"
+        tom_section = f"\n\nCollaborative Context (Theory of Mind):\n{tom_context}\n"
 
-    return f"""Review this article using a {review_strategy} approach. Provide holistic analysis and section-specific feedback.
+    return f"""You are reviewing an article using a {strategy} review strategy.
 
+ARTICLE INFORMATION:
 Title: {article.title}
 
 Content:
 {article.content}
 
 {metrics_text}
-{fact_check_text}
+{validation_text}
 
-Review Strategy: {strategy_guidance}
-{tom_guidance}
+REVIEW STRATEGY:
+{strategy_instructions[strategy]}
+{tom_section}
 
-Provide your review in this format:
+SECTION-SPECIFIC FEEDBACK:
+Provide detailed feedback for each of the following sections:
+{section_list}
 
-OVERALL ASSESSMENT:
-[Your holistic assessment of the article]
+For each section, assign a priority level (high/medium/low) based on the severity of issues found.
 
-SECTION FEEDBACK:
-{build_section_feedback_template(article)}
+REQUIRED OUTPUT FORMAT:
+Your response must be a valid JSON object matching the ReviewFeedbackOutput schema:
+- overall_assessment: string (your holistic assessment)
+- section_feedback: array of objects with section_name, feedback, and priority
+- review_strategy_used: "{strategy}"
+- Optional fields based on strategy (citation_issues, suggested_sections, coverage_gaps, accuracy_concerns)
 
-Focus on providing constructive, specific feedback that helps improve the article according to the {review_strategy} strategy."""
-
-
-def _get_strategy_guidance(strategy: str) -> str:
-    """Get guidance text for review strategy."""
-    guidance_map = {
-        "expansion-focused": "Focus on areas where the article needs more depth, detail, or additional sections. Identify gaps in coverage and suggest specific expansions.",
-        "accuracy-focused": "Prioritize fact-checking, source verification, and accuracy of claims. Focus on correcting any inaccuracies and improving factual reliability.",
-        "holistic": "Provide comprehensive feedback covering structure, content quality, flow, and overall coherence. Balance all aspects of article quality.",
-        "convergence-focused": "Focus on addressing previous unresolved feedback and ensuring the article is moving toward completion. Prioritize outstanding issues.",
-    }
-    return guidance_map.get(strategy, "Provide comprehensive, balanced feedback.")
+Focus on providing constructive, actionable feedback that helps the writer improve the article.
+"""
 
 
-def build_section_feedback_template(article: Article) -> str:
-    """Build template for section feedback response using outline-style formatting."""
-    template = "For each section below, provide specific feedback using the EXACT format shown:\n\n"
-    for section_name in article.sections.keys():
-        template += f"## {section_name}\n[Provide detailed feedback for the {section_name} section here]\n\n"
+# Add to templates.py (optional - the prompt is inline above, but can extract)
 
-    template += "\nIMPORTANT: Use the exact markdown format ## Section Name (with double hashtags, space, then section name) for each section header."
-    return template
 
+def build_verification_prompt(
+    previous_iteration: int,
+    addressed_items: List[str],
+    pending_items: List[str],
+    wont_fix_items: List[str],
+    needs_clarification_items: List[str],
+    article: Article,
+    current_iteration: int,
+) -> str:
+    """Build verification prompt with categorized feedback."""
+    return f"""You are verifying how the Writer responded to feedback from Iteration {previous_iteration}.
+
+CURRENT ARTICLE (Iteration {current_iteration}):
+Title: {article.title}
+
+Content:
+{article.content}
+
+---
+
+FEEDBACK STATUS FROM ITERATION {previous_iteration}:
+
+ITEMS MARKED AS ADDRESSED ({len(addressed_items)}):
+{chr(10).join(addressed_items) if addressed_items else '  (None)'}
+
+ITEMS NOT YET ADDRESSED ({len(pending_items)}):
+{chr(10).join(pending_items) if pending_items else '  (None)'}
+
+ITEMS MARKED AS WON'T FIX ({len(wont_fix_items)}):
+{chr(10).join(wont_fix_items) if wont_fix_items else '  (None)'}
+
+ITEMS NEEDING CLARIFICATION ({len(needs_clarification_items)}):
+{chr(10).join(needs_clarification_items) if needs_clarification_items else '  (None)'}
+
+---
+
+VERIFICATION TASK:
+Analyze the current article and evaluate:
+
+1. **Addressed Items**: Were the marked items actually fixed? Verify changes are present.
+2. **Pending Items**: Why weren't these addressed? Are they difficult or were they overlooked?
+3. **Won't Fix Items**: Are the reasons valid? Should these be reconsidered?
+4. **Needs Clarification**: Can you provide the clarification requested?
+
+Provide a concise summary (4-6 sentences) assessing:
+- How well the writer responded overall
+- Which addressed items were successfully implemented
+- Which pending items are most important to tackle next
+- Any concerns about won't-fix or clarification requests
+"""
+
+
+def format_metrics(metrics: Dict) -> str:
+    """Format metrics for display."""
+    return f"""
+- Word count: {metrics.get('word_count', 0)}
+- Section count: {metrics.get('section_count', 0)}
+- Avg section length: {metrics.get('avg_section_length', 0)}
+"""
+
+
+def format_validation(validation_results: Dict) -> str:
+    """Format validation results for display."""
+    missing = len(validation_results.get("missing_chunks", []))
+    return f"""
+- Total citations: {validation_results.get('total_citations', 0)}
+- Valid: {validation_results.get('valid_citations', 0)}
+- Missing chunks: {missing}
+- Needs source: {validation_results.get('needs_source_count', 0)}
+"""
+
+
+# endregion Reviewer Prompt Templates
 
 # ---------------------------------------- Writer Templates ----------------------------------------
-"""
-Prompt template functions for WriterAgent workflow.
-"""
+# region Writer Prompt Templates
+HEADING_COUNT = 6  # Must match MAX_HEADING_COUNT in models.py
 
 
-def outline_prompt(topic: str, top_chunk: str, chunk_summaries) -> str:
-    # Include full research context - the issue was prompt complexity, not length
+def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
+    """
+    Generates the prompt for creating a structured article outline using LLM.
+
+    Args:
+        topic: The main subject of the article.
+        top_chunk: The highest-ranked chunk from Phase 1 search for context.
+        chunk_summaries: The formatted summaries of all stored research chunks.
+
+    Returns:
+        The prompt string instructing the LLM to output a structured JSON outline.
+    """
+
+    # Consolidate research context
     research_context = ""
     if top_chunk or chunk_summaries:
-        research_context = f"\nResearch Context: {top_chunk}\n{chunk_summaries}\n"
+        research_context = "\n--- RESEARCH CONTEXT ---\n"
+        if top_chunk:
+            research_context += f"TOP CHUNK:\n{top_chunk}\n\n"
+        if chunk_summaries:
+            research_context += f"SUMMARIZED RESEARCH:\n{chunk_summaries}\n"
+        research_context += "----------------------\n"
 
-    prompt = f"""Write an article outline for: {topic}
+    # NOTE: The instruction for JSON output will be added by the call_structured_api method.
+    # We focus here on the core task.
+
+    return f"""
+Generate a comprehensive, entity-rich article outline for the topic: "{topic}".
+The outline MUST be fully informed by the research context provided below.
+
 {research_context}
-Create exactly 6 section headings. Use this format:
 
-# {topic}
-## Introduction
-## [Section 2 title]
-## [Section 3 title]
-## [Section 4 title]
-## [Section 5 title]
-## Conclusion
-
-Make each section title clear and specific to the topic."""
-    return prompt
+STRICT REQUIREMENTS FOR JSON OUTPUT:
+1. 'title' field must match the topic exactly.
+2. 'headings' field must be a list of exactly {HEADING_COUNT} section titles.
+3. All {HEADING_COUNT} section titles must be highly specific, analytical, and entity-rich
+   (leveraging names, dates, organizations, and concepts). ABSOLUTELY NO generic titles
+   (e.g., "Introduction," "Conclusion," "Key Points," or "Summary").
+"""
 
 
 def select_section_chunks_prompt(
     section_heading: str, topic: str, chunk_summaries: str, num_chunks: int
 ) -> str:
     """Generate prompt for selecting relevant research chunks for a section."""
-    return f"""
-You are writing the section titled {section_heading} for the article {topic}.
 
-Below are research chunk summaries:
+    # 1. Structure the research context clearly
+    research_context = f"""
+Research Context (Chunk Summaries):
+---
 {chunk_summaries}
-
-Task:
-Select only the chunk IDs that are most relevant for writing the {section_heading} section.
-
-Strict Rules (must follow all):
-- VALID IDS = exactly the literal tokens shown before each colon in the data (e.g., `search_supabase_faiss_0_d44af884`, `search_hybrid_6_201e0dd2`). Do NOT invent, shorten, number, or reformat IDs.
-- AFL ONLY: Exclude chunks that are clearly about other sports, people, events, or unrelated topics.
-- Return **no more than {num_chunks}** IDs that best explain what the {topic} is, its purpose, significance, and key context.
-- Output format: IDs separated by commas, no spaces, no quotes, no extra text.
-- End output immediately after the last ID.
-- If nothing fits, respond exactly with `NONE`.
-
-Validation Hints:
-- ✅ Valid: `search_supabase_faiss_0_d44af884,search_hybrid_6_201e0dd2`
-- ❌ Invalid: `6,7,8` or `"search_supabase_faiss_0_d44af884"` or `AFL_Grand_Final`
-
+---
 """
+
+    # 2. Define the writing task and constraints, emphasizing JSON output
+    task_description = f"""
+You are acting as a Research Editor. Your task is to select the exact set of research chunks
+required to write the section titled "{section_heading}" for the main article on "{topic}".
+
+Strict Selection Rules:
+1. **Relevance is Key:** Select only the chunk IDs that are *most* relevant and necessary to support the content of the section heading.
+2. **Limit:** Select no more than {num_chunks} chunk IDs.
+3. **Format:** Output MUST be a single JSON object that conforms strictly to the provided Pydantic schema (a list of chunk IDs).
+4. **ID Integrity:** Use only the literal chunk IDs provided in the Research Context. Do not shorten, invent, or modify the IDs.
+5. **No Chatter:** Do not include any text, reasoning, markdown, or preamble outside the required JSON object.
+"""
+
+    return f"{task_description}\n{research_context}"
 
 
 def write_section_content_prompt(
@@ -195,23 +321,16 @@ CITATION INSTRUCTIONS - CRITICAL:
 def search_query_generation_prompt(
     topic: str, context: str = "", num_queries: int = 5
 ) -> str:
-    """Generate prompt for creating targeted search queries using entity extraction and relationship analysis."""
+    """Generate prompt for creating targeted search queries for structured output."""
     context_section = ""
     if context:
+        # ... (rest of the context_section creation remains the same) ...
         context_section = f"""
 CONTEXT FROM INITIAL SEARCH:
 {context}
 
-
 First, extract key entities from this context:
-- PEOPLE: Names of key individuals mentioned
-- ORGANIZATIONS: Teams, companies, institutions
-- LOCATIONS: Places, venues, geographic areas
-- DATES/TIMES: Specific dates, periods, timeframes
-- EVENTS: Specific incidents, competitions, ceremonies
-- STATISTICS: Numbers, measurements, records
-- CONCEPTS: Technical terms, processes, phenomena
-
+...
 Then use these entities to create specific, relationship-focused queries.
 """
 
@@ -231,17 +350,20 @@ Guidelines:
 - Use specific names, dates, and locations from the context
 - Focus on relationships between entities rather than isolated facts
 - Ask for detailed analysis rather than basic information
-- Include quantitative aspects (statistics, measurements, comparisons)
 - Target controversial or disputed aspects when relevant
 
-IMPORTANT: Output EXACTLY {num_queries} search queries. Each query should be a single line with 3-8 words maximum. No explanations, no numbering, no extra text.
+---
+IMPORTANT: Your entire response must be a single JSON object that strictly adheres to the provided schema. Do not include any explanation or extra text outside the JSON object.
 
-FORMAT: Each line = one search query only
-
-Example for "2022 World Cup Final":
-Lionel Messi Kylian Mbappe individual performance statistics 2022 World Cup Final
-Argentina France penalty shootout decision-making tactical analysis December 2022
-Qatar World Cup Final attendance revenue compared previous World Cup finals
-Lionel Scaloni Didier Deschamps tactical substitutions impact match outcome
-2022 World Cup Final cultural impact Argentina national celebration aftermath
+The resulting list ('queries' key) MUST contain exactly {num_queries} elements.
 """
+
+
+def enhance_prompt_with_tom(base_prompt: str, tom_context: Optional[str]) -> str:
+    """Enhance prompt with Theory of Mind context if available."""
+    if not tom_context:
+        return base_prompt
+    return f"{base_prompt}\n\nCollaborative context: {tom_context}"
+
+
+# endregion Writer Prompt Templates

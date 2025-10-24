@@ -216,7 +216,7 @@ class BaseRetriever(ABC):
 
             # --- Abstract Retrieval Step ---
             query_results = self._retrieve_article(
-                processed_query, topic=topic, max_results=max_results, **kwargs
+                processed_query, max_results=max_results
             )
 
             query_results_dicts = {
@@ -344,11 +344,7 @@ class BaseRetriever(ABC):
 
     @abstractmethod
     def _retrieve_article(
-        self,
-        query: str,
-        topic: Optional[str] = None,
-        max_results: Optional[int] = None,
-        **kwargs,
+        self, query: str, max_results: Optional[int] = None
     ) -> List[ResearchChunk]:
         """
         Retrieve articles for a single query. **MUST be implemented by subclasses.**
@@ -356,7 +352,6 @@ class BaseRetriever(ABC):
 
         Args:
             query: Single query string
-            topic: Optional topic for filtering
             max_results: Maximum results to return
 
         Returns:
