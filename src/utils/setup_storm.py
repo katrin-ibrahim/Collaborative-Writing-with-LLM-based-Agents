@@ -32,11 +32,13 @@ def setup_storm_config() -> STORMWikiLMConfigs:
     writing_engine = ConfigContext.get_client("writing")
 
     # Set up all STORM LM configurations
-    lm_config.set_conv_simulator_lm(fast_engine)
-    lm_config.set_question_asker_lm(fast_engine)
-    lm_config.set_outline_gen_lm(writing_engine)
-    lm_config.set_article_gen_lm(writing_engine)
-    lm_config.set_article_polish_lm(writing_engine)
+    lm_config.set_conv_simulator_lm(fast_engine)  # pyright: ignore[reportArgumentType]
+    lm_config.set_question_asker_lm(fast_engine)  # pyright: ignore[reportArgumentType]
+    lm_config.set_outline_gen_lm(writing_engine)  # pyright: ignore[reportArgumentType]
+    lm_config.set_article_gen_lm(writing_engine)  # pyright: ignore[reportArgumentType]
+    lm_config.set_article_polish_lm(
+        writing_engine
+    )  # pyright: ignore[reportArgumentType]
 
     logger.info("STORM LM configuration set up with ConfigContext engines")
     return lm_config
@@ -66,4 +68,4 @@ def get_storm_config_params() -> dict:
         Dictionary with STORM configuration parameters
     """
     storm_config = ConfigContext.get_storm_config()
-    return storm_config.to_dict()
+    return vars(storm_config)

@@ -6,6 +6,7 @@ import logging
 
 from src.collaborative.agents.reviewer_v2 import ReviewerV2
 from src.collaborative.agents.writer_v2 import WriterV2
+from src.collaborative.memory.convergence import ConvergenceChecker
 from src.collaborative.memory.memory import SharedMemory
 from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
@@ -30,22 +31,10 @@ class WriterReviewerV2Method(BaseMethod):
 
     def __init__(self, tom_enabled: bool = False):
         super().__init__()
-        self.collab_config = ConfigContext.get_collaboration_config()
-        self.tom_enabled = tom_enabled
 
-        # Extract key parameters with defaults if config is None
-        if self.collab_config:
-            self.max_iterations = self.collab_config.max_iterations
-            self.convergence_threshold = self.collab_config.convergence_threshold
-            self.min_improvement_threshold = (
-                self.collab_config.min_improvement_threshold
-            )
-        else:
-            # Default collaboration parameters
-            self.max_iterations = 3
-            self.convergence_threshold = 0.9
-            self.min_improvement_threshold = 0.1
-            logger.warning("No collaboration config found, using default parameters")
+        self.convergence_checker = ConvergenceChecker()
+        self.tom_enabled = tom_enabled
+        self.shared_memory: SharedMemory = None  # type: ignore
 
     def run(self, topic: str) -> Article:
         """
@@ -68,13 +57,12 @@ class WriterReviewerV2Method(BaseMethod):
             # Initialize shared memory with Theory of Mind support
             memory = SharedMemory(
                 topic=topic,
-                max_iterations=self.max_iterations,
-                min_feedback_threshold=1,
                 tom_enabled=self.tom_enabled,
             )
 
             # Set memory instance for tools and agents to access
             ConfigContext.set_memory_instance(memory)
+            self.shared_memory = memory
 
             # Initialize V2 agents
             writer = WriterV2()
@@ -99,12 +87,13 @@ class WriterReviewerV2Method(BaseMethod):
             while True:
                 # WriterV2 processes (initial draft or revision based on iteration)
                 try:
-                    current_iteration = memory.get_current_iteration()
+                    current_iteration = memory.get_iteration()
                     if current_iteration == 0:
                         logger.info("WriterV2 creating initial draft")
                     else:
                         logger.info("WriterV2 addressing feedback and revising")
 
+                    writer_start = time.time()
                     writer.process()
                     writer_time += time.time() - writer_start
                     current_draft = memory.get_current_draft()
@@ -129,13 +118,43 @@ class WriterReviewerV2Method(BaseMethod):
                     reviewer_time += time.time() - reviewer_start
                     logger.info("ReviewerV2 completed analysis and feedback generation")
                 except Exception as e:
-                    current_iteration = memory.get_current_iteration()
+                    current_iteration = memory.get_iteration()
                     logger.error(f"V2 failed in iteration {current_iteration}: {e}")
                     raise RuntimeError(f"Workflow failed: {e}") from e
 
                 # Check for convergence BEFORE incrementing iteration
                 logger.info("Checking convergence criteria")
-                converged, convergence_reason = memory.check_convergence()
+                all_items_by_section = (
+                    self.shared_memory.get_all_feedback_items_for_iteration(
+                        iteration=current_iteration
+                    )
+                )
+                # collect items for this iteration
+                all_items = []
+                pending_items = []
+
+                for _, items in all_items_by_section.items():
+                    for item in items:
+                        all_items.append(item)
+
+                        # be robust to dicts or pydantic objects/attrs
+                        status = getattr(item, "status", None)
+                        if status is None and isinstance(item, dict):
+                            status = item.get("status")
+
+                        status_str = (
+                            status if hasattr(status, "value") else status
+                        ) or "pending"
+                        if status_str.lower() != "verified_addressed":
+                            pending_items.append(item)
+
+                converged, convergence_reason = (
+                    self.convergence_checker.check_convergence(
+                        iteration=current_iteration,
+                        pending_items=pending_items,
+                        all_items=all_items,
+                    )
+                )
                 if converged:
                     logger.info(f"Convergence achieved: {convergence_reason}")
                     break
@@ -145,7 +164,7 @@ class WriterReviewerV2Method(BaseMethod):
                 writer_start = time.time()
 
             # Prepare final article with comprehensive metadata
-            final_article = memory.get_current_article()
+            final_article = memory.get_current_draft_as_article()
             if not final_article:
                 raise RuntimeError("No final article available")
 
@@ -158,7 +177,7 @@ class WriterReviewerV2Method(BaseMethod):
             )
 
             # Enhanced metadata
-            final_iterations = memory.get_current_iteration()
+            final_iterations = memory.get_iteration()
             final_article.metadata.update(
                 {
                     # Standard metadata fields expected by output_manager
@@ -186,7 +205,7 @@ class WriterReviewerV2Method(BaseMethod):
                 }
             )
 
-            logger.info(f"WriterV2-ReviewerV2 collaboration completed successfully")
+            logger.info("WriterV2-ReviewerV2 collaboration completed successfully")
             logger.info(
                 f"Final article: {len(final_article.content)} characters, {len(final_article.sections)} sections"
             )
@@ -202,118 +221,118 @@ class WriterReviewerV2Method(BaseMethod):
             )
             raise RuntimeError(f"WriterReviewerV2Method failed: {e}") from e
 
-    def _calculate_collaboration_metrics(
-        self,
-        memory: SharedMemory,
-        writer_time: float,
-        reviewer_time: float,
-        total_time: float,
-    ) -> dict:
-        """Calculate comprehensive collaboration metrics."""
+    # def _calculate_collaboration_metrics(
+    #     self,
+    #     memory: SharedMemory,
+    #     writer_time: float,
+    #     reviewer_time: float,
+    #     total_time: float,
+    # ) -> dict:
+    #     """Calculate comprehensive collaboration metrics."""
 
-        # Get feedback statistics
-        all_feedback = memory.get_review_feedback()
-        feedback_by_iteration = {}
+    #     # Get feedback statistics
+    #     all_feedback = memory.get_review_feedback()
+    #     feedback_by_iteration = {}
 
-        for feedback in all_feedback:
-            iteration = feedback.get("iteration", 0)
-            if iteration not in feedback_by_iteration:
-                feedback_by_iteration[iteration] = []
-            feedback_by_iteration[iteration].append(feedback)
+    #     for feedback in all_feedback:
+    #         iteration = feedback.get("iteration", 0)
+    #         if iteration not in feedback_by_iteration:
+    #             feedback_by_iteration[iteration] = []
+    #         feedback_by_iteration[iteration].append(feedback)
 
-        # Calculate feedback metrics
-        total_feedback = len(all_feedback)
-        addressed_feedback = len(
-            [f for f in all_feedback if f.get("status") == "addressed"]
-        )
-        pending_feedback = len(
-            [f for f in all_feedback if f.get("status") == "pending"]
-        )
+    #     # Calculate feedback metrics
+    #     total_feedback = len(all_feedback)
+    #     addressed_feedback = len(
+    #         [f for f in all_feedback if f.get("status") == "addressed"]
+    #     )
+    #     pending_feedback = len(
+    #         [f for f in all_feedback if f.get("status") == "pending"]
+    #     )
 
-        # Calculate convergence metrics using existing checker
-        convergence_metrics = {}
-        if hasattr(memory, "convergence_checker"):
-            try:
-                convergence_data = memory.convergence_checker.check_convergence(
-                    memory.state
-                )
-                convergence_metrics = {
-                    "feedback_addressed_percentage": convergence_data.get(
-                        "feedback_addressed_percentage", 0
-                    ),
-                    "convergence_score": convergence_data.get("convergence_score", 0),
-                    "convergence_criteria_met": convergence_data.get(
-                        "converged", False
-                    ),
-                }
-            except Exception as e:
-                logger.warning(f"Could not calculate convergence metrics: {e}")
+    #     # Calculate convergence metrics using existing checker
+    #     convergence_metrics = {}
+    #     if hasattr(memory, "convergence_checker"):
+    #         try:
+    #             convergence_data = memory.convergence_checker.check_convergence(
+    #                 memory.state
+    #             )
+    #             convergence_metrics = {
+    #                 "feedback_addressed_percentage": convergence_data.get(
+    #                     "feedback_addressed_percentage", 0
+    #                 ),
+    #                 "convergence_score": convergence_data.get("convergence_score", 0),
+    #                 "convergence_criteria_met": convergence_data.get(
+    #                     "converged", False
+    #                 ),
+    #             }
+    #         except Exception as e:
+    #             logger.warning(f"Could not calculate convergence metrics: {e}")
 
-        return {
-            "total_feedback_items": total_feedback,
-            "addressed_feedback": addressed_feedback,
-            "pending_feedback": pending_feedback,
-            "feedback_resolution_rate": (
-                addressed_feedback / total_feedback if total_feedback > 0 else 0
-            ),
-            "feedback_by_iteration": {
-                str(k): len(v) for k, v in feedback_by_iteration.items()
-            },
-            "average_feedback_per_iteration": total_feedback
-            / max(1, len(feedback_by_iteration)),
-            "time_efficiency": {
-                "writer_time_percentage": (
-                    writer_time / total_time if total_time > 0 else 0
-                ),
-                "reviewer_time_percentage": (
-                    reviewer_time / total_time if total_time > 0 else 0
-                ),
-                "seconds_per_iteration": total_time
-                / max(1, memory.get_current_iteration()),
-            },
-            "convergence": convergence_metrics,
-        }
+    #     return {
+    #         "total_feedback_items": total_feedback,
+    #         "addressed_feedback": addressed_feedback,
+    #         "pending_feedback": pending_feedback,
+    #         "feedback_resolution_rate": (
+    #             addressed_feedback / total_feedback if total_feedback > 0 else 0
+    #         ),
+    #         "feedback_by_iteration": {
+    #             str(k): len(v) for k, v in feedback_by_iteration.items()
+    #         },
+    #         "average_feedback_per_iteration": total_feedback
+    #         / max(1, len(feedback_by_iteration)),
+    #         "time_efficiency": {
+    #             "writer_time_percentage": (
+    #                 writer_time / total_time if total_time > 0 else 0
+    #             ),
+    #             "reviewer_time_percentage": (
+    #                 reviewer_time / total_time if total_time > 0 else 0
+    #             ),
+    #             "seconds_per_iteration": total_time
+    #             / max(1, memory.get_current_iteration()),
+    #         },
+    #         "convergence": convergence_metrics,
+    #     }
 
-    def _get_tom_metrics(self, memory: SharedMemory) -> dict:
-        """Get Theory of Mind metrics if available."""
-        if not memory.tom_module or not memory.tom_module.enabled:
-            return None
+    # def _get_tom_metrics(self, memory: SharedMemory) -> dict:
+    #     """Get Theory of Mind metrics if available."""
+    #     if not memory.tom_module or not memory.tom_module.enabled:
+    #         return None
 
-        try:
-            tom_interactions = memory.tom_module.interactions
-            if not tom_interactions:
-                return {"interactions": 0, "predictions": 0, "accuracy": 0}
+    #     try:
+    #         tom_interactions = memory.tom_module.interactions
+    #         if not tom_interactions:
+    #             return {"interactions": 0, "predictions": 0, "accuracy": 0}
 
-            total_predictions = 0
-            accurate_predictions = 0
+    #         total_predictions = 0
+    #         accurate_predictions = 0
 
-            for interaction in tom_interactions:
-                # Count writer predictions
-                for pred in interaction.writer_predictions:
-                    total_predictions += 1
-                    if pred.accuracy.value == "correct":
-                        accurate_predictions += 1
+    #         for interaction in tom_interactions:
+    #             # Count writer predictions
+    #             for pred in interaction.writer_predictions:
+    #                 total_predictions += 1
+    #                 if pred.accuracy.value == "correct":
+    #                     accurate_predictions += 1
 
-                # Count reviewer predictions
-                for pred in interaction.reviewer_predictions:
-                    total_predictions += 1
-                    if pred.accuracy.value == "correct":
-                        accurate_predictions += 1
+    #             # Count reviewer predictions
+    #             for pred in interaction.reviewer_predictions:
+    #                 total_predictions += 1
+    #                 if pred.accuracy.value == "correct":
+    #                     accurate_predictions += 1
 
-            return {
-                "interactions": len(tom_interactions),
-                "total_predictions": total_predictions,
-                "accurate_predictions": accurate_predictions,
-                "accuracy_rate": (
-                    accurate_predictions / total_predictions
-                    if total_predictions > 0
-                    else 0
-                ),
-                "learning_occurred": sum(
-                    1 for i in tom_interactions if i.learning_occurred
-                ),
-            }
+    #         return {
+    #             "interactions": len(tom_interactions),
+    #             "total_predictions": total_predictions,
+    #             "accurate_predictions": accurate_predictions,
+    #             "accuracy_rate": (
+    #                 accurate_predictions / total_predictions
+    #                 if total_predictions > 0
+    #                 else 0
+    #             ),
+    #             "learning_occurred": sum(
+    #                 1 for i in tom_interactions if i.learning_occurred
+    #             ),
+    #         }
 
-        except Exception as e:
-            logger.warning(f"Could not calculate ToM metrics: {e}")
-            return {"error": str(e)}
+    #     except Exception as e:
+    #         logger.warning(f"Could not calculate ToM metrics: {e}")
+    #         return {"error": str(e)}

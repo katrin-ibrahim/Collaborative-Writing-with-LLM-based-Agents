@@ -2,9 +2,9 @@
 
 import logging
 
-from collaborative.memory.memory import SharedMemory
-from config.model_config import ModelConfig
+from src.collaborative.memory.memory import SharedMemory
 from src.config.collaboration_config import CollaborationConfig
+from src.config.model_config import ModelConfig
 from src.config.retrieval_config import RetrievalConfig
 from src.config.storm_config import StormConfig
 from src.engines import OllamaEngine, SlurmEngine
