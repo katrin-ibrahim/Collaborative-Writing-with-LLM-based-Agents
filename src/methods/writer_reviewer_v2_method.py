@@ -221,118 +221,131 @@ class WriterReviewerV2Method(BaseMethod):
             )
             raise RuntimeError(f"WriterReviewerV2Method failed: {e}") from e
 
-    # def _calculate_collaboration_metrics(
-    #     self,
-    #     memory: SharedMemory,
-    #     writer_time: float,
-    #     reviewer_time: float,
-    #     total_time: float,
-    # ) -> dict:
-    #     """Calculate comprehensive collaboration metrics."""
+    def _calculate_collaboration_metrics(
+        self,
+        memory: SharedMemory,
+        writer_time: float,
+        reviewer_time: float,
+        total_time: float,
+    ) -> dict:
+        """Calculate comprehensive collaboration metrics."""
 
-    #     # Get feedback statistics
-    #     all_feedback = memory.get_review_feedback()
-    #     feedback_by_iteration = {}
+        # Collect all feedback items from all iterations
+        feedback_by_iteration = {}
+        all_feedback = []
+        max_iter = memory.get_iteration()
+        for i in range(max_iter + 1):
+            items_by_section = memory.get_all_feedback_items_for_iteration(i)
+            for items in items_by_section.values():
+                for item in items:
+                    feedback_by_iteration.setdefault(i, []).append(item)
+                    all_feedback.append(item)
 
-    #     for feedback in all_feedback:
-    #         iteration = feedback.get("iteration", 0)
-    #         if iteration not in feedback_by_iteration:
-    #             feedback_by_iteration[iteration] = []
-    #         feedback_by_iteration[iteration].append(feedback)
+        # Calculate feedback metrics
+        def get_status(item):
+            status = getattr(item, "status", None)
+            if status is None and isinstance(item, dict):
+                status = item.get("status")
+            if status is None:
+                return None
+            return status.value if hasattr(status, "value") else status
 
-    #     # Calculate feedback metrics
-    #     total_feedback = len(all_feedback)
-    #     addressed_feedback = len(
-    #         [f for f in all_feedback if f.get("status") == "addressed"]
-    #     )
-    #     pending_feedback = len(
-    #         [f for f in all_feedback if f.get("status") == "pending"]
-    #     )
+        total_feedback = len(all_feedback)
+        addressed_feedback = len(
+            [f for f in all_feedback if get_status(f) == "addressed"]
+        )
+        pending_feedback = len([f for f in all_feedback if get_status(f) == "pending"])
 
-    #     # Calculate convergence metrics using existing checker
-    #     convergence_metrics = {}
-    #     if hasattr(memory, "convergence_checker"):
-    #         try:
-    #             convergence_data = memory.convergence_checker.check_convergence(
-    #                 memory.state
-    #             )
-    #             convergence_metrics = {
-    #                 "feedback_addressed_percentage": convergence_data.get(
-    #                     "feedback_addressed_percentage", 0
-    #                 ),
-    #                 "convergence_score": convergence_data.get("convergence_score", 0),
-    #                 "convergence_criteria_met": convergence_data.get(
-    #                     "converged", False
-    #                 ),
-    #             }
-    #         except Exception as e:
-    #             logger.warning(f"Could not calculate convergence metrics: {e}")
+        # Calculate convergence metrics using existing checker
+        convergence_metrics = {}
+        try:
+            iteration = memory.get_iteration()
+            pending_items = [
+                f for f in all_feedback if get_status(f) != "verified_addressed"
+            ]
+            all_items = all_feedback
+            converged, reason = self.convergence_checker.check_convergence(
+                iteration,
+                pending_items,
+                all_items,
+            )
+            # Calculate weighted resolution rate as convergence_score
+            convergence_score = self.convergence_checker.resolution_rate(
+                pending_items, all_items
+            )
+            convergence_metrics = {
+                "feedback_addressed_percentage": convergence_score,
+                "convergence_score": convergence_score,
+                "convergence_criteria_met": converged,
+                "convergence_reason": reason,
+            }
+        except Exception as e:
+            logger.warning(f"Could not calculate convergence metrics: {e}")
 
-    #     return {
-    #         "total_feedback_items": total_feedback,
-    #         "addressed_feedback": addressed_feedback,
-    #         "pending_feedback": pending_feedback,
-    #         "feedback_resolution_rate": (
-    #             addressed_feedback / total_feedback if total_feedback > 0 else 0
-    #         ),
-    #         "feedback_by_iteration": {
-    #             str(k): len(v) for k, v in feedback_by_iteration.items()
-    #         },
-    #         "average_feedback_per_iteration": total_feedback
-    #         / max(1, len(feedback_by_iteration)),
-    #         "time_efficiency": {
-    #             "writer_time_percentage": (
-    #                 writer_time / total_time if total_time > 0 else 0
-    #             ),
-    #             "reviewer_time_percentage": (
-    #                 reviewer_time / total_time if total_time > 0 else 0
-    #             ),
-    #             "seconds_per_iteration": total_time
-    #             / max(1, memory.get_current_iteration()),
-    #         },
-    #         "convergence": convergence_metrics,
-    #     }
+        return {
+            "total_feedback_items": total_feedback,
+            "addressed_feedback": addressed_feedback,
+            "pending_feedback": pending_feedback,
+            "feedback_resolution_rate": (
+                addressed_feedback / total_feedback if total_feedback > 0 else 0
+            ),
+            "feedback_by_iteration": {
+                str(k): len(v) for k, v in feedback_by_iteration.items()
+            },
+            "average_feedback_per_iteration": total_feedback
+            / max(1, len(feedback_by_iteration)),
+            "time_efficiency": {
+                "writer_time_percentage": (
+                    writer_time / total_time if total_time > 0 else 0
+                ),
+                "reviewer_time_percentage": (
+                    reviewer_time / total_time if total_time > 0 else 0
+                ),
+                "seconds_per_iteration": total_time / max(1, memory.get_iteration()),
+            },
+            "convergence": convergence_metrics,
+        }
 
-    # def _get_tom_metrics(self, memory: SharedMemory) -> dict:
-    #     """Get Theory of Mind metrics if available."""
-    #     if not memory.tom_module or not memory.tom_module.enabled:
-    #         return None
+    def _get_tom_metrics(self, memory: SharedMemory) -> dict:
+        """Get Theory of Mind metrics if available."""
+        if not memory.tom_module or not memory.tom_module.enabled:
+            return {}
 
-    #     try:
-    #         tom_interactions = memory.tom_module.interactions
-    #         if not tom_interactions:
-    #             return {"interactions": 0, "predictions": 0, "accuracy": 0}
+        try:
+            tom_interactions = memory.tom_module.interactions
+            if not tom_interactions:
+                return {"interactions": 0, "predictions": 0, "accuracy": 0}
 
-    #         total_predictions = 0
-    #         accurate_predictions = 0
+            total_predictions = 0
+            accurate_predictions = 0
 
-    #         for interaction in tom_interactions:
-    #             # Count writer predictions
-    #             for pred in interaction.writer_predictions:
-    #                 total_predictions += 1
-    #                 if pred.accuracy.value == "correct":
-    #                     accurate_predictions += 1
+            for interaction in tom_interactions:
+                # Count writer predictions
+                for pred in interaction.writer_predictions:
+                    total_predictions += 1
+                    if pred.accuracy.value == "correct":
+                        accurate_predictions += 1
 
-    #             # Count reviewer predictions
-    #             for pred in interaction.reviewer_predictions:
-    #                 total_predictions += 1
-    #                 if pred.accuracy.value == "correct":
-    #                     accurate_predictions += 1
+                # Count reviewer predictions
+                for pred in interaction.reviewer_predictions:
+                    total_predictions += 1
+                    if pred.accuracy.value == "correct":
+                        accurate_predictions += 1
 
-    #         return {
-    #             "interactions": len(tom_interactions),
-    #             "total_predictions": total_predictions,
-    #             "accurate_predictions": accurate_predictions,
-    #             "accuracy_rate": (
-    #                 accurate_predictions / total_predictions
-    #                 if total_predictions > 0
-    #                 else 0
-    #             ),
-    #             "learning_occurred": sum(
-    #                 1 for i in tom_interactions if i.learning_occurred
-    #             ),
-    #         }
+            return {
+                "interactions": len(tom_interactions),
+                "total_predictions": total_predictions,
+                "accurate_predictions": accurate_predictions,
+                "accuracy_rate": (
+                    accurate_predictions / total_predictions
+                    if total_predictions > 0
+                    else 0
+                ),
+                "learning_occurred": sum(
+                    1 for i in tom_interactions if i.learning_occurred
+                ),
+            }
 
-    #     except Exception as e:
-    #         logger.warning(f"Could not calculate ToM metrics: {e}")
-    #         return {"error": str(e)}
+        except Exception as e:
+            logger.warning(f"Could not calculate ToM metrics: {e}")
+            return {"error": str(e)}

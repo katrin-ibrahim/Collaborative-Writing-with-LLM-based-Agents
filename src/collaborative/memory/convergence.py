@@ -183,3 +183,15 @@ class ConvergenceChecker:
             False,
             f"{pending_count} pending ({len(high_pending)} high); weighted verification rate {rate:.1%}",
         )
+
+    def resolution_rate(
+        self, pending_items: List[dict], all_items: List[dict]
+    ) -> float:
+        """Weighted fraction of VERIFIED_ADDRESSED over all items (for convergence score)."""
+        if not all_items:
+            return 0.0
+        tot = self._weighted_total(all_items)
+        if tot <= 0:
+            return 0.0
+        ver = self._weighted_verified(all_items)
+        return ver / tot

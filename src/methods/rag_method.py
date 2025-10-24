@@ -45,8 +45,8 @@ class RagMethod(BaseMethod):
         """
         logger.info(f"Running RAG for: {topic}")
 
+        start_time = time.time()
         try:
-            start_time = time.time()
 
             # Get clients and config
             writing_client = ConfigContext.get_client("writing")
