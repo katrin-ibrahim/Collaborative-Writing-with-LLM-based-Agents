@@ -44,9 +44,8 @@ class StormMethod(BaseMethod):
         """
         logger.info(f"Running STORM method for: {topic}")
 
+        start_time = time.time()
         try:
-            start_time = time.time()
-
             # Setup STORM configuration using ConfigContext
             lm_config = setup_storm_config()
             retrieval_manager = setup_storm_retrieval()
@@ -119,9 +118,7 @@ class StormMethod(BaseMethod):
                 metadata={
                     "method": "storm",
                     "error": str(e),
-                    "generation_time": (
-                        time.time() - start_time if "start_time" in locals() else 0
-                    ),
+                    "generation_time": time.time() - start_time,
                     "word_count": 0,
                 },
             )
