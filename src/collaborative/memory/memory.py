@@ -5,9 +5,15 @@ from pathlib import Path
 import logging
 from typing import Any, Dict, Iterable, List, Optional, TypedDict
 
+from collaborative.utils.writer_utils import build_full_article_content
 from src.collaborative.memory.storage import SessionStorage
 from src.collaborative.tom.theory_of_mind import TheoryOfMindModule
-from src.collaborative.utils.models import FeedbackStoredModel, SearchSummary
+from src.collaborative.utils.models import (
+    FeedbackStatus,
+    FeedbackStoredModel,
+    SearchSummary,
+    WriterStatusUpdate,
+)
 from src.utils.data import Outline, ResearchChunk
 from src.utils.data.models import Article
 
@@ -153,6 +159,10 @@ class SharedMemory:
     def get_topic(self) -> str:
         """Get the topic of the session."""
         return self.state["topic"]
+
+    def get_outline(self) -> Optional[Outline]:
+        """Get the initial outline of the session, if available."""
+        return self.state.get("initial_outline")
 
     def get_session_id(self) -> str:
         """Get the session ID."""
@@ -362,16 +372,23 @@ class SharedMemory:
             self.state["item_index"][it.id] = iteration
         self._persist()
 
-    def get_all_feedback_items_for_iteration(
-        self, iteration: int
+    def get_feedback_items_for_iteration(
+        self, iteration: int, filter_by: Optional[FeedbackStatus] = None
     ) -> dict[str, list[FeedbackStoredModel]]:
         """
         Returns section -> [FeedbackStoredModel] for this iteration.
+        If filter_by is provided, only items with status == filter_by are included.
+        If filter_by is None, all items are included.
         """
         bucket = self.state["feedback_by_iteration"].get(iteration, {})
         out: dict[str, list[FeedbackStoredModel]] = {}
         for item in bucket.values():
-            out.setdefault(item.section, []).append(item)
+            item_status = getattr(item, "status", None)
+            # Normalize both to string for robust comparison
+            if filter_by is None or (
+                item_status is not None and str(item_status) == str(filter_by)
+            ):
+                out.setdefault(item.section, []).append(item)
         return out
 
     def get_feedback_item_by_id(self, item_id: str) -> Optional[FeedbackStoredModel]:
@@ -403,6 +420,58 @@ class SharedMemory:
         item.writer_comment = comment  # type: ignore
         self._persist()
         return True
+
+    def apply_feedback_updates(
+        self, updates: list["WriterStatusUpdate"]
+    ) -> dict[str, bool]:
+        """
+        Convenience: apply status + optional writer_comment for a batch of updates.
+        Returns {feedback_id: True/False} for success per id.
+        """
+        results: dict[str, bool] = {}
+        for upd in updates:
+            ok = True
+            try:
+                self.update_feedback_item_status(upd.id, upd.status)
+            except Exception:
+                ok = False
+            try:
+                if upd.writer_comment is not None:
+                    self.set_feedback_item_comment(upd.id, upd.writer_comment)
+            except Exception:
+                ok = False
+            results[upd.id] = ok
+        return results
+
+    def replace_section_text(
+        self,
+        section: str,
+        new_text: str,
+        rebuild_and_persist: bool = True,
+    ) -> "Article":
+        """
+        Replace the text of a single section. If section == '_overall', treat as full article replacement.
+        Rebuilds full content from sections (when applicable) and persists.
+        """
+        article = self.get_current_draft_as_article()
+        if not article:
+            raise RuntimeError("No current draft to modify.")
+
+        if section == "_overall":
+            article.content = new_text
+            # optional: do not try to sync sections here
+        else:
+            article.sections = dict(article.sections or {})
+            article.sections[section] = new_text
+            if rebuild_and_persist:
+                article.content = build_full_article_content(
+                    article.title, article.sections
+                )
+
+        if rebuild_and_persist:
+            self.update_article_state(article)
+
+        return article
 
     # endregion Typed Feedback Management
 

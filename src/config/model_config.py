@@ -27,11 +27,15 @@ class ModelConfig(BaseConfig):
     query_generation_model: str = "qwen3:4b"  # Fast model for generating search queries
     create_outline_model: str = "qwen3:4b"  # Model for creating article outlines
     section_selection_model: str = "qwen3:4b"  # Model for selecting relevant chunks
-    section_writing_model: str = "qwen3:4b"  # High-quality model for writing content
-    section_revision_model: str = (
-        "qwen3:4b"  # Model for revising sections based on feedback
+    writer_model: str = "qwen3:4b"  # High-quality model for writing content
+    revision_model: str = "qwen3:4b"  # Model for revising sections based on feedback
+    revision_batch_model: str = (
+        "qwen3:4b"  # Model for revising multiple sections in batch
     )
-    review_model: str = "qwen3:4b"  # Model for holistic review and feedback generation
+    self_refine_model: str = "qwen3:4b"  # Model for self-refinement
+    reviewer_model: str = (
+        "qwen3:4b"  # Model for holistic review and feedback generation
+    )
 
     # Default fallback
     default_model: str = "gemma3:4b"
@@ -61,9 +65,11 @@ class ModelConfig(BaseConfig):
                 "query_generation": 0.3,  # Low for focused query generation
                 "create_outline": 0.4,  # More structured outlines
                 "section_selection": 0.2,  # Very low for analytical chunk selection
-                "section_writing": 0.6,  # Balanced for creative content generation
-                "section_revision": 0.4,  # Moderate for thoughtful revision
-                "review": 0.3,  # Low for analytical review and feedback
+                "writer": 0.6,  # Balanced for creative content generation
+                "revision": 0.4,  # Moderate for thoughtful revision
+                "revision_batch": 0.4,  # Moderate for thoughtful batch revision
+                "self_refine": 0.5,  # Balanced for self-refinement
+                "reviewer": 0.3,  # Low for analytical review and feedback
             }
 
         if self.token_limits is None:
@@ -78,9 +84,11 @@ class ModelConfig(BaseConfig):
                 "query_generation": 800,  # Short for focused queries
                 "create_outline": 600,  # Short for outline creation
                 "section_selection": 600,  # Short for chunk ID selection
-                "section_writing": 2000,  # Long for detailed section content
-                "section_revision": 1500,  # Medium for revision with feedback
-                "review": 1800,  # Long for comprehensive review and feedback
+                "writer": 2000,  # Long for detailed section content
+                "revision": 3000,  # Medium for revision with feedback
+                "revision_batch": 2000,  # Long for batch revisions
+                "self_refine": 3000,  # Long for self-refinement
+                "reviewer": 1800,  # Long for comprehensive review and feedback
             }
 
         if self.local_model_mapping is None:
@@ -118,9 +126,11 @@ class ModelConfig(BaseConfig):
             "query_generation": self.query_generation_model,
             "create_outline": self.create_outline_model,
             "section_selection": self.section_selection_model,
-            "section_writing": self.section_writing_model,
-            "section_revision": self.section_revision_model,
-            "review": self.review_model,
+            "writer": self.writer_model,
+            "section_revision": self.revision_model,
+            "revision_batch": self.revision_batch_model,
+            "self_refine": self.self_refine_model,
+            "reviewer": self.reviewer_model,
         }
         return task_model_map.get(task, self.default_model)
 

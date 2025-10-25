@@ -19,6 +19,9 @@ class CollaborationConfig(BaseConfig):
     stall_tolerance: int = 2  # consecutive low-improvement iters allowed
     min_improvement: float = 0.02  # required progress per iter (2%)
     small_tail_max: int = 5  # e.g., 5 remaining low/medium items
+    writing_mode: str = "section"  # "section" or "full_article"
+    revise_mode: str = "pending_sections"  # "single_section" or "pending_section"
+    should_self_refine: bool = False  # whether writers self-refine
 
     def get_file_pattern(self) -> str:
         return "collaboration_{}.yaml"

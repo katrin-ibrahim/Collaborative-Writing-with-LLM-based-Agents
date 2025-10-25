@@ -391,13 +391,3 @@ class TheoryOfMindModule:
                 ].predicted_feedback_acceptance_rate,
             },
         }
-
-    def enable_tom(self):
-        """Enable Theory of Mind functionality."""
-        self.enabled = True
-        logger.info("Theory of Mind module ENABLED")
-
-    def disable_tom(self):
-        """Disable Theory of Mind functionality."""
-        self.enabled = False
-        logger.info("Theory of Mind module DISABLED")

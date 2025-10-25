@@ -4,23 +4,23 @@ import logging
 from langgraph.graph import END, StateGraph
 from typing import Dict, List, Optional, TypedDict
 
-from collaborative.tom.theory_of_mind import AgentRole
-from collaborative.utils.reviewer_utils import (
-    build_ref_map,
-    extract_citations,
-    finalize_feedback_items,
-    get_article_metrics,
-    validate_citations,
-)
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
     build_review_prompt_for_strategy,
     build_verification_prompt,
 )
 from src.collaborative.memory.memory import SharedMemory
+from src.collaborative.tom.theory_of_mind import AgentRole
 from src.collaborative.utils.models import (
     ReviewerTaskValidationModel,
     VerificationValidationModel,
+)
+from src.collaborative.utils.reviewer_utils import (
+    build_ref_map,
+    extract_citations,
+    finalize_feedback_items,
+    get_article_metrics,
+    validate_citations,
 )
 from src.config.config_context import ConfigContext
 
@@ -154,10 +154,8 @@ class ReviewerV2(BaseAgent):
                 raise RuntimeError("No current draft article found in memory")
 
             # Get previous feedback
-            all_items_by_section = (
-                self.shared_memory.get_all_feedback_items_for_iteration(
-                    iteration=previous_iteration
-                )
+            all_items_by_section = self.shared_memory.get_feedback_items_for_iteration(
+                iteration=previous_iteration
             )
             if not all_items_by_section:
                 logger.warning(f"No feedback found for iteration {previous_iteration}")
@@ -204,7 +202,7 @@ class ReviewerV2(BaseAgent):
             )
 
             # Call LLM
-            review_client = self.get_task_client("review")
+            review_client = self.get_task_client("reviewer")
             verification: VerificationValidationModel = (
                 review_client.call_structured_api(
                     prompt=prompt, output_schema=VerificationValidationModel
@@ -329,7 +327,7 @@ class ReviewerV2(BaseAgent):
         try:
             # Get previous iteration's feedback items
             previous_items_by_section = (
-                self.shared_memory.get_all_feedback_items_for_iteration(
+                self.shared_memory.get_feedback_items_for_iteration(
                     iteration=iteration - 1
                 )
             )

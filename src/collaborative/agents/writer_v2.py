@@ -1,25 +1,51 @@
 # src/collaborative/agents/writer_v2.py
 import logging
-from typing import Any, Dict, List, Optional
+from langgraph.graph import END, StateGraph
+from typing import Dict, List, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
+    build_revision_batch_prompt,
+    build_self_refine_prompt,
+    build_single_section_revision_prompt,
+    enhance_prompt_with_tom,
     outline_prompt,
+    refine_outline_prompt,
     search_query_generation_prompt,
     select_section_chunks_prompt,
+    write_full_article_prompt,
     write_section_content_prompt,
 )
-from src.collaborative.tools.tool_definitions import (
-    get_chunks_by_ids,
-    get_feedback,
-    search_and_retrieve,
+from src.collaborative.memory.memory import SharedMemory
+from src.collaborative.tom.theory_of_mind import AgentRole
+from src.collaborative.utils.models import (
+    ArticleOutlineValidationModel,
+    ChunkSelectionValidationModel,
+    FeedbackStatus,
+    FeedbackStoredModel,
+    QueryListValidationModel,
+    WriterValidationBatchModel,
+    WriterValidationModel,
+)
+from src.collaborative.utils.writer_utils import (
+    build_formatted_chunk_summaries,
+    build_full_article_content,
+    process_and_store_chunks,
 )
 from src.config.config_context import ConfigContext
-from src.utils.data import Article, Outline, ResearchChunk
+from src.retrieval.factory import create_retrieval_manager
+from src.utils.data.models import Article, Outline, ResearchChunk
 
 logger = logging.getLogger(__name__)
 
+# ======================== MINIMAL STATE ========================
 
+
+class MinimalState(TypedDict):
+    """Minimal state for LangGraph compatibility."""
+
+
+# ======================== WRITER AGENT ========================
 class WriterV2(BaseAgent):
     """
     Simplified Writer agent with hybrid Python/LLM architecture.
@@ -33,229 +59,450 @@ class WriterV2(BaseAgent):
 
     def __init__(self):
         super().__init__()
-        self.shared_memory = ConfigContext.get_memory_instance()
+        self.shared_memory: SharedMemory = ConfigContext.get_memory_instance()
         if not self.shared_memory:
             raise RuntimeError("SharedMemory instance not found in ConfigContext")
 
-        self.tom_module = self.shared_memory.tom_module
-
-        # Minimal tool set - Python makes all decisions
-        self.search_tool = search_and_retrieve
-        self.chunks_tool = get_chunks_by_ids
-        self.feedback_tool = get_feedback
-
+        # Build the LangGraph workflow
+        self.graph = self._build_graph()
+        self.config = ConfigContext.get_collaboration_config()
+        self.retrieval_manager = create_retrieval_manager()
         self.retrieval_config = ConfigContext.get_retrieval_config()
-        self.num_queries = getattr(self.retrieval_config, "num_queries", 5)
-        self.num_chunks = getattr(self.retrieval_config, "max_content_pieces", 5)
+        logger.info("Reviewer agent initialized with LangGraph architecture")
+
+        self.needs_refine = getattr(self.config, "should_self_refine", False)
 
     def process(self) -> None:
-        """Main entry point with clear iteration routing."""
-        iteration = self.shared_memory.get_current_iteration()
-        logger.info(f"WriterV2 processing iteration {iteration}")
+        """Main public entry point - initializes state and runs graph."""
+        self.iteration = self.shared_memory.get_iteration()
+        logger.info(f"WriterV2 starting processing for iteration {self.iteration}")
+        try:
+            # LangGraph invocation only needs the starting state
+            self.graph.invoke({})
+            logger.info(f"Writer complete for iteration {self.iteration}")
+        except Exception as e:
+            logger.error(f"Writer workflow failed: {e}", exc_info=True)
+            raise
 
-        if iteration == 0:
-            logger.info("Executing initial research and drafting workflow")
-            self._execute_iteration_0()
+    # ======================== GRAPH CONSTRUCTION ========================
+    # region Graph Construction
+    def _build_graph(self):
+        """Build the LangGraph workflow with nodes and conditional edges."""
+        workflow = StateGraph(MinimalState)
+
+        # Nodes
+        workflow.add_node("router", self._router_by_iteration)
+        workflow.add_node("research", self._research)  # Initial Flow Only
+        workflow.add_node("outline", self._outline)  # Initial Flow Only
+        workflow.add_node("refine_outline", self._refine_outline)  # Initial Flow Only
+        workflow.add_node("write", self._write_draft)  # Initial Flow Only
+        workflow.add_node("revise", self._revise_draft)  # Revision Flow Only
+        workflow.add_node("self_refine", self._self_refine)  # Both Flows (Optional)
+
+        workflow.set_entry_point("router")
+
+        # 1. Router Edges
+        workflow.add_conditional_edges(
+            "router",
+            lambda state: self.flow_type,
+            {
+                "INITIAL_FLOW": "research",  # iter 0: research -> outline...
+                "REVISION_FLOW": "revise",  # iter 1+: revise
+            },
+        )
+
+        # 2. Initial Flow Edges (Linear and Conditional)
+        workflow.add_edge("research", "outline")
+
+        workflow.add_conditional_edges(
+            "outline",
+            self._should_refine_outline,  # Deterministic check based on outline quality
+            {"refine": "refine_outline", "done": "write"},
+        )
+        workflow.add_edge("refine_outline", "write")
+
+        # 3. Post-Content Edges (Shared for write and revise)
+        # Write (Initial flow) feeds into optional self-refine or finalize
+        workflow.add_conditional_edges(
+            "write", self._should_self_refine, {"refine": "self_refine", "done": END}
+        )
+        # Revise goes to finalize directly
+        workflow.add_edge("revise", END)
+
+        return workflow.compile()
+
+    # endregion Graph Construction
+
+    # ======================== GRAPH NODES ========================
+
+    # ======================= GRAPH CONDITIONALS =======================
+    # region Graph Conditionals
+    def _should_refine_outline(self, state: MinimalState) -> str:
+        """Conditional: Checks if the generated outline requires refinement (Iter 0 only)."""
+        # Logic: Check if the outline has few entities, depth, or sufficient headings.
+
+        # Example heuristic: less than 4 headings OR fewer than N entities mentioned.
+        if self.initial_outline and len(self.initial_outline.headings) < 4:
+            logger.info(
+                "Outline insufficient (too few headings). Rerouting to refine_outline."
+            )
+            return "refine"
+
+        return "done"
+
+    def _should_self_refine(self, state: MinimalState) -> str:
+        """Conditional: Checks if self-refine is configured and needed (Post-content)."""
+        if getattr(self.config, "should_self_refine", False) and self.needs_refine:
+            logger.info("Self-refinement flag is set. Rerouting to self_refine.")
+            return "refine"
+        return "done"
+
+    # ======================== ROUTER NODE ========================
+    def _router_by_iteration(self, state: MinimalState) -> MinimalState:
+        """Determine flow type based on iteration."""
+        if self.iteration == 0:
+            self.flow_type = "INITIAL_FLOW"
+            logger.info("Router selected flow: INITIAL_FLOW")
         else:
-            logger.info("Executing revision workflow based on feedback")
-            self._execute_iteration_plus()
+            self.flow_type = "REVISION_FLOW"
+        logger.info(
+            f"Router selected flow: REVISION_FLOW for iteration {self.iteration}"
+        )
+        return state
 
-    def _execute_iteration_0(self):
-        """
-        Deterministic workflow: direct_search(topic) → generate_queries(top_chunk) →
-        search_queries → create_outline(top_chunk) → write_all_sections(chunks)
-        """
-        topic = self.shared_memory.state.get("topic")
-        if not topic:
-            raise RuntimeError("No topic found in SharedMemory state")
+    # endregion Graph Conditionals
 
-        logger.info(f"WriterV2 starting iteration 0 for topic: {topic}")
+    # ======================== INITIAL FLOW NODES ========================
+    # region Initial Flow Nodes
+    # ======================== RESEARCH NODE ==========================
+    def _research(self, state: MinimalState) -> MinimalState:
+        """Research node: two-phase research process (initial + secondary search)."""
+        topic = self.shared_memory.get_topic()
+        logger.info(f"Starting two-phase research for topic: {topic}")
 
-        # Step 1: Direct search (Python decision)
-        logger.info("Step 1: Executing direct search")
-        self._search(topic, rm_type="supabase_faiss")
+        # --- PHASE 1: Initial Search ---
+        self._execute_search_phase(queries=[topic], rm_type="supabase_faiss")
 
-        # Step 2: Get top chunk for context (Python logic)
-        logger.info("Step 2: Retrieving top chunk for context")
+        # Retrieve the top result to ground the next phase
         top_chunk = self._get_best_chunk()
 
-        # Step 3: Generate secondary queries (LLM reasoning) - using fast model
-        logger.info("Step 3: Generating secondary queries with LLM")
-        queries = self._generate_queries(topic, top_chunk)
-
-        # Step 4: Execute secondary searches (concurrent execution)
-        logger.info(f"Step 4: Executing {len(queries)} secondary searches concurrently")
-        self._search_concurrent(queries)
-
-        # Step 5: Create outline (LLM reasoning with top chunk) - using outline model
-        logger.info("Step 5: Creating outline with LLM")
-        chunk_summaries = self.shared_memory.get_search_summaries()
-        max_content_pieces = self.retrieval_config.max_content_pieces
-        formatted_chunk_summaries = (
-            "["
-            + "; ".join(
-                f"{q}: {{"
-                + ", ".join(
-                    f"{c.get('description','').strip()}"  # Use full smart descriptions from generate_description
-                    for c in v.get("chunk_summaries", [])[:max_content_pieces]
-                )
-                + "}}"
-                for q, v in chunk_summaries.items()
+        # If initial search failed or provided no context, log and continue
+        if not top_chunk:
+            logger.warning(
+                "Initial search provided no context. Proceeding without secondary queries."
             )
-            + "]"
-        )
-        outline = self._outline(topic, top_chunk, formatted_chunk_summaries)
+            return state
 
-        # Step 6: Write all sections (Python orchestration + LLM content)
-        logger.info(f"Step 6: Writing {len(outline.headings)} sections")
-        self._write_all_sections(outline)
-
-        logger.info("WriterV2 iteration 0 completed successfully")
-
-    def _execute_iteration_plus(self):
-        """
-        Deterministic workflow: get_pending_feedback → identify_target_sections →
-        revise_sections(feedback + chunks) → mark_feedback_status
-        """
-        iteration = self.shared_memory.get_current_iteration()
-        logger.info(f"WriterV2 starting iteration {iteration}")
-
-        # Step 1: Get pending feedback (Python decision)
-        logger.info("Step 1: Retrieving pending feedback")
-        feedback_result = self._get_pending_feedback()
-
-        # Step 2: Identify sections to revise (Python logic)
-        logger.info("Step 2: Identifying sections to revise")
-        sections_to_revise = self._extract_target_sections(feedback_result)
-        logger.info(
-            f"Found {len(sections_to_revise)} sections to revise: {sections_to_revise}"
-        )
-
-        # Step 3: For each section, revise with feedback (Python loop + LLM content)
-        for section in sections_to_revise:
-            logger.info(f"Step 3: Revising section '{section}'")
-            self._revise_section(section)
-
-        # Step 4: Mark feedback as addressed using existing memory methods
-        logger.info("Step 4: Marking feedback as addressed")
-        self._mark_feedback_addressed(sections_to_revise)
-
-        logger.info("WriterV2 iteration completed successfully")
-
-    @staticmethod
-    def _search(query: str, rm_type: str = None) -> Dict[str, Any]:
-        """Consolidated search method for both direct and secondary searches."""
-        # Call the tool with proper LangChain invocation
-        if rm_type is None:
-            return search_and_retrieve.invoke({"query": query})
+        # --- PHASE 2: Secondary Search ---
+        secondary_queries = self._generate_queries(topic=topic, top_chunk=top_chunk)
+        if secondary_queries:
+            self._execute_search_phase(queries=secondary_queries)
         else:
-            return search_and_retrieve.invoke({"query": query, "rm_type": rm_type})
+            logger.info("No secondary queries generated by LLM. Search complete.")
+        return state
 
-    def _search_concurrent(self, queries: List[str]) -> None:
-        """Execute multiple secondary searches concurrently and store results in shared memory."""
-        if not queries:
-            return
+    # ======================== OUTLINE NODE ========================
+    def _outline(self, state: MinimalState) -> MinimalState:
+        """Outline node: create article outline using LLM reasoning with top chunk context."""
+        topic = self.shared_memory.get_topic()
+        top_chunk = self._get_best_chunk()
+        top_chunk_text = top_chunk.content if top_chunk else ""
+        chunk_summaries = self.shared_memory.get_search_summaries()
+        formatted_chunk_summaries = build_formatted_chunk_summaries(
+            chunk_summaries,
+            max_content_pieces=self.retrieval_config.max_content_pieces,
+            fields=["description"],
+        )
 
-        if len(queries) == 1:
-            # Single query - use existing method to avoid overhead
-            self._search(queries[0])
-            return
+        outline_prompt_str = outline_prompt(
+            topic, top_chunk_text, formatted_chunk_summaries
+        )
+        tom_context = self._get_tom_context(
+            action="outline_review",
+            has_research=bool(top_chunk),
+            topic=topic,
+        )
+        try:
+            outline_client = self.get_task_client("create_outline")
+            final_prompt = enhance_prompt_with_tom(outline_prompt_str, tom_context)
+            outline_model = outline_client.call_structured_api(
+                prompt=final_prompt, output_schema=ArticleOutlineValidationModel
+            )
+            outline = Outline(title=topic, headings=outline_model.headings)
+        except Exception as e:
+            logger.warning(f"LLM outline creation failed: {e}, using generic fallback")
+            generic_headings = [
+                "Introduction and Background",
+                "Key Details and Context",
+                "Main Events and Analysis",
+                "Important Outcomes",
+                "Impact and Significance",
+                "Conclusion and Summary",
+            ]
+            outline = Outline(title=topic, headings=generic_headings)
+            logger.info(
+                f"Using generic fallback outline with {len(outline.headings)} sections"
+            )
 
-        logger.info(f"Executing {len(queries)} searches concurrently")
+        # Store outline in memory (whether from LLM or fallback)
+        self.initial_outline = outline
+        self.shared_memory.state["initial_outline"] = outline
+        logger.info(
+            f"Created outline with {len(outline.headings)} sections: {outline.headings}"
+        )
+        return state
 
-        # Import here to avoid circular imports
-        from src.retrieval.factory import create_retrieval_manager
+    # ======================== REFINE OUTLINE NODE ========================
+    def _refine_outline(self, state: MinimalState) -> MinimalState:
+        """Refine outline node."""
+        logger.info("Refining existing outline.")
 
         try:
-            # Get rm_type from config context (same logic as search_and_retrieve tool)
-            retrieval_config = (
-                self.config_context.retrieval_config
-                if hasattr(self, "config_context")
-                else None
-            )
-            rm_type = (
-                retrieval_config.retrieval_manager
-                if retrieval_config
-                else "supabase_faiss"
+            refine_client = self.get_task_client("create_outline")
+            topic = self.shared_memory.get_topic()
+            top_chunk = self._get_best_chunk()
+            top_chunk_text = top_chunk.content if top_chunk else ""
+            chunk_summaries = self.shared_memory.get_search_summaries()
+            formatted_chunk_summaries = build_formatted_chunk_summaries(
+                chunk_summaries,
+                max_content_pieces=self.retrieval_config.max_content_pieces,
+                fields=["description"],
             )
 
-            # Get cached retrieval manager instance with proper type
+            tom_context = self._get_tom_context(
+                action="outline_review",
+                has_research=bool(top_chunk),
+                topic=topic,
+            )
+
+            # Prompt uses the existing outline and research context
+            if self.initial_outline is not None:
+                outline = "\n".join(self.initial_outline.headings)
+            else:
+                logger.warning(
+                    "No initial outline found, using empty headings for refinement prompt."
+                )
+                outline = ""
+
+            refine_prompt = refine_outline_prompt(
+                topic, top_chunk_text, formatted_chunk_summaries, outline
+            )
+            final_prompt = enhance_prompt_with_tom(refine_prompt, tom_context)
+            outline_model: ArticleOutlineValidationModel = (
+                refine_client.call_structured_api(
+                    prompt=final_prompt, output_schema=ArticleOutlineValidationModel
+                )
+            )
+
+            refined_outline = Outline(
+                title=self.initial_outline.title if self.initial_outline else "",
+                headings=outline_model.headings,
+            )
+            self.shared_memory.update({"initial_outline": refined_outline})
+            self.initial_outline = refined_outline
+
+        except Exception as e:
+            logger.error(f"Outline refinement failed: {e}", exc_info=True)
+
+        return state
+
+    # ======================== WRITE NODE ========================
+    def _write_draft(self, state: MinimalState) -> MinimalState:
+        """Write draft node."""
+        topic: str = self.shared_memory.state.get("topic", "")
+        outline: Optional["Outline"] = self.shared_memory.get_outline()
+        if not outline or not outline.headings:
+            raise RuntimeError("Write node: outline is missing or empty.")
+
+        tom_context = self._get_tom_context(
+            action="content_write",
+            has_research=True,
+            topic=topic,
+        )
+        chunk_summaries = self.shared_memory.get_search_summaries()
+        chunk_summaries_str = build_formatted_chunk_summaries(
+            chunk_summaries,
+            max_content_pieces=getattr(self, "num_chunks", 10),
+            fields=["description", "chunk_id"],
+        )
+        mode = getattr(getattr(self, "config", None), "writing_mode", "section")
+        if mode not in ("section", "full_article"):
+            mode = "section"
+
+        if mode == "section":
+            article = self._write_sections(
+                topic=topic,
+                outline=outline,
+                chunk_summaries_str=chunk_summaries_str,
+                tom_context=tom_context,
+            )
+        else:
+            article = self._write_full_article(
+                topic=topic,
+                outline=outline,
+                chunk_summaries_str=chunk_summaries_str,
+                tom_context=tom_context,
+            )
+
+        self.shared_memory.update_article_state(article)
+        return state
+
+    # ======================== SELF-REFINE NODE ========================
+    def _self_refine(self, state: MinimalState) -> MinimalState:
+        """Self-refine node: refine the full article content."""
+        article = self.shared_memory.get_current_draft_as_article()
+        if not article or not (article.content or "").strip():
+            return state  # nothing to polish
+
+        client = self.get_task_client("self_refine_full")
+        prompt = build_self_refine_prompt(
+            title=article.title,
+            current_text=article.content,
+        )
+
+        try:
+            refined = (client.call_api(prompt=prompt) or "").strip()
+            if refined:
+                # Replace ONLY the full-text body; do not touch sections for speed.
+                article.content = refined
+                self.shared_memory.update_article_state(article)
+        except Exception as e:
+            logger.warning(f"[self_refine] failed: {e}")
+
+        return state
+
+    # endregion Initial Flow Nodes
+
+    # ======================== REVISION FLOW NODES ========================
+    # region Revision Flow Nodes
+    def _revise_draft(self, state: MinimalState) -> MinimalState:
+        """
+        Graph node: revision step.
+        - Collect sections that have PENDING feedback items (current iteration).
+        - One LLM call returns WriterValidationBatchModel with per-section updates.
+        - Apply status updates + content rewrites.
+        """
+        iteration = self.shared_memory.state.get("iteration", 0)
+        article = self.shared_memory.get_current_draft_as_article()
+        if not article:
+            raise RuntimeError("Revise node: no current draft in memory.")
+
+        # collect sections -> [pending items]
+        pending_by_section = self.shared_memory.get_feedback_items_for_iteration(
+            iteration, FeedbackStatus.PENDING
+        )
+        if not pending_by_section:
+            return state  # nothing to do
+
+        mode = getattr(getattr(self, "config", None), "revise_mode", "pending_sections")
+        if mode == "single_section":
+            self._revise_sections_sequential(article, pending_by_section)
+        else:  # default "pending_sections"
+            self._revise_sections_batch(article, pending_by_section)
+
+        # persist
+        self.shared_memory.update_article_state(article)
+        return state
+
+    # endregion Revision Flow Nodes
+
+    # ======================== WRITER V2 HELPERS ========================
+    # region WriterV2 Helpers
+    def _get_tom_context(
+        self, action: str, has_research: bool, topic: str
+    ) -> Optional[str]:
+        """Generate Theory of Mind context if available."""
+        if not (
+            hasattr(self.shared_memory, "tom_module")
+            and self.shared_memory.tom_module
+            and self.shared_memory.tom_module.enabled
+        ):
+            return None
+
+        try:
+            tom_prediction = self.shared_memory.tom_module.predict_agent_response(
+                predictor=AgentRole.REVIEWER,
+                target=AgentRole.WRITER,
+                context={
+                    "topic": topic,
+                    "has_research": has_research,
+                    "action": action,
+                },
+            )
+            return tom_prediction.reasoning
+        except Exception as e:
+            logger.warning(f"ToM prediction failed: {e}")
+            return None
+
+    def _execute_search_phase(
+        self, queries: List[str], rm_type: Optional[str] = None
+    ) -> None:
+        """
+        Executes one or more search queries concurrently using the Retrieval Manager
+        and stores the globally processed results in shared memory (D.R.Y. logic).
+        """
+        logger.info(f"Preparing search execution for {len(queries)} queries.")
+
+        if not queries:
+            logger.warning(
+                "Attempted to execute search phase with an empty query list."
+            )
+            return
+
+        # 1. Get Configuration and Manager Instance
+        rm_type = (
+            self.retrieval_config.retrieval_manager
+        )  # Assumes config has this attribute
+        try:
             retrieval_manager = create_retrieval_manager(rm_type)
+        except NotImplementedError:
+            logger.error(f"Cannot initialize retrieval manager of type: {rm_type}")
+            return
 
-            # Execute concurrent search
-            all_results = retrieval_manager.search_concurrent(
-                query_list=queries,
-                max_results=None,  # Use config defaults
+        # 2. Define the unique search identifier (the key for memory storage)
+        # This is the "mega-query" key used for storage consistency
+        search_id = " | ".join(queries)
+
+        try:
+            logger.info(
+                f"Executing concurrent search for {len(queries)} queries. ID: {search_id}"
             )
 
-            # Store results in shared memory - we need to simulate the search_and_retrieve tool format
-            # Since concurrent search returns flattened results, we'll distribute them among queries
-            # For now, we'll create aggregated results for each query
-            results_per_query = len(all_results) // len(queries) if all_results else 0
+            # A. Call the RM's concurrent method (RM handles caching, dedup, and re-ranking)
+            # The 'topic' argument helps the RM contextually score relevance across the batch.
+            all_results: List[ResearchChunk] = retrieval_manager.search_concurrent(
+                query_list=queries, topic=queries
+            )
 
-            for i, query in enumerate(queries):
-                # Create a search result in the format expected by shared memory
-                start_idx = i * results_per_query
-                end_idx = (
-                    start_idx + results_per_query
-                    if i < len(queries) - 1
-                    else len(all_results)
-                )
-                query_results = all_results[start_idx:end_idx]
+            # This utility handles calling shared_memory.store_research_chunks()
+            # and shared_memory.store_search_summary()
+            process_and_store_chunks(
+                search_id=search_id,  # The key for memory storage
+                source_queries=queries,  # The original list of input queries
+                chunks=all_results,
+                rm_type=rm_type,
+                shared_memory=self.shared_memory,
+            )
 
-                # Convert raw retrieval results to ResearchChunk objects (same as search tool)
-                import hashlib
-
-                from src.utils.data.models import ResearchChunk
-
-                chunks = []
-                for j, result in enumerate(query_results):
-                    # Generate chunk ID (same pattern as search tool)
-                    chunk_id = f"{self.retrieval_config.retrieval_manager}_{j}_{hashlib.md5(str(result).encode()).hexdigest()[:8]}"
-
-                    if isinstance(result, dict):
-                        chunk = ResearchChunk.from_retrieval_result(chunk_id, result)
-                        # Add search-specific metadata
-                        chunk.metadata.update(
-                            {
-                                "search_query": query,
-                                "relevance_rank": j + 1,
-                            }
-                        )
-                        if "relevance_score" in result:
-                            chunk.metadata["relevance_score"] = result.get(
-                                "relevance_score"
-                            )
-                        chunks.append(chunk)
-
-                # Store chunks and get summaries (same as search tool)
-                chunk_summaries = self.shared_memory.store_research_chunks(chunks)
-
-                search_result = {
-                    "success": True,
-                    "query": query,
-                    "total_chunks": len(chunk_summaries),
-                    "chunk_summaries": chunk_summaries,  # Use correct key name
-                }
-
-                # Store in shared memory using the same format as search_and_retrieve tool
-                self.shared_memory.store_search_summary(
-                    query, search_result
-                )  # TODO: NOT CONSISTENT WITH TOOL, REPEATED LOGIC, COULD BE IMPROVED
-                logger.debug(
-                    f"Stored {len(chunk_summaries)} results for query: {query}"
-                )
+            logger.info(
+                f"Stored {len(all_results)} final chunks under search_id: {search_id}"
+            )
 
         except Exception as exc:
-            logger.error(f"Concurrent search failed, falling back to sequential: {exc}")
-            # Fallback to sequential search
-            for query in queries:
-                try:
-                    self._search(query)
-                except Exception as seq_exc:
-                    logger.error(
-                        f"Sequential fallback failed for query '{query}': {seq_exc}"
-                    )
+            logger.error(
+                f"Critical search failure for search_id '{search_id}': {exc}",
+                exc_info=True,
+            )
+            # Store a structured failed search summary for tracking
+            self.shared_memory.store_search_summary(
+                search_id,
+                {
+                    "success": False,
+                    "message": f"Critical search failure: {exc}",
+                    "source_queries": queries,
+                    "rm_type": rm_type,
+                },
+            )
 
     def _get_best_chunk(self) -> Optional[ResearchChunk]:
         """Get the highest-scoring chunk for context."""
@@ -279,611 +526,256 @@ class WriterV2(BaseAgent):
         self, topic: str, top_chunk: Optional[ResearchChunk]
     ) -> List[str]:
         """Generate secondary search queries using LLM reasoning."""
-        if not top_chunk:
-            logger.warning("No top chunk available, using basic query generation")
+        top_chunk_context = top_chunk.content if top_chunk else ""
 
-        prompt = search_query_generation_prompt(topic, top_chunk, self.num_queries)
-
+        prompt = search_query_generation_prompt(
+            topic,
+            context=top_chunk_context,
+            num_queries=self.retrieval_config.num_queries,
+        )
         try:
-            # Use query generation model
             query_client = self.get_task_client("query_generation")
-            response = query_client.call_api(prompt=prompt)
-            queries = self._parse_queries_from_response(response)
-            logger.info(f"Generated {len(queries)} secondary queries: {queries}")
+
+            # Call the structured API, passing the QueryList model directly
+            response_model: QueryListValidationModel = query_client.call_structured_api(
+                prompt=prompt, output_schema=QueryListValidationModel
+            )
+            # Access the validated list directly
+            queries = response_model.queries
+
+            logger.info(
+                f"Generated {len(queries)} secondary queries via structured output."
+            )
             return queries
+
         except Exception as e:
-            logger.error(f"LLM query generation failed: {e}")
+            logger.error(f"LLM structured query generation failed: {e}", exc_info=True)
             raise RuntimeError(f"Failed to generate secondary queries: {e}") from e
 
-    def _outline(
-        self, topic: str, top_chunk: Optional[ResearchChunk], chunk_summaries: str
-    ) -> Outline:
-        """Create article outline using LLM reasoning with top chunk context."""
-        prompt = outline_prompt(topic, top_chunk, chunk_summaries)
-
-        # Use ToM to predict reviewer expectations (only if enabled)
-        tom_context = None
-        if self.tom_module and self.tom_module.enabled:
-            logger.info("Generating ToM prediction for reviewer expectations")
-            from src.collaborative.theory_of_mind import AgentRole
-
-            tom_prediction = self.tom_module.predict_agent_response(
-                predictor=AgentRole.WRITER,
-                target=AgentRole.REVIEWER,
-                context={
-                    "topic": topic,
-                    "has_research": bool(top_chunk),
-                    "action": "outline_review",
-                },
+    def _write_sections(
+        self,
+        topic: str,
+        outline: "Outline",
+        chunk_summaries_str: str,
+        tom_context: Optional[str],
+    ) -> "Article":
+        """Sequential section writing (no threads)."""
+        sections_out: Dict[str, str] = {}
+        for h in outline.headings:
+            text = self._write_single_section(
+                section=h,
+                topic=topic,
+                chunk_summaries_str=chunk_summaries_str,
+                tom_context=tom_context,
             )
-            tom_context = tom_prediction.reasoning
-            logger.info(f"ToM prediction: {tom_context}")
+            if text:
+                sections_out[h] = text.strip()
 
-        try:
-            # Use outline model for creating outline
-            outline_client = self.get_task_client("outline")
-
-            # DEBUG: Log the exact prompt being sent
-            final_prompt = self._enhance_prompt_with_tom(prompt, tom_context)
-            logger.info(
-                f"OUTLINE DEBUG - Sending prompt (length={len(final_prompt)}): {final_prompt[:500]}..."
-            )
-
-            response = outline_client.call_api(prompt=final_prompt)
-
-            # DEBUG: Log the exact response received
-            logger.info(
-                f"OUTLINE DEBUG - Received response (length={len(response)}): {repr(response)}"
-            )
-
-            # Check for empty response
-            if not response or not response.strip():
-                logger.warning("Empty response from outline model, using fallback")
-                raise RuntimeError("Empty response from LLM")
-
-            outline = self._parse_outline_from_response(response)
-
-        except Exception as e:
-            logger.warning(f"LLM outline creation failed: {e}, using generic fallback")
-            # Simple fallback - generic outline that always works
-            from src.utils.data.models import Outline
-
-            generic_headings = [
-                "Introduction and Background",
-                "Key Details and Context",
-                "Main Events and Analysis",
-                "Important Outcomes",
-                "Impact and Significance",
-                "Conclusion and Summary",
-            ]
-            outline = Outline(title=topic, headings=generic_headings)
-            logger.info(
-                f"Using generic fallback outline with {len(outline.headings)} sections"
-            )
-
-        # Store outline in memory (whether from LLM or fallback)
-        self.shared_memory.state["initial_outline"] = outline
-        logger.info(
-            f"Created outline with {len(outline.headings)} sections: {outline.headings}"
-        )
-        return outline
-
-    def _write_all_sections(self, outline: Outline):
-        """Sequential section writer - clean and reliable."""
-        # Get Theory of Mind prediction if enabled
-        if self.tom_module and self.tom_module.enabled:
-            from src.collaborative.theory_of_mind import AgentRole
-
-            tom_prediction = self.tom_module.predict_agent_response(
-                AgentRole.WRITER,
-                AgentRole.REVIEWER,
-                {
-                    "article_metrics": {"sections": len(outline.headings)},
-                    "action": "content_review",
-                },
-            )
-            getattr(tom_prediction, "reasoning", None)
-
-        topic = self.shared_memory.state.get("topic")
-        chunk_summaries = self.shared_memory.get_search_summaries()
-        chunk_summaries_str = (
-            "["
-            + "; ".join(
-                f"{q}: {{"
-                + ", ".join(
-                    f"{c.get('chunk_id', '')}: {c.get('description', '').strip()}"
-                    for c in v.get("chunk_summaries", [])
-                )
-                + "}}"
-                for q, v in chunk_summaries.items()
-            )
-            + "]"
-        )
-
-        # Write sections sequentially - simple and reliable
-        article_sections = {}
-        logger.info(f"Writing {len(outline.headings)} sections sequentially")
-
-        for i, section in enumerate(outline.headings, 1):
-            logger.info(f"Writing section {i}/{len(outline.headings)}: '{section}'")
-
-            try:
-                content = self._write_single_section(
-                    section, topic, chunk_summaries_str
-                )
-                if content:
-                    article_sections[section] = content
-                    logger.info(
-                        f"✅ Completed section '{section}' ({len(content)} chars)"
-                    )
-                else:
-                    logger.warning(f"⚠️ Section '{section}' returned no content")
-
-            except Exception as e:
-                logger.error(f"❌ Section '{section}' failed: {e}", exc_info=True)
-                # Continue with other sections
-
-        # Persist article
         article = Article(
             title=topic,
-            content=self._build_full_article_content(topic, article_sections),
-            sections=article_sections,
-            metadata={"iteration": 0, "sections_count": len(article_sections)},
+            content=build_full_article_content(topic, sections_out),
+            sections=sections_out,
+            metadata={
+                "iteration": self.shared_memory.state.get("iteration", 0),
+                "sections_count": len(sections_out),
+                "writing_mode": "section",
+            },
         )
-        self.shared_memory.update_article_state(article)
-        # Set article_content for reviewer compatibility
-        self.shared_memory.state["article_content"] = article.content
-        logger.info(f"Completed writing {len(article_sections)} sections")
+        return article
+
+    def _write_full_article(
+        self,
+        topic: str,
+        outline: "Outline",
+        chunk_summaries_str: str,
+        tom_context: Optional[str],
+    ) -> "Article":
+        """One-shot full article generation."""
+        base_prompt = write_full_article_prompt(
+            topic=topic,
+            headings=outline.headings,
+            relevant_info=chunk_summaries_str,
+        )
+        prompt = enhance_prompt_with_tom(base_prompt, tom_context)
+
+        client = self.get_task_client("writer")
+        text = (client.call_api(prompt=prompt) or "").strip()
+
+        return Article(
+            title=topic,
+            content=text,
+            sections={},  # one-shot; sections can be derived later if desired
+            metadata={
+                "iteration": self.shared_memory.state.get("iteration", 0),
+                "sections_count": len(outline.headings),
+                "writing_mode": "full_article",
+            },
+        )
 
     def _write_single_section(
-        self, section: str, topic: str, chunk_summaries_str: str
+        self,
+        section: str,
+        topic: str,
+        chunk_summaries_str: str,
+        tom_context: Optional[str] = None,
     ) -> Optional[str]:
-        """Write a single section with proper error handling."""
+        """Single section writer (structured selection + write)."""
         try:
-            # 1. Ask LLM to select chunks (Step 6a) - using section selection model
             select_prompt = select_section_chunks_prompt(
-                section, topic, chunk_summaries_str, self.num_chunks
+                section,
+                topic,
+                chunk_summaries_str,
+                self.retrieval_config.max_content_pieces,
             )
             selection_client = self.get_task_client("section_selection")
-            select_resp = selection_client.call_api(prompt=select_prompt)
-
-            # 2. Parse and dedupe chunk IDs
-            chunk_ids = self.parse_chunk_ids_from_response(select_resp)
-            chunk_ids = [
-                cid.strip() for cid in chunk_ids if isinstance(cid, str) and cid.strip()
-            ]
-            seen = set()
-            chunk_ids = [c for c in chunk_ids if not (c in seen or seen.add(c))][
-                : self.num_chunks
-            ]
-            if not chunk_ids:
-                logger.warning(f"No chunks selected for section '{section}'")
-                return None
-
-            # 3. Retrieve chunks via tool
-            tool_resp = get_chunks_by_ids.invoke({"chunk_ids": chunk_ids})
-            if not tool_resp.get("success"):
-                logger.error(f"Tool failed for '{section}': {tool_resp.get('error')}")
-                return None
-
-            chunks_obj = tool_resp["chunks"]
-            chunk_models = (
-                {
-                    cid: ResearchChunk.model_validate(data)
-                    for cid, data in chunks_obj.items()
-                }
-                if isinstance(chunks_obj, dict)
-                else {
-                    d["chunk_id"]: ResearchChunk.model_validate(d) for d in chunks_obj
-                }
+            sel = selection_client.call_structured_api(
+                prompt=select_prompt, output_schema=ChunkSelectionValidationModel
             )
+            chunk_ids = getattr(sel, "chunk_ids", None) or []
+            if not chunk_ids:
+                return None
 
-            # 4. Build chunk string with proper citation info
+            chunk_models = self.shared_memory.get_chunks_by_ids(chunk_ids)
+            if not chunk_models:
+                return None
+
             chunks_str = ", ".join(
-                f"{cid} {{content: {m.content}, "
-                f"score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
+                f"{cid} {{content: {m.content}, score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
                 for cid, m in chunk_models.items()
             )
 
-            # 5. Write section content (Step 6b) - using section writing model
             write_prompt = write_section_content_prompt(section, topic, chunks_str)
-            writing_client = self.get_task_client("section_writing")
-            write_resp = writing_client.call_api(prompt=write_prompt)
-            content = self._clean_section_content(write_resp)
+            final_prompt = enhance_prompt_with_tom(write_prompt, tom_context)
 
-            return content
-
-        except Exception as e:
-            logger.error(f"Failed to write section '{section}': {e}", exc_info=True)
+            client = self.get_task_client("writer")
+            return (client.call_api(prompt=final_prompt) or "").strip()
+        except Exception:
             return None
 
-    @staticmethod
-    def parse_chunk_ids_from_response(response: str) -> List[str]:
-        """Parse chunk IDs from LLM response."""
-        lines = [line.strip() for line in response.strip().split("\n") if line.strip()]
-        chunk_ids = []
-
-        for line in lines:
-            # Assume each line is a chunk ID or comma-separated IDs
-            ids = [part.strip() for part in line.split(",") if part.strip()]
-            chunk_ids.extend(ids)
-
-        return chunk_ids if chunk_ids else []
-
-    def _get_pending_feedback(self) -> Dict:
-        """Get pending feedback using tool."""
-        self._log_tool_decision(
-            "get_feedback", "Retrieve pending feedback", {"only_pending": True}
-        )
-        result = self.feedback_tool.invoke({"only_pending": True})
-
-        if not result.get("success"):
-            raise RuntimeError(f"Failed to retrieve pending feedback: {result}")
-        return result
-
-    def _extract_target_sections(self, feedback_result: Dict) -> List[str]:
-        """Extract sections that need revision from feedback (Python logic)."""
-        feedback_items = feedback_result.get("feedback", [])
-        sections_to_revise = set()
-
-        for feedback_item in feedback_items:
-            target_section = feedback_item.get("target_section")
-            if target_section and feedback_item.get("status") == "pending":
-                sections_to_revise.add(target_section)
-
-        return list(sections_to_revise)
-
-    def _revise_section(self, section: str):
-        """Revise a specific section with feedback and ToM context."""
-        # Get section-specific feedback
-        section_feedback = self._get_section_feedback(section)
-
-        # Get previous section content
-        previous_iteration = self.shared_memory.get_current_iteration() - 1
-        previous_sections = self.shared_memory.get_sections_from_iteration(
-            previous_iteration
-        )
-        previous_content = previous_sections.get(section) if previous_sections else None
-
-        if not previous_content:
-            logger.warning(
-                f"No previous content found for section '{section}', creating new content"
-            )
-
-        # Get relevant chunks as ResearchChunk objects
-        relevant_chunks = self.shared_memory.get_stored_chunks()
-
-        # Use ToM to predict reviewer response (only if enabled)
-        tom_context = None
-        if self.tom_module and self.tom_module.enabled:
-            logger.info(f"Generating ToM prediction for section '{section}' revision")
-            from src.collaborative.theory_of_mind import AgentRole
-
-            tom_prediction = self.tom_module.predict_agent_response(
-                predictor=AgentRole.WRITER,
-                target=AgentRole.REVIEWER,
-                context={
-                    "section": section,
-                    "has_previous_content": bool(previous_content),
-                    "feedback_count": len(section_feedback),
-                    "action": "section_revision_review",
-                },
-            )
-            tom_context = tom_prediction.reasoning
-
-        # Generate revised content
-        revised_content = self._revise_section_content(
-            section, previous_content, section_feedback, relevant_chunks, tom_context
-        )
-
-        # Update section in current article
-        current_article = self.shared_memory.get_current_article()
-        logger.info(
-            f"🔍 REVISION DEBUG: current_article is {'None' if current_article is None else 'available'} in iteration {self.shared_memory.get_current_iteration()}"
-        )
-
-        if not current_article:
-            # During revision, get article from previous iteration if current iteration has no draft
-            current_iteration = self.shared_memory.get_current_iteration()
-            if current_iteration > 0:
-                # Get draft from previous iteration
-                prev_draft = self.shared_memory.get_previous_draft()
-                if prev_draft:
-                    logger.info(
-                        f"🔍 REVISION DEBUG: Using draft from iteration {current_iteration - 1} for revision"
-                    )
-                    prev_sections = self.shared_memory.get_sections_from_iteration(
-                        current_iteration - 1
-                    )
-                    from src.utils.data import Article
-
-                    current_article = Article(
-                        title=self.shared_memory.state.get("topic", "Untitled"),
-                        content=prev_draft,
-                        sections=prev_sections,
-                        metadata=self.shared_memory.state.get("metadata", {}),
-                    )
-
-        if current_article:
-            current_article.sections[section] = revised_content
-            # Rebuild full content
-            current_article.content = self._build_full_article_content(
-                current_article.title, current_article.sections
-            )
-            self.shared_memory.update_article_state(current_article)
-            # Set article_content for reviewer compatibility
-            self.shared_memory.state["article_content"] = current_article.content
-            logger.info(
-                f"🔍 REVISION DEBUG: Successfully stored revised article in iteration {self.shared_memory.get_current_iteration()}"
-            )
-        else:
-            logger.error(
-                f"🔍 REVISION DEBUG: No article available for revision in iteration {self.shared_memory.get_current_iteration()}"
-            )
-
-        logger.info(f"Revised section '{section}' successfully")
-
-    def _mark_feedback_addressed(self, sections_to_revise: List[str]):
-        """Mark feedback as addressed for revised sections."""
-        for section in sections_to_revise:
-            section_feedback_items = self.shared_memory.get_feedback_for_section(
-                section
-            )
-            for feedback_item in section_feedback_items:
-                if feedback_item.get("status") == "pending":
-                    feedback_id = feedback_item.get("feedback_id")
-                    if feedback_id:
-                        # Use existing SharedMemory method to mark as claimed by writer
-                        self.shared_memory.mark_feedback_claimed_by_writer(
-                            feedback_id, f"Addressed in section revision"
-                        )
-                        logger.info(
-                            f"Marked feedback {feedback_id} as addressed for section '{section}'"
-                        )
-
-    def _get_section_feedback(self, section: str) -> List[Dict]:
-        """Get feedback specific to a section."""
-        return self.shared_memory.get_feedback_for_section(section)
-
-    def _build_revision_prompt(
+    def _revise_sections_batch(
         self,
-        section: str,
-        previous_content: Optional[str],
-        feedback: List[Dict],
-        chunks: List[ResearchChunk],
-        tom_context: Optional[str] = None,
-    ) -> str:
-        """Build revision prompt for section content based on feedback."""
-        prompt_parts = [
-            f"You are an expert writer revising the '{section}' section of an article.",
-            "",
-            "TASK: Revise the section content based on the feedback provided.",
-            "",
-        ]
+        article: "Article",
+        pending_by_section: dict[str, list["FeedbackStoredModel"]],
+    ) -> None:
+        """
+        Batch mode: one LLM call to revise all sections that have PENDING feedback.
+        """
+        # 1) Prompt → batch model
+        batch_prompt = build_revision_batch_prompt(article, pending_by_section)
+        client = self.get_task_client("revision_batch")
+        batch_model = client.call_structured_api(
+            prompt=batch_prompt, output_schema=WriterValidationBatchModel
+        )
 
-        if previous_content:
-            prompt_parts.extend(
-                [
-                    "PREVIOUS CONTENT:",
-                    previous_content,
-                    "",
-                ]
+        # 2) Map feedback id -> section for routing patches
+        id_to_section = {
+            it.id: sec for sec, items in pending_by_section.items() for it in items
+        }
+
+        # 3) Apply feedback updates and collect section patches
+        section_patches: dict[str, str] = {}
+
+        for vm in batch_model.items:
+            # feedback updates (via memory)
+            results = self.shared_memory.apply_feedback_updates(vm.updates)
+
+            # infer target section from first resolvable id; fallback to '_overall'
+            target_section = next(
+                (
+                    id_to_section.get(upd.id)
+                    for upd in vm.updates
+                    if id_to_section.get(upd.id) is not None
+                ),
+                "_overall",
             )
+            if not isinstance(target_section, str):
+                target_section = "_overall"
 
-        if feedback:
-            prompt_parts.append("FEEDBACK TO ADDRESS:")
-            for i, fb in enumerate(feedback, 1):
-                prompt_parts.append(
-                    f"{i}. {fb.get('feedback', 'No feedback provided')}"
+            # warn for any prompted ids in that section not updated
+            prompted_ids = {it.id for it in pending_by_section.get(target_section, [])}
+            missing = [fid for fid in prompted_ids if not results.get(fid, False)]
+            if missing:
+                logger.warning(
+                    f"[revise/batch] Section '{target_section}': missing/failed updates for ids={sorted(missing)}"
                 )
-            prompt_parts.append("")
 
-        if chunks:
-            prompt_parts.extend(
-                [
-                    "AVAILABLE RESEARCH SOURCES:",
-                    'Use these sources for citations with format <c cite="chunk_id"/>:',
-                ]
-            )
-            for chunk in chunks[:5]:  # Limit to top 5 chunks
-                prompt_parts.append(f"- {chunk.chunk_id}: {chunk.content[:200]}...")
-            prompt_parts.append("")
+            # we only support partial section rewrites—coerce if needed
+            if vm.content_type != "partial_section":
+                logger.warning(
+                    f"[revise/batch] Model returned '{vm.content_type}', coercing to 'partial_section'"
+                )
 
-        if tom_context:
-            prompt_parts.extend(
-                [
-                    "REVIEWER EXPECTATIONS:",
-                    tom_context,
-                    "",
-                ]
-            )
+            section_patches[target_section] = vm.updated_content
 
-        prompt_parts.extend(
-            [
-                "REQUIREMENTS:",
-                "- Address all feedback points",
-                "- Maintain factual accuracy",
-                '- Use proper citations with <c cite="chunk_id"/> format',
-                "- Keep content well-structured and engaging",
-                "",
-                f"Write the revised content for the '{section}' section:",
-            ]
-        )
-
-        return "\n".join(prompt_parts)
-
-    def _revise_section_content(
-        self,
-        section: str,
-        previous_content: Optional[str],
-        feedback: List[Dict],
-        chunks: List[ResearchChunk],
-        tom_context: Optional[str] = None,
-    ) -> str:
-        """Revise section content using LLM with feedback and ToM context."""
-        prompt = self._build_revision_prompt(
-            section, previous_content, feedback, chunks, tom_context
-        )
-
-        try:
-            # Use section revision model for revising sections (Iteration 1+)
-            revision_client = self.get_task_client("section_revision")
-            response = revision_client.call_api(prompt=prompt)
-            return self._clean_section_content(response)
-        except Exception as e:
-            logger.error(
-                f"LLM revision failed for section '{section}': {e}", exc_info=True
-            )
-            raise RuntimeError(f"Failed to revise section '{section}': {e}") from e
-
-    def _enhance_prompt_with_tom(
-        self, base_prompt: str, tom_context: Optional[str]
-    ) -> str:
-        """Enhance prompt with Theory of Mind context if available."""
-        if not tom_context:
-            return base_prompt
-        return f"{base_prompt}\n\nCollaborative context: {tom_context}"
-
-    @staticmethod
-    def _parse_queries_from_response(response: str) -> List[str]:
-        """Parse queries from LLM response."""
-        lines = [line.strip() for line in response.strip().split("\n") if line.strip()]
-        # Filter out empty lines and take up to 5 queries
-        queries = [line for line in lines if line and not line.startswith("#")][:5]
-        return queries if queries else ["No additional queries generated"]
-
-    def _parse_outline_from_response(self, response: str) -> Outline:
-        """Parse outline from LLM response using V1-style ## headings."""
-        lines = [line.strip() for line in response.strip().split("\n") if line.strip()]
-        headings = []
-
-        for line in lines:
-            clean_line = line.strip()
-
-            # Look for V1-style ## section headings
-            if clean_line.startswith("## "):
-                heading = clean_line[3:].strip()  # Remove "## " prefix
-                # Clean any md formatting
-                heading = heading.replace("**", "").replace("*", "").strip()
-                # Remove brackets if present [Short Title]
-                if heading.startswith("[") and heading.endswith("]"):
-                    heading = heading[1:-1].strip()
-
-                if heading and len(heading) > 3:  # Ensure meaningful headings
-                    headings.append(heading)
-
-        if not headings:
-            # Fallback outline with proper sections
-            logger.error(f"Failed to parse outline from response: {response}")
-            raise RuntimeError(f"Failed to parse outline from response: {response}")
-
-        topic = self.shared_memory.state.get("topic", "Topic")
-        logger.info(f"Parsed {len(headings)} main sections from outline: {headings}")
-        return Outline(title=topic, headings=headings)
-
-    def _clean_section_content(self, content: str) -> str:
-        """Clean and format section content."""
-        # Remove common artifacts and clean up
-        content = content.strip()
-
-        # Remove section headers if they appear at the start
-        lines = content.split("\n")
-        cleaned_lines = []
-
-        for line in lines:
-            # Skip lines that look like section headers at the start
-            if not cleaned_lines and (
-                line.startswith("#") or line.isupper() and len(line) < 50
-            ):
-                continue
-            cleaned_lines.append(line)
-
-        return "\n".join(cleaned_lines).strip()
-
-    def _build_full_article_content(self, title: str, sections: dict) -> str:
-        """Build complete article content with citations and references."""
-        content_parts = []
-
-        # Add title
-        content_parts.append(f"# {title}\n")
-
-        # Build main content from sections dictionary
-        main_content = ""
-        for section_title, section_content in sections.items():
-            main_content += f"\n## {section_title}\n\n{section_content}\n"
-
-        content_parts.append(main_content)
-
-        # Extract citations and build reference list
-        citations = self._extract_citations_from_content(main_content)
-        references = self._build_reference_list(citations)
-
-        if references:
-            content_parts.append(references)
-
-        return "".join(content_parts)
-
-    def _extract_citations_from_content(
-        self, content: str
-    ) -> Dict[str, Dict[str, str]]:
-        """Extract all chunk ID citations from content and get their URLs."""
-        import re
-
-        citations = {}
-
-        # Find all chunk ID citations in citation tags
-        citation_pattern = r'<c cite="([a-zA-Z0-9_]+)"/>'
-        matches = re.findall(citation_pattern, content)
-
-        if not matches:
-            return citations
-
-        # Get chunk details for each citation
-        try:
-            from src.collaborative.tools.tool_definitions import get_chunks_by_ids
-
-            result = get_chunks_by_ids.invoke({"chunk_ids": list(set(matches))})
-
-            if result.get("success") and result.get("chunks"):
-                chunks_data = result["chunks"]
-
-                for chunk_id in set(matches):
-                    if chunk_id in chunks_data:
-                        chunk_info = chunks_data[chunk_id]
-                        citations[chunk_id] = {
-                            "url": chunk_info.get("url", "N/A"),
-                            "source": chunk_info.get("source", "Unknown"),
-                            "title": chunk_info.get("title", "Unknown"),
-                        }
-        except Exception as e:
-            logger.warning(f"Failed to extract citation details: {e}")
-
-        return citations
-
-    def _build_reference_list(self, citations: Dict[str, Dict[str, str]]) -> str:
-        """Build a formatted reference list from citations."""
-        if not citations:
-            return ""
-
-        ref_content = "\n\n## References\n\n"
-
-        for i, (chunk_id, details) in enumerate(citations.items(), 1):
-            url = details.get("url", "N/A")
-            title = details.get("title", "Unknown")
-            source = details.get("source", "Unknown")
-
-            if url != "N/A":
-                ref_content += f"{i}. {title} - {url}\n"
+        # 4) Apply patches → rebuild → persist once
+        article.sections = dict(article.sections or {})
+        for sec, text in section_patches.items():
+            if sec == "_overall":
+                # apply to full content only (no full re-write elsewhere)
+                article.content = text
             else:
-                ref_content += f"{i}. {title} (Source: {source})\n"
+                article.sections[sec] = text
 
-        return ref_content
+        # rebuild from sections if we have them
+        if article.sections:
+            try:
+                article.content = build_full_article_content(
+                    article.title, article.sections
+                )
+            except Exception as e:
+                logger.warning(f"[revise/batch] Rebuild failed: {e}")
 
-    def _log_tool_decision(
-        self, tool_name: str, decision_reason: str, context: dict = None
-    ):
-        """Log tool selection with decision reasoning for debugging."""
-        log_msg = f"Tool decision: {tool_name} - Reason: {decision_reason}"
-        if context:
-            log_msg += f" - Context: {context}"
-        logger.info(log_msg)
+        self.shared_memory.update_article_state(article)
+
+    def _revise_sections_sequential(
+        self,
+        article: "Article",
+        pending_by_section: dict[str, list["FeedbackStoredModel"]],
+    ) -> None:
+        """
+        Sequential mode: one LLM call per section that has PENDING feedback.
+        """
+        client = self.get_task_client("revision")
+
+        for section, items in pending_by_section.items():
+            # 1) Prompt → single section model
+            prompt = build_single_section_revision_prompt(article, section, items)
+            vm = client.call_structured_api(
+                prompt=prompt, output_schema=WriterValidationModel
+            )
+
+            # 2) feedback updates (via memory)
+            results = self.shared_memory.apply_feedback_updates(vm.updates)
+            prompted_ids = {it.id for it in items}
+            missing = [fid for fid in prompted_ids if not results.get(fid, False)]
+            if missing:
+                logger.warning(
+                    f"[revise/single] Section '{section}': missing/failed updates for ids={sorted(missing)}"
+                )
+
+            # 3) apply section patch (coerce to partial)
+            if vm.content_type != "partial_section":
+                logger.warning(
+                    f"[revise/single] Model returned '{vm.content_type}', coercing to 'partial_section'"
+                )
+
+            if section == "_overall":
+                # apply to full content only (no full re-write elsewhere)
+                article.content = vm.updated_content
+            else:
+                article.sections = dict(article.sections or {})
+                article.sections[section] = vm.updated_content
+
+        # 4) rebuild once at the end → persist once
+        if article.sections:
+            try:
+                article.content = build_full_article_content(
+                    article.title, article.sections
+                )
+            except Exception as e:
+                logger.warning(f"[revise/single] Rebuild failed: {e}")
+
+        self.shared_memory.update_article_state(article)
+
+
+# endregion WriterV2 Helpers

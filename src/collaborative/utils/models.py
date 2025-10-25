@@ -180,27 +180,25 @@ class WriterStatusUpdate(BaseModel):
     # NOTE: if status == VERIFIED_ADDRESSED is returned, we will ignore it (writer can't verify).
 
 
-class SectionRewrite(BaseModel):
-    section: str = Field(description="Section to replace.")
-    content: str = Field(description="Complete rewritten content for the section.")
+class WriterValidationModel(BaseModel):
+    """Model for writer's feedback status updates."""
 
-
-class RevisionValidationModel(BaseModel):
-    """
-    Writer LLM output: content + minimal updates in one object.
-    Exactly one content channel should be used.
-    """
-
-    mode: Literal["sections", "full"] = Field(description="Rewrite mode.")
-    sections: Optional[List[SectionRewrite]] = Field(
-        default=None, description="If mode='sections', provide these."
+    updates: List[WriterStatusUpdate] = Field(
+        description="Per-item status updates from the writer."
     )
-    full_article: Optional[str] = Field(
-        default=None, description="If mode='full', provide the entire article."
+    updated_content: str = Field(
+        description="The revised content after addressing feedback."
     )
-    updates: List[WriterStatusUpdate] = Field(description="Per-item status updates.")
-    notes: Optional[str] = Field(
-        default=None, description="Optional rationale for major edits."
+    content_type: Literal["full_article", "partial_section"] = Field(
+        description="Indicates if the updated_content is a full article or a partial revision."
+    )
+
+
+class WriterValidationBatchModel(BaseModel):
+    """Batch model for multiple writer feedback status updates."""
+
+    items: List[WriterValidationModel] = Field(
+        description="List of writer validation models for batch processing."
     )
 
 

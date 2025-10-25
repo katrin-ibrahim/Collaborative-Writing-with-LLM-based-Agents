@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional
 
+from collaborative.utils.models import FeedbackStoredModel
 from src.utils.data import Article
 
 
@@ -220,14 +221,7 @@ def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
     """
 
     # Consolidate research context
-    research_context = ""
-    if top_chunk or chunk_summaries:
-        research_context = "\n--- RESEARCH CONTEXT ---\n"
-        if top_chunk:
-            research_context += f"TOP CHUNK:\n{top_chunk}\n\n"
-        if chunk_summaries:
-            research_context += f"SUMMARIZED RESEARCH:\n{chunk_summaries}\n"
-        research_context += "----------------------\n"
+    research_context = consolidate_research(topic, top_chunk, chunk_summaries)
 
     # NOTE: The instruction for JSON output will be added by the call_structured_api method.
     # We focus here on the core task.
@@ -245,6 +239,41 @@ STRICT REQUIREMENTS FOR JSON OUTPUT:
    (leveraging names, dates, organizations, and concepts). ABSOLUTELY NO generic titles
    (e.g., "Introduction," "Conclusion," "Key Points," or "Summary").
 """
+
+
+def refine_outline_prompt(
+    topic: str, top_chunk: str, chunk_summaries: str, previous_outline: str
+) -> str:
+    """Generate prompt for refining article outline with research context."""
+    research_context = consolidate_research(topic, top_chunk, chunk_summaries)
+
+    prompt = f"""
+You are refining an existing article outline for the topic: "{topic}", to be more detailed and entity rich.
+The outline should be informed by the research context provided below.
+{research_context}
+
+Existing Outline:
+{previous_outline}
+Your task is to enhance this outline by:
+- Making section titles more specific and analytical
+- Ensuring all sections leverage entities from the research context
+- Maintaining exactly {HEADING_COUNT} sections
+"""
+    return prompt
+
+
+def consolidate_research(topic: str, top_chunk: str, chunk_summaries: str) -> str:
+    """Generate prompt for consolidating research information for article writing."""
+    research_context = ""
+    if top_chunk or chunk_summaries:
+        research_context = "\n--- RESEARCH CONTEXT ---\n"
+        if top_chunk:
+            research_context += f"TOP CHUNK:\n{top_chunk}\n\n"
+        if chunk_summaries:
+            research_context += f"SUMMARIZED RESEARCH:\n{chunk_summaries}\n"
+        research_context += "----------------------\n"
+
+    return research_context
 
 
 def select_section_chunks_prompt(
@@ -318,6 +347,51 @@ CITATION INSTRUCTIONS - CRITICAL:
 """
 
 
+def write_full_article_prompt(
+    topic: str, headings: List[str], relevant_info: str
+) -> str:
+    """Generate prompt for full-article writing consistent with section prompt rules."""
+    headings_hint = "\n".join(f"- {h}" for h in headings) if headings else ""
+    research_context = ""
+    if relevant_info:
+        research_context = f"Use this possibly relevant information gathered during research: {relevant_info}"
+
+    return f"""
+Write a high-quality encyclopedia-style article about "{topic}".
+
+You MUST structure the article to exactly fill the provided outline and include each section heading as a Markdown H2 line in this exact order:
+{headings_hint}
+
+Formatting rules:
+- Begin each section with its exact heading prefixed by '## ' (Markdown H2).
+- After each H2, write 2–4 coherent paragraphs for that section.
+- Do not add extra sections or change heading wording.
+
+{research_context}
+
+CRITICAL: Write ONLY the article content. Do NOT include:
+- Conversational language or meta-commentary
+- Questions to the user
+- Placeholder text or requests for clarification
+
+Requirements:
+- Ground content in the provided research information where applicable
+- Include specific details and examples from sources
+- Maintain an informative, objective tone with smooth transitions
+- Avoid repetition and avoid any preambles or summaries outside the article text
+
+CITATION INSTRUCTIONS - CRITICAL:
+- The research information above contains chunk IDs at the start of each piece of information (format: "chunk_id {{content: ...}}")
+- When referencing information from the research chunks, cite using the EXACT chunk ID in citation tags: <c cite="chunk_id"/>
+- For claims that need additional sourcing, mark with: <needs_source/>
+- ABSOLUTELY FORBIDDEN: Making up chunk IDs, URLs, or references not in the research data
+- ABSOLUTELY FORBIDDEN: Using generic citations like [1], [2], [source_1], [chunk_1]
+- ABSOLUTELY FORBIDDEN: Inventing fake URLs or fake chunk IDs like "chunk_42", "chunk_77"
+- If no research chunk IDs are provided, do NOT include any citations - write content without citation tags
+- VERIFICATION: Before writing each citation, confirm the exact chunk ID exists in the research information above
+"""
+
+
 def search_query_generation_prompt(
     topic: str, context: str = "", num_queries: int = 5
 ) -> str:
@@ -359,11 +433,158 @@ The resulting list ('queries' key) MUST contain exactly {num_queries} elements.
 """
 
 
+def safe_trim(text: str, max_chars: int = 6000) -> str:
+    if not text or len(text) <= max_chars:
+        return text or ""
+    head = max_chars // 2
+    tail = max_chars - head
+    return text[:head] + "\n...\n" + text[-tail:]
+
+
+def fmt_feedback_line(it: "FeedbackStoredModel") -> str:
+    parts = [
+        f"id={it.id}",
+        f"type={it.type}",
+        f"priority={it.priority}",
+        f"issue={it.issue}",
+        f"suggestion={it.suggestion}",
+    ]
+    if it.quote:
+        parts.append(f"quote={it.quote}")
+    if it.paragraph_number:
+        parts.append(f"paragraph={it.paragraph_number}")
+    if it.location_hint:
+        parts.append(f"loc={it.location_hint}")
+    return " | ".join(parts)
+
+
 def enhance_prompt_with_tom(base_prompt: str, tom_context: Optional[str]) -> str:
     """Enhance prompt with Theory of Mind context if available."""
     if not tom_context:
         return base_prompt
     return f"{base_prompt}\n\nCollaborative context: {tom_context}"
+
+
+def build_single_section_revision_prompt(
+    article: "Article",
+    section: str,
+    items: list["FeedbackStoredModel"],
+) -> str:
+    current_text = (
+        article.content
+        if section == "_overall"
+        else (article.sections or {}).get(section, "")
+    )
+    lines: list[str] = [
+        "ROLE: You are revising an encyclopedia-style article section.",
+        "GOAL: Address ONLY the PENDING feedback for THIS section.",
+        "",
+        "OUTPUT RULES:",
+        "- Return a single JSON object matching WriterValidationModel exactly.",
+        "- content_type MUST be 'partial_section'.",
+        "- updated_content MUST be the FULL replacement text of THIS section only.",
+        "- updates MUST include a status for EVERY feedback id listed (addressed or wont_fix).",
+        "- Keep tone neutral, factual, precise; no markdown headers or preambles.",
+        "- Preserve correct facts; NEVER invent citations or sources.",
+        "- If a suggestion is unsafe or clearly wrong, set status='wont_fix' and explain shortly in writer_comment.",
+        "- Keep length roughly similar unless feedback asks otherwise.",
+        "",
+        f"ARTICLE_TITLE: {article.title}",
+        f"SECTION: {section}",
+        "CURRENT_TEXT:",
+        safe_trim(current_text, max_chars=6000),
+        "PENDING_FEEDBACK_ITEMS:",
+    ]
+    for it in items:
+        lines.append(f"- {fmt_feedback_line(it)}")
+
+    # strict schema echo
+    lines += [
+        "",
+        "Return EXACTLY this JSON shape (no extra keys):",
+        "{",
+        '  "updates": [',
+        '    {"id":"<fid>","status":"addressed|wont_fix","writer_comment":"<short note or empty>"}',
+        "  ],",
+        '  "updated_content": "<full replacement text for this section>",',
+        '  "content_type": "partial_section"',
+        "}",
+    ]
+    return "\n".join(lines)
+
+
+def build_revision_batch_prompt(
+    article: "Article",
+    pending_by_section: dict[str, list["FeedbackStoredModel"]],
+) -> str:
+    lines: list[str] = [
+        "ROLE: You are revising an encyclopedia-style article.",
+        "GOAL: Address ONLY the PENDING feedback for the sections listed below.",
+        "",
+        "OUTPUT RULES:",
+        "- Return a single JSON object matching WriterValidationBatchModel exactly.",
+        "- Provide ONE item per section that appears below.",
+        "- For each item:",
+        "  - content_type MUST be 'partial_section'.",
+        "  - updated_content MUST be the FULL replacement text for that section.",
+        "  - updates MUST include a status for EVERY feedback id listed for that section (addressed or wont_fix).",
+        "- Keep tone neutral, factual; no markdown headers or preambles.",
+        "- Preserve correct facts; NEVER invent citations or sources.",
+        "- If a suggestion is unsafe or clearly wrong, set status='wont_fix' and explain briefly.",
+        "- Keep length roughly similar unless feedback asks otherwise.",
+        "",
+        f"ARTICLE_TITLE: {article.title}",
+        "",
+        "SECTIONS_TO_REVISE:",
+    ]
+
+    for sec, items in pending_by_section.items():
+        cur_text = (
+            article.content
+            if sec == "_overall"
+            else (article.sections or {}).get(sec, "")
+        )
+        lines.append(f"\n=== SECTION: {sec} ===")
+        lines.append("CURRENT_TEXT:")
+        lines.append(safe_trim(cur_text, max_chars=6000))
+        lines.append("PENDING_FEEDBACK_ITEMS:")
+        for it in items:
+            lines.append(f"- {fmt_feedback_line(it)}")
+
+    # strict schema echo
+    lines += [
+        "",
+        "Return EXACTLY this JSON shape (no extra keys):",
+        "{",
+        '  "items": [',
+        "    {",
+        '      "updates": [',
+        '        {"id":"<fid>","status":"addressed|wont_fix","writer_comment":"<short note or empty>"}',
+        "      ],",
+        '      "updated_content": "<full replacement for this section>",',
+        '      "content_type": "partial_section"',
+        "    }",
+        "  ]",
+        "}",
+    ]
+    return "\n".join(lines)
+
+
+def build_self_refine_prompt(title: str, current_text: str) -> str:
+    """
+    Ultra-light full-article polish: clarity/grammar/flow only.
+    """
+    return (
+        "ROLE: Lightly polish an encyclopedia article for clarity, grammar, and flow.\n"
+        "RULES:\n"
+        "- Do NOT change meaning, facts, or add new information.\n"
+        "- Preserve any citation markers like [id].\n"
+        "- Keep structure and length roughly the same.\n"
+        "- Output ONLY the refined article text (no headers, no commentary).\n\n"
+        f"ARTICLE_TITLE: {title}\n"
+        "CURRENT_TEXT:\n"
+        f"{current_text}\n"
+    )
 
 
 # endregion Writer Prompt Templates
