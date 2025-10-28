@@ -24,7 +24,7 @@ class CollaborationConfig(BaseConfig):
     should_self_refine: bool = False  # whether writers self-refine
 
     def get_file_pattern(self) -> str:
-        return "collaboration_{}.yaml"
+        return "configs/collaboration_{}.yaml"
 
     @classmethod
     def get_default(cls) -> "CollaborationConfig":

@@ -39,15 +39,6 @@ class WriterOnlyV2Method(BaseMethod):
 
     def __init__(self):
         super().__init__()
-        self.collab_config = ConfigContext.get_collaboration_config()
-
-        # Extract key parameters with defaults if config is None
-        if self.collab_config:
-            self.max_iterations = self.collab_config.max_iterations
-        else:
-            # Default parameters - not used in writer-only but kept for consistency
-            self.max_iterations = 1
-            logger.warning("No collaboration config found, using default parameters")
 
     def run(self, topic: str) -> Article:
         """

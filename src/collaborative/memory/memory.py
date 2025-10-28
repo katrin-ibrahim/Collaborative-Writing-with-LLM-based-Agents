@@ -5,7 +5,6 @@ from pathlib import Path
 import logging
 from typing import Any, Dict, Iterable, List, Optional, TypedDict
 
-from collaborative.utils.writer_utils import build_full_article_content
 from src.collaborative.memory.storage import SessionStorage
 from src.collaborative.tom.theory_of_mind import TheoryOfMindModule
 from src.collaborative.utils.models import (
@@ -14,6 +13,7 @@ from src.collaborative.utils.models import (
     SearchSummary,
     WriterStatusUpdate,
 )
+from src.collaborative.utils.writer_utils import build_full_article_content
 from src.utils.data import Outline, ResearchChunk
 from src.utils.data.models import Article
 

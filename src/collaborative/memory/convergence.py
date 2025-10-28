@@ -1,8 +1,5 @@
 from typing import Dict, List, Optional, Tuple
 
-from config.collaboration_config import CollaborationConfig
-from src.config.config_context import ConfigContext
-
 
 class ConvergenceChecker:
     """
@@ -21,58 +18,28 @@ class ConvergenceChecker:
 
     def __init__(
         self,
-        max_iterations: Optional[int] = None,
-        resolution_rate_threshold: Optional[float] = None,
-        collaboration_config: Optional[CollaborationConfig] = None,
-        min_iterations: Optional[int] = None,
-        stall_tolerance: Optional[int] = None,
-        min_improvement: Optional[float] = None,
+        max_iterations: int,
+        resolution_rate_threshold: float,
+        min_iterations: int,
+        stall_tolerance: int,
+        min_improvement: float,
         priority_weights: Optional[
             Dict[str, int]
-        ] = None,  # {"high":3,"medium":2,"low":1}
+        ] = None,  # {"high":3,"medium":2,"low":1} = None,  # {"high":3,"medium":2,"low":1}
         small_tail_max: Optional[int] = None,  # e.g., 5 remaining low/medium items
     ):
-        self.collaboration_config = (
-            collaboration_config or ConfigContext.get_collaboration_config()
-        )
-        if self.collaboration_config is None:
-            raise RuntimeError(
-                "ConvergenceChecker: collaboration_config is None. "
-                "Ensure ConfigContext is properly initialized before using ConvergenceChecker."
-            )
-
-        self.resolution_rate_threshold = (
-            resolution_rate_threshold
-            if resolution_rate_threshold is not None
-            else self.collaboration_config.resolution_rate_threshold
-        )
-        self.max_iterations = (
-            max_iterations
-            if max_iterations is not None
-            else self.collaboration_config.max_iterations
-        )
-        self.min_iterations = (
-            min_iterations
-            if min_iterations is not None
-            else self.collaboration_config.min_iterations
-        )
-        self.stall_tolerance = (
-            stall_tolerance
-            if stall_tolerance is not None
-            else self.collaboration_config.stall_tolerance
-        )
-        self.min_improvement = (
-            min_improvement
-            if min_improvement is not None
-            else self.collaboration_config.min_improvement
-        )
-
-        self.priority_weights = priority_weights or {"high": 3, "medium": 2, "low": 1}
-        # if config exposes a small_tail_max use it; else default to 5
+        self.max_iterations = max_iterations
+        self.resolution_rate_threshold = resolution_rate_threshold
+        self.min_iterations = min_iterations
+        self.stall_tolerance = stall_tolerance
+        self.min_improvement = min_improvement
         self.small_tail_max = (
-            small_tail_max
-            if small_tail_max is not None
-            else getattr(self.collaboration_config, "small_tail_max", 5)
+            small_tail_max if small_tail_max is not None else 5
+        )  # default to 5 if not provided
+        self.priority_weights = (
+            priority_weights
+            if priority_weights is not None
+            else {"high": 3, "medium": 2, "low": 1}
         )
 
         # internal state for stall detection

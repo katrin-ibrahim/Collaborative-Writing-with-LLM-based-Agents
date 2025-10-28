@@ -14,7 +14,6 @@ _retrieval_manager_cache = {}
 
 def create_retrieval_manager(
     rm_type: Optional[str] = None,
-    format_type: Optional[str] = None,
     **kwargs,
 ):
     """
@@ -54,9 +53,9 @@ def create_retrieval_manager(
 
         base_rm = WikiRM(**default_args)
 
-    elif rm_type == "supabase_faiss":
+    elif rm_type == "faiss":
         try:
-            from retrieval.rms.faiss_rm import FaissRM
+            from src.retrieval.rms.faiss_rm import FaissRM
 
             base_rm = FaissRM(**default_args)
         except ImportError as e:
@@ -78,7 +77,7 @@ def create_retrieval_manager(
 
     else:
         logger.error(f"Unknown retrieval manager type: {rm_type}")
-        logger.error(f"Supported types: wiki, supabase_faiss, hybrid")
+        logger.error(f"Supported types: wiki, faiss, hybrid")
         raise ValueError(f"Unsupported retrieval manager type: {rm_type}")
 
     # Cache the instance to avoid repeated model downloads

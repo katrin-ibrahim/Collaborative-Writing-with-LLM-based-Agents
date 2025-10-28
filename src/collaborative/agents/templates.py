@@ -6,6 +6,37 @@ from src.utils.data import Article
 
 # ---------------------------------------- Reviewer Templates ---------------------------------------
 # region Reviewer Prompt Templates
+def build_strategy_prompt(
+    metrics: dict,
+    validation_results: dict,
+    iteration: int,
+    prev_feedback_summary: dict,
+) -> str:
+    return f"""
+You are a Reviewer planning the next review pass.
+
+Context:
+- Iteration: {iteration}
+- Article metrics: {metrics}
+- Citation validation: {validation_results}
+- Previous feedback summary: {prev_feedback_summary}
+
+Decide the BEST strategy for the next review pass.
+Pick ONE:
+- "citation-focused"  (if citations missing/invalid, sources needed, or verifiability is weak)
+- "expansion-focused" (if article is short or lacks depth/coverage)
+- "accuracy-focused"  (if there are correctness, clarity, or contradiction issues)
+- "holistic"          (if the article is maturing and needs broad polish)
+
+Return JSON with:
+{{
+  "strategy": "citation-focused" | "expansion-focused" | "accuracy-focused" | "holistic",
+  "rationale": "short reason",
+  "focus_sections": ["optional", "section", "names"]
+}}
+""".strip()
+
+
 def build_review_prompt_for_strategy(
     article: Article,
     metrics: Dict,
@@ -227,18 +258,22 @@ def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
     # We focus here on the core task.
 
     return f"""
-Generate a comprehensive, entity-rich article outline for the topic: "{topic}".
-The outline MUST be fully informed by the research context provided below.
+    Generate a Wikipedia-style article outline for the topic: "{topic}".
 
-{research_context}
+    Use the research context to identify key entities such as people, organizations, events, locations, and outcomes.
+    Headings should reflect these specific entities and capture factual, verifiable aspects of the topic.
 
-STRICT REQUIREMENTS FOR JSON OUTPUT:
-1. 'title' field must match the topic exactly.
-2. 'headings' field must be a list of exactly {HEADING_COUNT} section titles.
-3. All {HEADING_COUNT} section titles must be highly specific, analytical, and entity-rich
-   (leveraging names, dates, organizations, and concepts). ABSOLUTELY NO generic titles
-   (e.g., "Introduction," "Conclusion," "Key Points," or "Summary").
-"""
+    {research_context}
+
+    Guidelines:
+    - Each heading must refer to a concrete entity, event, or concept found in the context.
+    - Maintain a logical flow from background and participants to event details, consequences, and legacy.
+    - Avoid abstract or essay-like titles (e.g., "Analysis", "Reactions", "Summary").
+    - Use short, descriptive noun phrases (ideally under 8 words).
+    - Keep the tone factual, neutral, and encyclopedic — matching real Wikipedia article structure.
+    - Ensure exactly {HEADING_COUNT} headings in total.
+    - Headings must be a flat list of strings — no objects, no key–value pairs, no nested arrays, no annotations.
+    """
 
 
 def refine_outline_prompt(
@@ -398,7 +433,6 @@ def search_query_generation_prompt(
     """Generate prompt for creating targeted search queries for structured output."""
     context_section = ""
     if context:
-        # ... (rest of the context_section creation remains the same) ...
         context_section = f"""
 CONTEXT FROM INITIAL SEARCH:
 {context}
@@ -408,28 +442,33 @@ First, extract key entities from this context:
 Then use these entities to create specific, relationship-focused queries.
 """
 
-    return f"""
-You must generate exactly {num_queries} highly targeted search queries for comprehensive research about: {topic}
+    return f""" You are generating wiki-style search queries for knowledge retrieval.
+
+TASK
+Generate exactly {num_queries} concise Wikipedia page titles related to the topic below.
+Titles must look like real Wikipedia article names — not questions.
+
+INPUT TOPIC: "{topic}"
+
 {context_section}
-Create queries that explore specific relationships and details by combining entities and concepts from the context.
 
-Query Strategy:
-1. ENTITY RELATIONSHIPS: How do key people/organizations interact?
-2. TEMPORAL ANALYSIS: What happened before/during/after key events?
-3. CAUSAL CONNECTIONS: What factors led to specific outcomes?
-4. COMPARATIVE ANALYSIS: How does this compare to similar cases?
-5. DETAILED MECHANICS: What are the specific processes/strategies involved?
+INSTRUCTIONS
+- Prefer concrete, named entities (people, teams, venues, events, years).
+- Use Wikipedia disambiguation style when needed: e.g., "Chris Scott (Australian footballer)".
+- Avoid generic phrases like: result(s), history, finals series, overview, introduction, guide.
+- ≤ 8 words per title. No punctuation except parentheses or hyphens.
 
-Guidelines:
-- Use specific names, dates, and locations from the context
-- Focus on relationships between entities rather than isolated facts
-- Ask for detailed analysis rather than basic information
-- Target controversial or disputed aspects when relevant
+EXAMPLES
+Topic: "UEFA Euro 2016 Final"
+Good → ["Portugal national football team", "France national football team", "Stade de France", "Éder (footballer, born 1987)", "UEFA Euro 2016 knockout phase"]
+Bad  → ["Euro 2016 Final Result", "Euro 2016 History"]
 
----
-IMPORTANT: Your entire response must be a single JSON object that strictly adheres to the provided schema. Do not include any explanation or extra text outside the JSON object.
+Topic: "NASA Mars Perseverance"
+Good → ["Perseverance (rover)", "Mars 2020", "Ingenuity (helicopter)", "Jezero crater", "Mars Sample Return"]
 
-The resulting list ('queries' key) MUST contain exactly {num_queries} elements.
+You should return the titles under the key "queries" in a JSON object
+
+
 """
 
 

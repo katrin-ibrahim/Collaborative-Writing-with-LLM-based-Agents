@@ -175,6 +175,13 @@ class OllamaEngine(BaseEngine):
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
+        allowed_keys = self._allowed_keys_from_schema(output_schema)
+        guard = (
+            "Return ONLY a single JSON object with these keys and no others:\n"
+            + ", ".join(f'"{k}"' for k in allowed_keys)
+        )
+        messages.append({"role": "system", "content": guard})
+
         # Add instruction for the model to follow the schema
         schema_instruction = (
             "You must output a single JSON object that strictly adheres to the "
@@ -203,7 +210,6 @@ class OllamaEngine(BaseEngine):
                 options=options,
                 # CRITICAL: This forces Ollama to output JSON
                 format="json",
-                # CRITICAL: Ollama models like Command-R often require schema awareness.
                 # Although not directly supported by all Ollama models, passing
                 # the schema in the prompt/context is the best practice.
             )
@@ -275,3 +281,9 @@ class OllamaEngine(BaseEngine):
             except json.JSONDecodeError:
                 pass
         return None
+
+    def _allowed_keys_from_schema(self, schema: Type[BaseModel]) -> List[str]:
+        # Pydantic v2: model_fields; v1: __fields__
+        if hasattr(schema, "model_fields"):
+            return list(schema.model_fields.keys())  # type: ignore[attr-defined]
+        return list(schema.__fields__.keys())  # type: ignore[attr-defined]

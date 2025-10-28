@@ -5,7 +5,7 @@ from typing import List
 
 from src.config.config_context import ConfigContext
 from src.methods.factory import create_method
-from src.utils.article import error_article
+from src.utils.article.processing import error_article
 from src.utils.data import Article
 
 logger = logging.getLogger(__name__)

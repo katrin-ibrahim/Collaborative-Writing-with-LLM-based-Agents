@@ -83,7 +83,7 @@ class ModelConfig(BaseConfig):
                 # Writer-Reviewer specific token limits
                 "query_generation": 800,  # Short for focused queries
                 "create_outline": 600,  # Short for outline creation
-                "section_selection": 600,  # Short for chunk ID selection
+                "section_selection": 1200,  # Short for chunk ID selection
                 "writer": 2000,  # Long for detailed section content
                 "revision": 3000,  # Medium for revision with feedback
                 "revision_batch": 2000,  # Long for batch revisions
@@ -172,7 +172,7 @@ class ModelConfig(BaseConfig):
         return cls()
 
     def get_file_pattern(self):
-        return "model_{}.yaml"
+        return "configs/model_{}.yaml"
 
 
 DEFAULT_MODEL_CONFIG = ModelConfig.get_default()

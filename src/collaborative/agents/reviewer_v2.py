@@ -2,11 +2,13 @@
 
 import logging
 from langgraph.graph import END, StateGraph
-from typing import Dict, List, Optional, TypedDict
+from pydantic import BaseModel, Field
+from typing import Dict, List, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
     build_review_prompt_for_strategy,
+    build_strategy_prompt,
     build_verification_prompt,
 )
 from src.collaborative.memory.memory import SharedMemory
@@ -25,6 +27,16 @@ from src.collaborative.utils.reviewer_utils import (
 from src.config.config_context import ConfigContext
 
 logger = logging.getLogger(__name__)
+
+
+StrategyLiteral = Literal[
+    "citation-focused", "expansion-focused", "accuracy-focused", "holistic"
+]
+
+
+class StrategyDecision(BaseModel):
+    strategy: StrategyLiteral
+    rationale: str = Field("", description="Short why-this choice")
 
 
 # ======================== MINIMAL STATE ========================
@@ -69,6 +81,7 @@ class ReviewerV2(BaseAgent):
         self.review_strategy: str = "holistic"
         self.tom_context: Optional[str] = None
         self.verification_results: Optional[VerificationValidationModel] = None
+        self.strategy_rationale: Optional[str] = None
 
     def process(self) -> None:
         """Main entry point - initializes state and runs graph."""
@@ -318,75 +331,82 @@ class ReviewerV2(BaseAgent):
         2. Previous feedback history
         3. Unresolved issues from previous iterations
         """
-        word_count = metrics.get("word_count", 0)
-
-        # Current citation issues
-        missing_chunks = len(validation_results.get("missing_chunks", []))
-        needs_source_count = validation_results.get("needs_source_count", 0)
-
+        prev_summary = {
+            "has_previous": iteration > 0,
+            "pending_counts": {},
+            "high_priority_pending": 0,
+            "citation_pending": 0,
+            "resolution_rate": 0.0,
+            "most_common_pending_type": None,
+        }
         try:
-            # Get previous iteration's feedback items
-            previous_items_by_section = (
-                self.shared_memory.get_feedback_items_for_iteration(
-                    iteration=iteration - 1
+            if iteration > 0:
+                items_by_section = (
+                    self.shared_memory.get_feedback_items_for_iteration(
+                        iteration=iteration - 1
+                    )
+                    or {}
                 )
+                items = []
+                for sec, its in items_by_section.items():
+                    if sec == "_overall":
+                        continue
+                    items.extend(its)
+
+                total = len(items) or 1
+                pending = [i for i in items if getattr(i, "status", None) == "pending"]
+                addressed = [
+                    i for i in items if getattr(i, "status", None) == "addressed"
+                ]
+
+                # Count by type (robust to missing fields)
+                type_counts = {}
+                for it in pending:
+                    t = getattr(it, "type", None)
+                    if t:
+                        type_counts[t] = type_counts.get(t, 0) + 1
+
+                prev_summary["pending_counts"] = type_counts
+                prev_summary["high_priority_pending"] = sum(
+                    1 for it in pending if getattr(it, "priority", None) == "high"
+                )
+                prev_summary["citation_pending"] = sum(
+                    1
+                    for it in pending
+                    if getattr(it, "type", None)
+                    in ("citation_missing", "citation_invalid")
+                )
+                prev_summary["resolution_rate"] = len(addressed) / total
+                prev_summary["most_common_pending_type"] = (
+                    max(type_counts, key=lambda k: type_counts[k])
+                    if type_counts
+                    else None
+                )
+        except Exception:
+            # Non-fatal: keep a minimal summary
+            pass
+
+        # Build prompt and call LLM
+        try:
+            prompt = build_strategy_prompt(
+                metrics=metrics,
+                validation_results=validation_results,
+                iteration=iteration,
+                prev_feedback_summary=prev_summary,
             )
 
-            # Analyze previous feedback
-            previous_items = []
-            for section_name, items in previous_items_by_section.items():
-                if section_name != "_overall":  # Skip article-level data
-                    previous_items.extend(items)
+            # You already use this pattern elsewhere; reuse the same client style.
+            planner_client = self.get_task_client("reviewer")
+            decision: StrategyDecision = planner_client.call_structured_api(
+                prompt=prompt,
+                output_schema=StrategyDecision,
+                # Optionally: model/temperature if your helper supports it
+            )
 
-            if previous_items:
-                feedback_analysis = self._analyze_previous_feedback(previous_items)
+            # Optionally keep these around for later prompt-conditioning
+            self.strategy_rationale = decision.rationale
 
-                # Rule 1: If citation issues are still pending, prioritize them
-                if feedback_analysis["pending_citation_items"] > 2:
-                    logger.info(
-                        f"Strategy: citation-focused (unresolved - {feedback_analysis['pending_citation_items']} citation items pending)"
-                    )
-                    return "citation-focused"
-
-                # Rule 2: If many high-priority items are pending, stay focused
-                if feedback_analysis["pending_high_priority"] > 3:
-                    # Stay with the most common type of pending high-priority items
-                    most_common_type = feedback_analysis["most_common_pending_type"]
-
-                    if most_common_type in ["citation_missing", "citation_invalid"]:
-                        logger.info(
-                            "Strategy: citation-focused (high-priority citations pending)"
-                        )
-                        return "citation-focused"
-                    elif most_common_type in ["content_expansion", "depth"]:
-                        logger.info(
-                            "Strategy: expansion-focused (high-priority content gaps pending)"
-                        )
-                        return "expansion-focused"
-                    elif most_common_type in ["accuracy", "clarity"]:
-                        logger.info(
-                            "Strategy: accuracy-focused (high-priority accuracy issues pending)"
-                        )
-                        return "accuracy-focused"
-
-                # Rule 3: If previous feedback was mostly addressed, shift focus
-                if feedback_analysis["resolution_rate"] > 0.7:
-                    # Good progress - look at new issues
-                    if missing_chunks > 2 or needs_source_count > 3:
-                        logger.info("Strategy: citation-focused (new issues found)")
-                        return "citation-focused"
-
-                    if word_count < 1500:
-                        logger.info(
-                            "Strategy: expansion-focused (good progress, but article still short)"
-                        )
-                        return "expansion-focused"
-
-                    # Mature article, good progress
-                    logger.info(
-                        f"Strategy: holistic (mature article, {feedback_analysis['resolution_rate']:.0%} resolved)"
-                    )
-                    return "holistic"
+            return decision.strategy
 
         except Exception as e:
             logger.warning(f"Could not analyze previous feedback: {e}")

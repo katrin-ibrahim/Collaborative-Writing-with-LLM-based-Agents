@@ -3,20 +3,8 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Optional
 
-from config.config_context import ConfigContext
-
 # --- Configuration Values ---
-retrieval_config = ConfigContext.get_retrieval_config()
-MAX_QUERIES_CONFIG = (
-    retrieval_config.num_queries
-    if retrieval_config and hasattr(retrieval_config, "num_queries")
-    else 5
-)
-MAX_CHUNKS_PER_SECTION = (
-    retrieval_config.max_content_pieces
-    if retrieval_config and hasattr(retrieval_config, "max_content_pieces")
-    else 10
-)
+
 MAX_HEADING_COUNT = 6
 # ----------------------------
 
@@ -28,19 +16,6 @@ class SearchSummary(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
-# region Writer Validation Models
-class QueryListValidationModel(BaseModel):
-    """A list of search queries to execute, constrained by configuration."""
-
-    queries: List[str] = Field(
-        ...,
-        # Constraints are now applied directly to the field
-        min_length=1,
-        max_length=MAX_QUERIES_CONFIG,
-        description=f"A list of specific search queries (max {MAX_QUERIES_CONFIG}) based on the current context.",
-    )
-
-
 class ArticleOutlineValidationModel(BaseModel):
     """The title and hierarchical structure for the article."""
 
@@ -50,17 +25,6 @@ class ArticleOutlineValidationModel(BaseModel):
         min_length=3,  # Added min_length for logical outline
         max_length=MAX_HEADING_COUNT,
         description=f"A list of up to {MAX_HEADING_COUNT} main section headings for the article.",
-    )
-
-
-class ChunkSelectionValidationModel(BaseModel):
-    """The list of chunk IDs that are most relevant for writing the current section."""
-
-    chunk_ids: List[str] = Field(
-        ...,
-        min_length=1,
-        max_length=MAX_CHUNKS_PER_SECTION,
-        description=f"A list of up to {MAX_CHUNKS_PER_SECTION} chunk_ids for the current section.",
     )
 
 

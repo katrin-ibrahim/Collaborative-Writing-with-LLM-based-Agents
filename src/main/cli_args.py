@@ -52,7 +52,15 @@ def parse_arguments() -> argparse.Namespace:
         "--model_config",
         "-c",
         default="ollama_localhost",
-        choices=["ollama_localhost", "ollama_ukp", "slurm", "slurm_thinking", "small_writer", "balanced_writer", "large_writer"],
+        choices=[
+            "ollama_localhost",
+            "ollama_ukp",
+            "slurm",
+            "slurm_thinking",
+            "small_writer",
+            "balanced_writer",
+            "large_writer",
+        ],
         help="Model configuration preset (default: ollama_localhost)",
     )
 
@@ -70,7 +78,7 @@ def parse_arguments() -> argparse.Namespace:
         "-rm",
         choices=[
             "wiki",
-            "supabase_faiss",
+            "faiss",
             "hybrid",
         ],
         help="Retrieval manager type (overrides config file)",
@@ -174,9 +182,15 @@ def parse_arguments() -> argparse.Namespace:
     # =================== Post-Processing & Validation ===================
 
     # Auto-set model config based on backend if using defaults
-    if args.model_config != "slurm" and args.model_config != "slurm_thinking"and args.backend == "slurm":
+    if (
+        args.model_config != "slurm"
+        and args.model_config != "slurm_thinking"
+        and args.backend == "slurm"
+    ):
         args.model_config = "slurm"
-        print(f"Auto-setting model config to '{args.model_config}' for backend '{args.backend}'")
+        print(
+            f"Auto-setting model config to '{args.model_config}' for backend '{args.backend}'"
+        )
 
     # Convert resume_dir to resume flag
     if args.resume_dir:

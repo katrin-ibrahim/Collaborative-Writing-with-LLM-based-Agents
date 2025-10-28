@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class RetrievalConfig(BaseConfig):
 
     # Retrieval Manager Configuration
-    retrieval_manager: str = "supabase_faiss"  # Options: "wiki", "supabase_faiss"
+    retrieval_manager: str = "faiss"  # Options: "wiki", "faiss"
 
     # Single Source of Truth for Retrieval Flow
     num_queries: int = 5  # How many search queries to generate
@@ -40,9 +40,12 @@ class RetrievalConfig(BaseConfig):
     similarity_threshold: float = 0.4
     semantic_cache_size: int = 1000
 
+    # Storm
+    queries_per_turn: int = 3  # How many queries per conversation turn
+
     def get_file_pattern(self) -> str:
         # Define how experiment outputs for retrieval should be named
-        return f"retrieval_{self.retrieval_manager}.json"
+        return f"configs/retrieval_{self.retrieval_manager}.json"
 
     @classmethod
     def get_default(cls) -> "RetrievalConfig":

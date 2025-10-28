@@ -1,7 +1,8 @@
 # src/collaborative/agents/writer_v2.py
 import logging
 from langgraph.graph import END, StateGraph
-from typing import Dict, List, Optional, TypedDict
+from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
@@ -20,23 +21,62 @@ from src.collaborative.memory.memory import SharedMemory
 from src.collaborative.tom.theory_of_mind import AgentRole
 from src.collaborative.utils.models import (
     ArticleOutlineValidationModel,
-    ChunkSelectionValidationModel,
     FeedbackStatus,
     FeedbackStoredModel,
-    QueryListValidationModel,
     WriterValidationBatchModel,
     WriterValidationModel,
 )
 from src.collaborative.utils.writer_utils import (
     build_formatted_chunk_summaries,
     build_full_article_content,
-    process_and_store_chunks,
 )
 from src.config.config_context import ConfigContext
 from src.retrieval.factory import create_retrieval_manager
 from src.utils.data.models import Article, Outline, ResearchChunk
 
 logger = logging.getLogger(__name__)
+
+retrieval_config = ConfigContext.get_retrieval_config()
+MAX_QUERIES_CONFIG = (
+    retrieval_config.num_queries
+    if retrieval_config and hasattr(retrieval_config, "num_queries")
+    else 5
+)
+MAX_CHUNKS_PER_SECTION = (
+    retrieval_config.max_content_pieces
+    if retrieval_config and hasattr(retrieval_config, "max_content_pieces")
+    else 10
+)
+
+
+# region Writer Validation Models
+class QueryListValidationModel(BaseModel):
+    """A list of search queries to execute, constrained by configuration."""
+
+    queries: List[str] = Field(
+        ...,
+        # Constraints are now applied directly to the field
+        min_length=1,
+        max_length=MAX_QUERIES_CONFIG,
+        description=f"A list of specific search queries (max {MAX_QUERIES_CONFIG}) based on the current context.",
+    )
+
+
+class ChunkSelectionValidationModel(BaseModel):
+    """The list of chunk IDs that are most relevant for writing the current section."""
+
+    chunk_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_CHUNKS_PER_SECTION,
+        description=f"A list of up to {MAX_CHUNKS_PER_SECTION} chunk_ids for the current section.",
+    )
+
+
+class GateDecision(BaseModel):
+    action: Literal["continue", "retry"]
+    reasoning: str
+
 
 # ======================== MINIMAL STATE ========================
 
@@ -66,11 +106,18 @@ class WriterV2(BaseAgent):
         # Build the LangGraph workflow
         self.graph = self._build_graph()
         self.config = ConfigContext.get_collaboration_config()
-        self.retrieval_manager = create_retrieval_manager()
         self.retrieval_config = ConfigContext.get_retrieval_config()
-        logger.info("Reviewer agent initialized with LangGraph architecture")
-
+        self.retrieval_manager = create_retrieval_manager(
+            rm_type=self.retrieval_config.retrieval_manager
+        )
         self.needs_refine = getattr(self.config, "should_self_refine", False)
+
+        self._research_ctx: Optional[str] = None
+        self._outline_ctx: Optional[str] = None
+        self._research_retries: int = 0
+        self._refine_retries: int = 0
+
+        logger.info("Writer agent initialized with LangGraph architecture")
 
     def process(self) -> None:
         """Main public entry point - initializes state and runs graph."""
@@ -111,13 +158,16 @@ class WriterV2(BaseAgent):
             },
         )
 
-        # 2. Initial Flow Edges (Linear and Conditional)
-        workflow.add_edge("research", "outline")
+        workflow.add_conditional_edges(
+            "research",
+            self._should_continue_research,  # LLM gate
+            {"retry": "research", "continue": "outline"},
+        )
 
         workflow.add_conditional_edges(
             "outline",
-            self._should_refine_outline,  # Deterministic check based on outline quality
-            {"refine": "refine_outline", "done": "write"},
+            self._should_refine_outline,
+            {"retry": "refine_outline", "continue": "write"},
         )
         workflow.add_edge("refine_outline", "write")
 
@@ -137,18 +187,98 @@ class WriterV2(BaseAgent):
 
     # ======================= GRAPH CONDITIONALS =======================
     # region Graph Conditionals
-    def _should_refine_outline(self, state: MinimalState) -> str:
-        """Conditional: Checks if the generated outline requires refinement (Iter 0 only)."""
-        # Logic: Check if the outline has few entities, depth, or sufficient headings.
+    def _should_continue_research(self, state) -> str:
+        """
+        Decide: do another research pass ('retry') or move on ('continue').
+        """
+        if self._research_retries >= 2:
+            logger.info("Max research retries reached, proceeding to outline.")
+            return "continue"
 
-        # Example heuristic: less than 4 headings OR fewer than N entities mentioned.
-        if self.initial_outline and len(self.initial_outline.headings) < 4:
-            logger.info(
-                "Outline insufficient (too few headings). Rerouting to refine_outline."
+        chunk_summaries = self.shared_memory.get_search_summaries()
+        chunk_summaries_str = build_formatted_chunk_summaries(
+            chunk_summaries,
+            max_content_pieces=getattr(self, "num_chunks", 10),
+            fields=["description"],
+        )
+        topic = self.shared_memory.get_topic()
+        writer_client = self.get_task_client("writer")
+        try:
+            dec: GateDecision = writer_client.call_structured_api(
+                prompt=f"""
+                You just finished a research step for the topic:
+                {topic},
+                using the following chunk summaries for context:
+                {chunk_summaries_str}
+                Decide if more research would clearly improve coverage or fill missing entities, set action="retry"; otherwise "continue".
+                Explain your reasoning briefly, including any queries you would like to research further, provide concrete actionable advice.
+                Follow these rules:
+                - Choose "retry" ONLY if major entities, concepts, or events remain uncovered.
+                - Choose "retry" if the retrieved chunks show redundancy or low diversity (many repeats).
+                - Choose "retry" if key factual gaps or unanswered subtopics exist.
+                - Choose "continue" if new searches would likely produce the same or marginally useful results.
+                - Default to "continue" if uncertain.
+                """,
+                output_schema=GateDecision,
+                system_prompt="Answer with JSON only.",
+                temperature=0.0,
+                max_tokens=120,
             )
-            return "refine"
+            if dec.action == "retry":
+                self._research_ctx = dec.reasoning
+                self._research_retries += 1
+                return "retry"
+            else:
+                return "continue"
+        except Exception:
+            return "continue"
 
-        return "done"
+    def _should_refine_outline(self, state) -> str:
+        """
+        Decide: refine outline once ('retry') or proceed to writing ('continue').
+        """
+        if self._refine_retries >= 1:
+            logger.info(
+                "Max outline refinement retries reached, proceeding to writing."
+            )
+            return "continue"
+
+        topic = self.shared_memory.get_topic()
+        outline = self.shared_memory.get_outline()
+        outline_str = (
+            "\n".join(outline.headings) if outline else "No outline available."
+        )
+        writer_client = self.get_task_client("writer")
+        self._refine_retries += 1
+        try:
+            dec: GateDecision = writer_client.call_structured_api(
+                prompt=f"""You just created an outline for the article:
+                {topic} outline:
+                {outline_str}
+                If a quick refinement (adding, merging, or reordering sections) would clearly improve the outline, set action="retry"; otherwise "continue".
+                Give reasoning briefly, mentioning which sections or entities might need changes.
+                Follow these rules:
+                - Choose "retry" ONLY if:
+                  • Important subtopics or entities mentioned in the research are missing.
+                  • The logical order of sections is clearly confusing or incomplete.
+                  • Key entities, concepts or time periods are missing.
+                - Choose "continue" if the outline is coherent and covers all major aspects,
+                  even if minor details could be improved.
+                - Default to "continue" if uncertain.
+                """,
+                output_schema=GateDecision,
+                system_prompt="Answer with JSON only.",
+                temperature=0.0,
+                max_tokens=120,
+            )
+            if dec.action == "retry":
+                self._research_ctx = dec.reasoning
+                self._research_retries += 1
+                return "retry"
+            else:
+                return "continue"
+        except Exception:
+            return "continue"  # fail safe
 
     def _should_self_refine(self, state: MinimalState) -> str:
         """Conditional: Checks if self-refine is configured and needed (Post-content)."""
@@ -181,7 +311,7 @@ class WriterV2(BaseAgent):
         logger.info(f"Starting two-phase research for topic: {topic}")
 
         # --- PHASE 1: Initial Search ---
-        self._execute_search_phase(queries=[topic], rm_type="supabase_faiss")
+        self._execute_search_phase(queries=[topic], rm_type="faiss")
 
         # Retrieve the top result to ground the next phase
         top_chunk = self._get_best_chunk()
@@ -217,6 +347,7 @@ class WriterV2(BaseAgent):
         outline_prompt_str = outline_prompt(
             topic, top_chunk_text, formatted_chunk_summaries
         )
+
         tom_context = self._get_tom_context(
             action="outline_review",
             has_research=bool(top_chunk),
@@ -287,6 +418,11 @@ class WriterV2(BaseAgent):
             refine_prompt = refine_outline_prompt(
                 topic, top_chunk_text, formatted_chunk_summaries, outline
             )
+            if self._outline_ctx is not None:
+                refine_prompt += (
+                    f"\n\nPrevious refinement reasoning context: {self._outline_ctx}"
+                )
+
             final_prompt = enhance_prompt_with_tom(refine_prompt, tom_context)
             outline_model: ArticleOutlineValidationModel = (
                 refine_client.call_structured_api(
@@ -470,18 +606,29 @@ class WriterV2(BaseAgent):
 
             # A. Call the RM's concurrent method (RM handles caching, dedup, and re-ranking)
             # The 'topic' argument helps the RM contextually score relevance across the batch.
-            all_results: List[ResearchChunk] = retrieval_manager.search_concurrent(
-                query_list=queries, topic=queries
-            )
+            topic = self.shared_memory.get_topic()
+            if not topic:
+                logger.warning(
+                    "No topic found in shared memory; proceeding with empty topic context."
+                )
+                topic = ""
+            if rm_type == "wiki":
+                all_results: List[ResearchChunk] = retrieval_manager.search_concurrent(
+                    query_list=queries, topic=topic
+                )
+            else:
+                # faiss has segfault issues with concurrent calls, so we use sequential for now
+                all_results: List[ResearchChunk] = retrieval_manager.search(
+                    query_list=queries, topic=topic
+                )
 
             # This utility handles calling shared_memory.store_research_chunks()
             # and shared_memory.store_search_summary()
-            process_and_store_chunks(
+            self._process_and_store_chunks(
                 search_id=search_id,  # The key for memory storage
                 source_queries=queries,  # The original list of input queries
                 chunks=all_results,
                 rm_type=rm_type,
-                shared_memory=self.shared_memory,
             )
 
             logger.info(
@@ -503,6 +650,55 @@ class WriterV2(BaseAgent):
                     "rm_type": rm_type,
                 },
             )
+
+    def _process_and_store_chunks(
+        self,
+        search_id: str,
+        source_queries: List[str],
+        chunks: List[ResearchChunk],
+        rm_type: str,
+    ) -> Dict[str, Any]:
+        """
+        Processes a list of ResearchChunks retrieved by the RM (potentially from a concurrent search),
+        stores them in shared memory, and returns the structured search summary.
+
+        This function is the D.R.Y. implementation that replaces the old search_and_retrieve tool logic.
+        """
+        if not chunks:
+            # Create a summary for a successful search that returned no results
+            search_result = {
+                "source_queries": source_queries,
+                "rm_type": rm_type,
+                "total_chunks": 0,
+                "results": [],  # Using 'results' key to match SearchSummary Pydantic model
+                "metadata": {"message": f"No chunks found for search_id: {search_id}"},
+                "success": True,
+            }
+            self.shared_memory.store_search_summary(search_id, search_result)
+            return search_result
+
+        # The RM has already handled chunk creation, deduplication, and ranking.
+        # 1. Store chunks and get the required summaries
+        # NOTE: The store_research_chunks method returns the list of summary objects/dicts needed for SearchSummary.results
+        chunk_summaries = self.shared_memory.store_chunks(chunks)
+
+        # 2. Build the final search result summary dictionary
+        search_result = {
+            "source_queries": source_queries,
+            "rm_type": rm_type,
+            "total_chunks": len(chunk_summaries),
+            "results": chunk_summaries,
+            "metadata": {
+                "message": f"Found and stored {len(chunk_summaries)} unique chunks.",
+                "source_rm": rm_type,
+            },
+            "success": True,
+        }
+
+        # 3. Store the search summary in memory using the unique search_id
+        self.shared_memory.store_search_summary(search_id, search_result)
+
+        return search_result
 
     def _get_best_chunk(self) -> Optional[ResearchChunk]:
         """Get the highest-scoring chunk for context."""
@@ -533,6 +729,9 @@ class WriterV2(BaseAgent):
             context=top_chunk_context,
             num_queries=self.retrieval_config.num_queries,
         )
+        if self._research_ctx is not None:
+            prompt += f"\n\nPrevious outline reasoning context: {self._research_ctx}"
+
         try:
             query_client = self.get_task_client("query_generation")
 

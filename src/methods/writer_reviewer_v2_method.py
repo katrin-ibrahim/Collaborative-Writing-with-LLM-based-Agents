@@ -32,7 +32,37 @@ class WriterReviewerV2Method(BaseMethod):
     def __init__(self, tom_enabled: bool = False):
         super().__init__()
 
-        self.convergence_checker = ConvergenceChecker()
+        # Initialize collaboration config
+        self.collaboration_config = ConfigContext.get_collaboration_config()
+        if self.collaboration_config is None:
+            raise RuntimeError(
+                "ConvergenceChecker: collaboration_config is None. "
+                "Ensure ConfigContext is properly initialized before using ConvergenceChecker."
+            )
+
+        # Extract convergence parameters from config
+        self.resolution_rate_threshold = getattr(
+            self.collaboration_config, "resolution_rate_threshold", 0.95
+        )
+        self.max_iterations = getattr(self.collaboration_config, "max_iterations", 5)
+        self.min_iterations = getattr(self.collaboration_config, "min_iterations", 1)
+        self.stall_tolerance = getattr(self.collaboration_config, "stall_tolerance", 2)
+        self.min_improvement = getattr(
+            self.collaboration_config, "min_improvement", 0.01
+        )
+
+        self.priority_weights = {"high": 3, "medium": 2, "low": 1}
+        self.small_tail_max = getattr(self.collaboration_config, "small_tail_max", 5)
+
+        # Instantiate convergence checker with required arguments
+        self.convergence_checker = ConvergenceChecker(
+            max_iterations=self.max_iterations,
+            resolution_rate_threshold=self.resolution_rate_threshold,
+            min_iterations=self.min_iterations,
+            stall_tolerance=self.stall_tolerance,
+            min_improvement=self.min_improvement,
+        )
+
         self.tom_enabled = tom_enabled
         self.shared_memory: SharedMemory = None  # type: ignore
 
@@ -125,7 +155,7 @@ class WriterReviewerV2Method(BaseMethod):
                 # Check for convergence BEFORE incrementing iteration
                 logger.info("Checking convergence criteria")
                 all_items_by_section = (
-                    self.shared_memory.get_all_feedback_items_for_iteration(
+                    self.shared_memory.get_feedback_items_for_iteration(
                         iteration=current_iteration
                     )
                 )
@@ -235,7 +265,7 @@ class WriterReviewerV2Method(BaseMethod):
         all_feedback = []
         max_iter = memory.get_iteration()
         for i in range(max_iter + 1):
-            items_by_section = memory.get_all_feedback_items_for_iteration(i)
+            items_by_section = memory.get_feedback_items_for_iteration(i)
             for items in items_by_section.values():
                 for item in items:
                     feedback_by_iteration.setdefault(i, []).append(item)

@@ -162,7 +162,7 @@ class BaseRetriever(ABC):
 
         # 1. Check result cache
 
-        # we need to mark which queries we found cached results for, if for all queries we have cached results, we can return early
+        # Mark which queries we found cached results for, if for all queries we have cached results, we can return early
         # if only some queries have cached results, we need to run the retrieval for the missing ones
         cached_queries = set()
         cache_key = None
@@ -262,7 +262,7 @@ class BaseRetriever(ABC):
         query_list: List[str],
         max_results: Optional[int] = None,
         max_workers: int = 3,
-        topic: Optional[List[str]] = None,
+        topic: Optional[str] = None,
         deduplicate: bool = True,
         **kwargs,
     ) -> List[ResearchChunk]:
@@ -304,7 +304,7 @@ class BaseRetriever(ABC):
                     self.search,
                     query,  # Passed positionally
                     max_results=max_results,
-                    topic=topic[i] if isinstance(topic, list) else topic,
+                    topic=topic,
                     # Disable deduplication inside the concurrent call
                     deduplicate=False,
                     **kwargs,

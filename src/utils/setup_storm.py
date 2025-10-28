@@ -53,7 +53,7 @@ def setup_storm_retrieval():
     """
     retrieval_config = ConfigContext.get_retrieval_config()
     retrieval_manager = create_retrieval_manager(
-        rm_type=retrieval_config.retrieval_manager, format_type="storm"
+        rm_type=retrieval_config.retrieval_manager
     )
 
     logger.info(f"STORM retrieval manager set up: {type(retrieval_manager).__name__}")
