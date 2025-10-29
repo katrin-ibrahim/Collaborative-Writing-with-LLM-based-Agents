@@ -1,7 +1,6 @@
 from typing import Dict, List, Optional
 
 from src.collaborative.utils.models import SearchSummary
-from src.utils.data.models import ResearchChunk  # We'll still need this
 
 
 def build_full_article_content(title: str, sections: Dict[str, str]) -> str:
@@ -31,6 +30,7 @@ def build_formatted_chunk_summaries(
             chunks = summary.results[:max_content_pieces]
         else:
             chunks = summary.results
+
         chunk_strs = []
 
         for chunk in chunks:
@@ -38,8 +38,8 @@ def build_formatted_chunk_summaries(
             for field in fields:
                 if field in chunk and chunk.get(field):
                     val = str(chunk.get(field)).strip()
-                    if field == "description":
-                        val = val
+                    if field == "description" and max_content_pieces is not None:
+                        val = val[:100]
                     field_strs.append(f"[{field}: {val}]")
             chunk_strs.append(" ".join(field_strs))
 

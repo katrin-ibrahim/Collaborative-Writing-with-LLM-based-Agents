@@ -57,6 +57,9 @@ def load_configurations(args):
             args.collaboration_config,
             max_iterations=args.max_iterations,
             convergence_threshold=args.convergence_threshold,
+            writing_mode=args.writing_mode,
+            revise_mode=args.revise_mode,
+            should_self_refine=args.self_refine,
         )
         logger.info(f"Loaded collaboration config: {args.collaboration_config}")
 

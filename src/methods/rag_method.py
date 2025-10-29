@@ -64,10 +64,20 @@ class RagMethod(BaseMethod):
             all_passages = []
             try:
                 # Use concurrent search for better performance with multiple queries
-                all_results = retrieval_manager.search_concurrent(
-                    query_list=queries,
-                    max_results=self.retrieval_config.results_per_query,
-                )
+                if self.retrieval_config.retrieval_manager != "faiss":
+                    all_results = retrieval_manager.search_concurrent(
+                        query_list=queries,
+                        max_results=self.retrieval_config.results_per_query,
+                    )
+                else:
+                    # Faiss does not support concurrent search in this implementation
+                    all_results = []
+                    for query in queries:
+                        results = retrieval_manager.search(
+                            query_or_queries=query,
+                            max_results=self.retrieval_config.results_per_query,
+                        )
+                        all_results.extend(results)
                 # Convert all results to ResearchChunk objects
                 # Note: concurrent search returns flattened results, so we create a generic query context
                 converted_passages = self._convert_to_research_chunks(

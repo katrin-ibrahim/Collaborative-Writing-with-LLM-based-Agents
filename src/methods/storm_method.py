@@ -12,7 +12,7 @@ from knowledge_storm import STORMWikiRunner, STORMWikiRunnerArguments
 from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
 from src.utils.data import Article
-from utils.setup_storm import (
+from src.utils.setup_storm import (
     get_storm_config_params,
     setup_storm_config,
     setup_storm_retrieval,

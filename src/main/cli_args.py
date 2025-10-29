@@ -176,6 +176,24 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         help="Override convergence threshold",
     )
+    parser.add_argument(
+        "--writing_mode",
+        "-wm",
+        choices=["section", "full_article"],
+        help="Set the writing mode (default: section)",
+    )
+    parser.add_argument(
+        "--revise_mode",
+        "-revm",
+        choices=["single_section", "pending_sections"],
+        help="Set the revise mode (default: peinding_sections)",
+    )
+    parser.add_argument(
+        "--self_refine",
+        "-sr",
+        action="store_true",
+        help="Enable self-refinement by writers",
+    )
 
     # Parse arguments
     args = parser.parse_args()

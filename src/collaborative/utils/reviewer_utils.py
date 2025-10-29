@@ -2,13 +2,13 @@ import logging
 import re
 from typing import Any, Dict, List
 
-from collaborative.memory.memory import SharedMemory
-from collaborative.utils.models import (
+from src.collaborative.memory.memory import SharedMemory
+from src.collaborative.utils.models import (
     FeedbackStatus,
     FeedbackStoredModel,
     ReviewerTaskValidationModel,
 )
-from utils.data.models import Article
+from src.utils.data.models import Article
 
 logger = logging.getLogger(__name__)
 

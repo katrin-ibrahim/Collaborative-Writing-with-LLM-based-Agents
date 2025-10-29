@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 
-from collaborative.utils.models import FeedbackStoredModel
+from src.collaborative.utils.models import FeedbackStoredModel
 from src.utils.data import Article
 
 
@@ -332,7 +332,7 @@ required to write the section titled "{section_heading}" for the main article on
 Strict Selection Rules:
 1. **Relevance is Key:** Select only the chunk IDs that are *most* relevant and necessary to support the content of the section heading.
 2. **Limit:** Select no more than {num_chunks} chunk IDs.
-3. **Format:** Output MUST be a single JSON object that conforms strictly to the provided Pydantic schema (a list of chunk IDs).
+3. **Format:** Return a single JSON object with a key called chunk_ids, which is a list of string chunk IDs.".
 4. **ID Integrity:** Use only the literal chunk IDs provided in the Research Context. Do not shorten, invent, or modify the IDs.
 5. **No Chatter:** Do not include any text, reasoning, markdown, or preamble outside the required JSON object.
 """

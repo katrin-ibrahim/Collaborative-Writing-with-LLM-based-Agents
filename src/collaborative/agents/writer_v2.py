@@ -295,9 +295,9 @@ class WriterV2(BaseAgent):
             logger.info("Router selected flow: INITIAL_FLOW")
         else:
             self.flow_type = "REVISION_FLOW"
-        logger.info(
-            f"Router selected flow: REVISION_FLOW for iteration {self.iteration}"
-        )
+            logger.info(
+                f"Router selected flow: REVISION_FLOW for iteration {self.iteration}"
+            )
         return state
 
     # endregion Graph Conditionals
@@ -458,7 +458,7 @@ class WriterV2(BaseAgent):
         chunk_summaries = self.shared_memory.get_search_summaries()
         chunk_summaries_str = build_formatted_chunk_summaries(
             chunk_summaries,
-            max_content_pieces=getattr(self, "num_chunks", 10),
+            max_content_pieces=getattr(self, "num_chunks", 20),
             fields=["description", "chunk_id"],
         )
         mode = getattr(getattr(self, "config", None), "writing_mode", "section")
