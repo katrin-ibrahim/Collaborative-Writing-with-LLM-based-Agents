@@ -4,11 +4,12 @@ Hybrid retrieval manager combining WikiRM (live data) with FAISS (broad coverage
 """
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from src.retrieval.rms.base_retriever import BaseRetriever
-from src.retrieval.rms.supabase_faiss_rm import FaissRM
+from src.retrieval.rms.faiss_rm import FaissRM
 from src.retrieval.rms.wiki_rm import WikiRM
+from src.utils.data.models import ResearchChunk
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ class HybridRM(BaseRetriever):
         self.max_faiss_results = 6  # Balanced results from faiss
 
     def _retrieve_article(
-        self, query: str, topic: str = None, max_results: int = None
-    ) -> List[Dict]:
+        self, query: str, max_results: Optional[int] = None
+    ) -> List[ResearchChunk]:
         """
         Retrieve articles using hybrid approach - required by BaseRetriever.
         This method is called by the base class search method.
@@ -66,7 +67,7 @@ class HybridRM(BaseRetriever):
         if self.wiki_rm:
             try:
                 wiki_results = self.wiki_rm._retrieve_article(
-                    query=query, topic=topic, max_results=self.max_wiki_results
+                    query=query, max_results=self.max_wiki_results
                 )
                 logger.info(f"WikiRM returned {len(wiki_results)} results")
             except Exception as e:
@@ -76,7 +77,7 @@ class HybridRM(BaseRetriever):
         if self.faiss_rm:
             try:
                 faiss_results = self.faiss_rm._retrieve_article(
-                    query=query, topic=topic, max_results=self.max_faiss_results
+                    query=query, max_results=self.max_faiss_results
                 )
                 logger.info(f"FAISS RM returned {len(faiss_results)} results")
             except Exception as e:
@@ -91,8 +92,11 @@ class HybridRM(BaseRetriever):
         return combined_results
 
     def _merge_and_rank_results(
-        self, wiki_results: List[Dict], faiss_results: List[Dict], query: str
-    ) -> List[Dict]:
+        self,
+        wiki_results: List[ResearchChunk],
+        faiss_results: List[ResearchChunk],
+        query: str,
+    ) -> List[ResearchChunk]:
         """
         Merge and rank results from both retrieval managers.
 
@@ -105,8 +109,13 @@ class HybridRM(BaseRetriever):
         merged_results = []
 
         # Process WikiRM results (higher weight)
+
         for i, result in enumerate(wiki_results):
-            result_copy = result.copy()
+            # Convert ResearchChunk to dict if needed
+            if not isinstance(result, dict):
+                result_copy = vars(result).copy()
+            else:
+                result_copy = result.copy()
             result_copy["hybrid_source"] = "wiki"
             result_copy["hybrid_rank"] = i + 1
 
@@ -117,8 +126,13 @@ class HybridRM(BaseRetriever):
             merged_results.append(result_copy)
 
         # Process FAISS results (lower weight)
+
         for i, result in enumerate(faiss_results):
-            result_copy = result.copy()
+            # Convert ResearchChunk to dict if needed
+            if not isinstance(result, dict):
+                result_copy = vars(result).copy()
+            else:
+                result_copy = result.copy()
             result_copy["hybrid_source"] = "faiss"
             result_copy["hybrid_rank"] = i + 1
 

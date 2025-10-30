@@ -18,12 +18,18 @@ import re
 from flair.data import Sentence
 from flair.models import SequenceTagger
 from sentence_transformers import SentenceTransformer
+
+try:
+    import torch
+except Exception:  # torch might be unavailable in some environments
+    torch = None
 from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
 _NER_TAGGER = None
 _SENTENCE_MODEL = None
+_TORCH_DEVICE_STR = "cpu"
 
 # ============================================================================
 # Constants
@@ -58,8 +64,18 @@ def _get_ner_tagger():
         return _NER_TAGGER
 
     try:
+        _ensure_torch_device()
         _NER_TAGGER = SequenceTagger.load("ner")
-        logger.info("FLAIR NER model loaded successfully")
+        # Flair on MPS is unstable; keep on CPU unless CUDA is available
+        try:
+            if torch and torch.cuda.is_available():
+                _NER_TAGGER.to(torch.device("cuda"))
+                logger.info("FLAIR NER model loaded successfully (cuda)")
+            else:
+                _NER_TAGGER.to(torch.device("cpu") if torch is not None else "cpu")
+                logger.info("FLAIR NER model loaded successfully (cpu)")
+        except Exception:
+            logger.info("FLAIR NER model loaded successfully (default device)")
     except Exception as e:
         logger.warning(f"Failed to load FLAIR NER model: {e}")
         _NER_TAGGER = None
@@ -70,14 +86,15 @@ def _get_ner_tagger():
 def _get_sentence_model():
     """Get or load the sentence transformer model with proper caching."""
     global _SENTENCE_MODEL
-    if _SENTENCE_MODEL is not None:
+    if _SENTENCE_MODEL:
         return _SENTENCE_MODEL
 
     try:
+        _ensure_torch_device()
         _SENTENCE_MODEL = SentenceTransformer(
-            "all-MiniLM-L6-v2", device="cpu"
-        )  # Use "cuda" if available
-        logger.info("Sentence transformer model loaded successfully")
+            "all-MiniLM-L6-v2", device=_TORCH_DEVICE_STR
+        )
+        logger.info(f"Sentence transformer model loaded on {_TORCH_DEVICE_STR}")
     except Exception as e:
         logger.warning(f"Failed to load sentence transformer: {e}")
         _SENTENCE_MODEL = None
@@ -117,6 +134,37 @@ def preprocess_text_for_rouge(text: str) -> List[str]:
 
 
 # ============================================================================
+# Torch Device Utilities
+# ============================================================================
+
+
+def _ensure_torch_device():
+    """Detect and cache best-available torch device (cuda, mps, or cpu)."""
+    global _TORCH_DEVICE_STR
+    # Only detect once per process
+    if _TORCH_DEVICE_STR != "cpu":
+        return
+    if torch is None:
+        _TORCH_DEVICE_STR = "cpu"
+        return
+    try:
+        if torch.cuda.is_available():
+            _TORCH_DEVICE_STR = "cuda"
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            _TORCH_DEVICE_STR = "mps"
+        else:
+            _TORCH_DEVICE_STR = "cpu"
+    except Exception:
+        _TORCH_DEVICE_STR = "cpu"
+
+
+def _get_torch_device():
+    if torch is None:
+        return "cpu"
+    return torch.device(_TORCH_DEVICE_STR)
+
+
+# ============================================================================
 # ROUGE Metrics Functions
 # ============================================================================
 
@@ -125,30 +173,44 @@ def calculate_rouge_1(generated: str, reference: str) -> float:
     """Calculate ROUGE-1 (unigram overlap) with STORM preprocessing."""
     gen_words = preprocess_text_for_rouge(generated)
     ref_words = preprocess_text_for_rouge(reference)
-
-    if not ref_words:
-        return 0.0
-
-    gen_counter = Counter(gen_words)
-    ref_counter = Counter(ref_words)
-
-    overlap = sum((gen_counter & ref_counter).values())
-    return overlap / len(ref_words)
+    return _calculate_rouge_1_from_tokens(gen_words, ref_words)
 
 
 def calculate_rouge_l(generated: str, reference: str) -> float:
     """Calculate ROUGE-L (longest common subsequence) efficiently."""
     gen_words = preprocess_text_for_rouge(generated)
     ref_words = preprocess_text_for_rouge(reference)
+    return _calculate_rouge_l_from_tokens(gen_words, ref_words)
 
+
+def calculate_all_rouge_metrics(generated: str, reference: str) -> Dict[str, float]:
+    """Calculate all ROUGE metrics efficiently."""
+    # Preprocess once to avoid duplicate tokenization
+    gen_words = preprocess_text_for_rouge(generated)
+    ref_words = preprocess_text_for_rouge(reference)
+
+    return {
+        "rouge_1": _calculate_rouge_1_from_tokens(gen_words, ref_words),
+        "rouge_l": _calculate_rouge_l_from_tokens(gen_words, ref_words),
+    }
+
+
+def _calculate_rouge_1_from_tokens(gen_words: List[str], ref_words: List[str]) -> float:
+    if not ref_words:
+        return 0.0
+    gen_counter = Counter(gen_words)
+    ref_counter = Counter(ref_words)
+    overlap = sum((gen_counter & ref_counter).values())
+    return overlap / len(ref_words)
+
+
+def _calculate_rouge_l_from_tokens(gen_words: List[str], ref_words: List[str]) -> float:
     if not gen_words or not ref_words:
         return 0.0
-
-    # Efficient LCS using dynamic programming
+    # Efficient LCS using dynamic programming with two rows
     m, n = len(gen_words), len(ref_words)
     prev_row = [0] * (n + 1)
     curr_row = [0] * (n + 1)
-
     for i in range(1, m + 1):
         for j in range(1, n + 1):
             if gen_words[i - 1] == ref_words[j - 1]:
@@ -156,17 +218,8 @@ def calculate_rouge_l(generated: str, reference: str) -> float:
             else:
                 curr_row[j] = max(prev_row[j], curr_row[j - 1])
         prev_row, curr_row = curr_row, prev_row
-
     lcs_length = prev_row[n]
     return lcs_length / len(ref_words)
-
-
-def calculate_all_rouge_metrics(generated: str, reference: str) -> Dict[str, float]:
-    """Calculate all ROUGE metrics efficiently."""
-    return {
-        "rouge_1": calculate_rouge_1(generated, reference),
-        "rouge_l": calculate_rouge_l(generated, reference),
-    }
 
 
 # ============================================================================
@@ -174,33 +227,35 @@ def calculate_all_rouge_metrics(generated: str, reference: str) -> Dict[str, flo
 # ============================================================================
 
 
-@lru_cache(maxsize=128)
 def extract_entities(text: str) -> frozenset:
-    """Extract named entities using FLAIR with STORM confidence threshold.
+    """Single-text entity extraction with LRU caching."""
+    return _extract_entities_single(text)
 
-    Optimized version that chunks long texts for faster processing.
-    """
+
+@lru_cache(maxsize=1024)
+def _extract_entities_single(text: str) -> frozenset:
+    """Cached single-text entity extraction to avoid repeated work."""
+    return extract_entities_batch([text])[0]
+
+
+def extract_entities_batch(texts: list, batch_size: int = 16) -> list:
+    """Batch extract named entities using FLAIR with STORM confidence threshold."""
     ner_tagger = _get_ner_tagger()
-
     if ner_tagger is None:
-        logger.warning("NER tagger not available, returning empty entity set")
-        return set()
+        logger.warning("NER tagger not available, returning empty entity sets")
+        return [frozenset() for _ in texts]
 
-    entities = set()
-
-    try:
-        # Split long texts into chunks for faster processing
-        # FLAIR is much faster on shorter texts
-        chunk_size = 2000  # characters per chunk
+    chunk_size = 2000  # characters per chunk
+    # Preprocess: split each text into chunks
+    chunked_texts = []
+    chunk_map = []  # (text_idx, chunk_idx)
+    for idx, text in enumerate(texts):
         text_chunks = []
-
         if len(text) <= chunk_size:
             text_chunks = [text]
         else:
-            # Split by sentences to avoid breaking mid-sentence
             sentences = text.split(". ")
             current_chunk = ""
-
             for sentence in sentences:
                 if len(current_chunk + sentence) < chunk_size:
                     current_chunk += sentence + ". "
@@ -208,56 +263,56 @@ def extract_entities(text: str) -> frozenset:
                     if current_chunk:
                         text_chunks.append(current_chunk.strip())
                     current_chunk = sentence + ". "
-
             if current_chunk:
                 text_chunks.append(current_chunk.strip())
-
-        # Process each chunk
         for chunk in text_chunks:
-            if not chunk.strip():
-                continue
-
-            sentence = Sentence(chunk)
-            ner_tagger.predict(sentence)
-
-            for entity in sentence.get_spans("ner"):
-                if entity.score > 0.5:  # STORM confidence threshold
-                    entity_text = entity.text.lower().strip()
-                    if len(entity_text) > 1:
-                        entities.add(entity_text)
+            if chunk.strip():
+                chunked_texts.append(chunk)
+                chunk_map.append(idx)
+    # Batch process chunks
+    sentences = [Sentence(chunk) for chunk in chunked_texts]
+    for i in range(0, len(sentences), batch_size):
+        ner_tagger.predict(sentences[i : i + batch_size], mini_batch_size=batch_size)
+    # Collect entities per original text
+    entities_per_text = [set() for _ in texts]
+    for sent, idx in zip(sentences, chunk_map):
+        for entity in sent.get_spans("ner"):
+            if entity.score > 0.5:
+                entity_text = entity.text.lower().strip()
+                if len(entity_text) > 1:
+                    entities_per_text[idx].add(entity_text)
+                    if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            f"FLAIR entity: {entity_text} ({entity.tag}, {entity.score:.3f})"
+                            "FLAIR entity: %s (%s, %.3f)",
+                            entity_text,
+                            entity.tag,
+                            entity.score,
                         )
-
-    except Exception as e:
-        logger.warning(f"FLAIR NER failed: {e}. returning empty set.")
-
-    return frozenset(entities)  # frozenset for hashability in lru_cache
+    return [frozenset(entities) for entities in entities_per_text]
 
 
 def calculate_entity_recall(generated: str, reference: str) -> float:
-    """Calculate Article Entity Recall (AER) using STORM-compliant entity extraction."""
+    """Calculate Article Entity Recall (AER) using batched FLAIR entity extraction."""
     logger.debug("=== Article Entity Recall Calculation ===")
-
     try:
-        gen_entities = extract_entities(generated)
-        ref_entities = extract_entities(reference)
-
-        logger.debug(f"Generated entities ({len(gen_entities)}): {gen_entities}")
-        logger.debug(f"Reference entities ({len(ref_entities)}): {ref_entities}")
-
+        gen_entities, ref_entities = extract_entities_batch(
+            [generated, reference], batch_size=16
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Generated entities (%d): %s", len(gen_entities), gen_entities)
+            logger.debug("Reference entities (%d): %s", len(ref_entities), ref_entities)
         if not ref_entities:
             logger.debug("No reference entities found, returning 1.0")
             return 1.0
-
         overlap = len(ref_entities.intersection(gen_entities))
-        common_entities = ref_entities.intersection(gen_entities)
-        logger.debug(f"Common entities ({overlap}): {common_entities}")
-
+        if logger.isEnabledFor(logging.DEBUG):
+            common_entities = ref_entities.intersection(gen_entities)
+            logger.debug("Common entities (%d): %s", overlap, common_entities)
         recall = overlap / len(ref_entities)
-        logger.debug(f"Article Entity Recall: {overlap}/{len(ref_entities)} = {recall}")
+        logger.debug(
+            "Article Entity Recall: %d/%d = %f", overlap, len(ref_entities), recall
+        )
         return recall
-
     except Exception as e:
         logger.error(f"Entity recall calculation failed: {e}")
         return 0.0
@@ -284,7 +339,8 @@ def extract_headings_from_content(content: str) -> List[str]:
             # Potential section heading
             headings.append(line.rstrip(":"))
 
-    logger.debug(f"Extracted headings: {headings}")
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Extracted headings: %s", headings)
     return headings
 
 
@@ -302,22 +358,25 @@ def calculate_heading_soft_recall(
         return 0.0
 
     try:
-        # Generate embeddings
-        ref_embeddings = sentence_model.encode(reference_headings)
-        gen_embeddings = sentence_model.encode(generated_headings)
+        # Generate embeddings (numpy arrays)
+        ref_embeddings = np.asarray(sentence_model.encode(reference_headings))
+        gen_embeddings = np.asarray(sentence_model.encode(generated_headings))
 
-        # Calculate cosine similarities
-        similarities = []
-        for ref_emb in ref_embeddings:
-            max_sim = 0.0
-            for gen_emb in gen_embeddings:
-                similarity = np.dot(ref_emb, gen_emb) / (
-                    np.linalg.norm(ref_emb) * np.linalg.norm(gen_emb)
-                )
-                max_sim = max(max_sim, similarity)
-            similarities.append(max_sim)
+        if ref_embeddings.size == 0 or gen_embeddings.size == 0:
+            return 0.0
 
-        hsr_score = np.mean(similarities)
+        # Normalize row-wise to unit vectors to compute cosine similarity via matmul
+        def _normalize_rows(x: np.ndarray) -> np.ndarray:
+            norms = np.linalg.norm(x, axis=1, keepdims=True)
+            norms = np.maximum(norms, 1e-12)
+            return x / norms
+
+        ref_norm = _normalize_rows(ref_embeddings)
+        gen_norm = _normalize_rows(gen_embeddings)
+
+        # Cosine similarity matrix (ref x gen)
+        sim = ref_norm @ gen_norm.T
+        hsr_score = float(sim.max(axis=1).mean())
         logger.debug(f"Heading Soft Recall: {hsr_score}")
         return hsr_score
 
@@ -338,21 +397,22 @@ def calculate_heading_entity_recall(
         logger.debug("Missing headings, returning 0.0")
         return 0.0
 
-    # Extract entities from each heading individually
-    ref_entities = set()
-    for heading in reference_headings:
-        heading_entities = extract_entities(heading)
-        ref_entities.update(heading_entities)
-        logger.debug(f"Reference heading '{heading}' entities: {heading_entities}")
+    # Batch extract entities across all headings for efficiency
+    try:
+        combined = generated_headings + reference_headings
+        batch_entities = extract_entities_batch(combined, batch_size=16)
+        gen_entities_list = batch_entities[: len(generated_headings)]
+        ref_entities_list = batch_entities[len(generated_headings) :]
 
-    gen_entities = set()
-    for heading in generated_headings:
-        heading_entities = extract_entities(heading)
-        gen_entities.update(heading_entities)
-        logger.debug(f"Generated heading '{heading}' entities: {heading_entities}")
+        gen_entities = set().union(*gen_entities_list) if gen_entities_list else set()
+        ref_entities = set().union(*ref_entities_list) if ref_entities_list else set()
+    except Exception as e:
+        logger.error(f"Batch heading entity extraction failed: {e}")
+        gen_entities, ref_entities = set(), set()
 
-    logger.debug(f"All reference heading entities: {ref_entities}")
-    logger.debug(f"All generated heading entities: {gen_entities}")
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("All reference heading entities: %s", ref_entities)
+        logger.debug("All generated heading entities: %s", gen_entities)
 
     if not ref_entities:
         logger.debug("No reference heading entities, returning 0.0 (undefined HER)")
@@ -360,8 +420,9 @@ def calculate_heading_entity_recall(
 
     # Calculate overlap
     overlap = len(ref_entities.intersection(gen_entities))
-    common_entities = ref_entities.intersection(gen_entities)
-    logger.debug(f"Common heading entities ({overlap}): {common_entities}")
+    if logger.isEnabledFor(logging.DEBUG):
+        common_entities = ref_entities.intersection(gen_entities)
+        logger.debug("Common heading entities (%d): %s", overlap, common_entities)
     recall = overlap / len(ref_entities)
     logger.debug(f"Heading Entity Recall: {overlap}/{len(ref_entities)} = {recall}")
     return recall

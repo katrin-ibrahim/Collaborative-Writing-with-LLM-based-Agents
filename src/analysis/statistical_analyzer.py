@@ -296,8 +296,8 @@ class StatisticalAnalyzer:
             metric=metric,
             method1=method1,
             method2=method2,
-            method1_stats=stats1.to_dict(),
-            method2_stats=stats2.to_dict(),
+            method1_stats=stats1.model_dump(),
+            method2_stats=stats2.model_dump(),
             tests=tests,
             recommendation=recommendation,
         )

@@ -8,6 +8,7 @@ from collections import defaultdict
 import logging
 import numpy as np
 from dataclasses import dataclass
+from pydantic import BaseModel
 from typing import Any, Dict, List
 
 from .data_loader import TopicResult
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MetricStats:
+class MetricStats(BaseModel):
     """Statistical summary for a single metric."""
 
     metric_name: str
@@ -28,19 +29,9 @@ class MetricStats:
     count: int
     values: List[float]
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "mean": self.mean,
-            "median": self.median,
-            "std": self.std,
-            "min": self.min,
-            "max": self.max,
-            "count": self.count,
-        }
-
 
 @dataclass
-class MethodAggregation:
+class MethodAggregation(BaseModel):
     """Aggregated metrics for a single method."""
 
     method: str
@@ -54,10 +45,12 @@ class MethodAggregation:
         return {name: stats.mean for name, stats in self.metrics.items()}
 
 
-class MetricsAggregator:
+class MetricsAggregator(BaseModel):
     """Aggregate and summarize evaluation metrics across baselines."""
 
-    STORM_METRICS = [
+    from typing import ClassVar
+
+    STORM_METRICS: ClassVar[List[str]] = [
         "rouge_1",
         "rouge_l",
         "heading_soft_recall",
@@ -218,7 +211,7 @@ class MetricsAggregator:
                         "avg_word_count": agg.avg_word_count,
                     },
                     "metrics": {
-                        name: stats.to_dict() for name, stats in agg.metrics.items()
+                        name: stats.model_dump() for name, stats in agg.metrics.items()
                     },
                 }
                 for method, agg in method_aggregations.items()

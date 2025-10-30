@@ -24,9 +24,9 @@ class TestGenerationIntegration:
             "writer_only",
             # "writer_reviewer",
             "--model_config",
-            "ollama_localhost",
+            "balanced_writer",
             "--retrieval_manager",
-            "hybrid",
+            "faiss",
             "-n",
             "1",
             "--semantic_filtering",
@@ -35,8 +35,8 @@ class TestGenerationIntegration:
             "test_writer",
             # "-r",
             # "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/results/ollama/exp_001_n5__c-ollama_localhost__rm-wiki__sf"
-            "-om",
-            "gemma3:1b",
+            # "-om",
+            # "gemma3:1b",
         ]
 
         print(f"Running main with args: {test_args}")

@@ -14,14 +14,15 @@ import json
 import logging
 from typing import Dict, Optional
 
+from src.evaluation.evaluator import ArticleEvaluator
+from src.utils.data import FreshWikiLoader
+from src.utils.experiment import save_final_results
+
 # Add src directory to path
 src_dir = Path(__file__).parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from src.evaluation.evaluator import ArticleEvaluator
-from src.utils.data import FreshWikiLoader
-from src.utils.io import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +39,18 @@ def _generate_aggregation_summary(data):
 
     methods_data = {}
 
-    # Collect all evaluation results by method
+    # Collect all evaluation results by method (only successful generations)
     for topic, topic_data in data.get("results", {}).items():
         for method, method_data in topic_data.items():
             if method not in methods_data:
                 methods_data[method] = []
 
             eval_results = method_data.get("evaluation")
-            if eval_results and isinstance(eval_results, dict):
+            if (
+                method_data.get("success") is True
+                and eval_results
+                and isinstance(eval_results, dict)
+            ):
                 methods_data[method].append(eval_results)
 
     # Calculate and display averages for each method
@@ -114,170 +119,90 @@ Examples:
         action="store_true",
         help="Force re-evaluation even if evaluation results already exist",
     )
-    # Removed multiprocessing option - not beneficial due to model loading overhead
 
     return parser.parse_args()
 
 
 def load_results(results_dir: Path) -> Dict:
-    """Load existing results from results.json, creating dummy structure if missing."""
+    """Load existing results from results.json.
+
+    If missing, reconstruct it by scanning the articles directory and using
+    save_final_results to persist a proper file (with metadata if available).
+    """
     results_file = results_dir / "results.json"
+    if results_file.exists():
+        with open(results_file, "r") as f:
+            data = json.load(f)
+        # If results.json exists but lacks a usable "results" block, attempt reconstruction
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("results"), dict)
+            or not data.get("results")
+        ):
+            logger.warning(
+                "Existing results.json has no results; attempting reconstruction from articles..."
+            )
+            # fall through to reconstruction path below
+        else:
+            return data
 
-    if not results_file.exists():
-        logger.warning(f"Results file not found: {results_file}")
-        logger.info("Creating dummy results.json from articles directory...")
+    logger.warning(f"Results file not found: {results_file}")
 
-        # Create dummy results by scanning articles directory
-        dummy_results = create_dummy_results(results_dir)
-
-        # Save the dummy results for future use
-        try:
-            with open(results_file, "w") as f:
-                json.dump(dummy_results, f, indent=2)
-            logger.info(f"✅ Created dummy results.json: {results_file}")
-        except Exception as e:
-            logger.warning(f"Failed to save dummy results.json: {e}")
-
-        return dummy_results
-
-    with open(results_file, "r") as f:
-        return json.load(f)
-
-
-def create_dummy_results(results_dir: Path) -> Dict:
-    """Create dummy results structure by scanning articles directory."""
-    from datetime import datetime
-
+    # Attempt reconstruction from articles directory
     articles_dir = results_dir / "articles"
+    if not articles_dir.exists():
+        logger.error("No articles directory to reconstruct from. Run generation first.")
+        return {}
 
-    # Detect methods and topics from articles directory
+    # Infer methods/topics using longest-known method prefix matching
+    known_methods = [
+        "writer_reviewer_tom",
+        "writer_reviewer",
+        "writer_only",
+        "collaborative",
+        "direct",
+        "storm",
+        "rag",
+    ]
     methods = set()
     topics = set()
+    for article_file in articles_dir.glob("*.md"):
+        if article_file.name.endswith("_metadata.json"):
+            continue
+        stem = article_file.stem
+        matched = False
+        for km in known_methods:
+            prefix = f"{km}_"
+            if stem.startswith(prefix):
+                methods.add(km)
+                topics.add(stem[len(prefix) :].replace("_", " "))
+                matched = True
+                break
+        if not matched and "_" in stem:
+            # Fallback: split on first underscore
+            method, rest = stem.split("_", 1)
+            methods.add(method)
+            topics.add(rest.replace("_", " "))
 
-    if articles_dir.exists():
-        # Scan for method_topic.md pattern
-        for article_file in articles_dir.glob("*.md"):
-            if "_metadata.json" in article_file.name:
-                continue
+    if not methods or not topics:
+        logger.error("Could not infer methods/topics from articles directory.")
+        return {}
 
-            filename = article_file.stem
-
-            # Try to split method from topic
-            for potential_method in [
-                "direct",
-                "storm",
-                "rag",
-                "writer_only",
-                "writer_reviewer",
-                "writer_reviewer_tom",
-            ]:
-                if filename.startswith(f"{potential_method}_"):
-                    methods.add(potential_method)
-                    topic_part = filename[len(potential_method) + 1 :]
-
-                    # Keep original topic format for FreshWiki matching
-                    topic = topic_part
-
-                    topics.add(topic)
-                    break
-
-        # Also check for method/topic.md structure
-        for potential_method in [
-            "direct",
-            "storm",
-            "rag",
-            "collaborative",
-            "writer_only",
-            "writer_reviewer",
-            "writer_reviewer_tom",
-        ]:
-            method_dir = articles_dir / potential_method
-            if method_dir.exists() and method_dir.is_dir():
-                methods.add(potential_method)
-                for article_file in method_dir.glob("*.md"):
-                    topic = article_file.stem  # Keep original format
-                    topics.add(topic)
-
-    methods = (
-        list(methods)
-        if methods
-        else [
-            "direct",
-            "storm",
-            "rag",
-            "writer_only",
-            "writer_reviewer",
-            "writer_reviewer_tom",
-        ]
+    logger.info(
+        f"Reconstructing results.json from articles (methods={sorted(methods)}, topics={len(topics)})"
     )
-    topics = list(topics) if topics else ["dummy_topic"]
-
-    logger.info(f"Detected methods: {methods}")
-    logger.info(f"Detected topics: {topics}")
-
-    # Create dummy structure
-    dummy_data = {
-        "summary": {
-            "timestamp": datetime.now().isoformat(),
-            "backend": "unknown",
-            "methods": {
-                method: {"model": "unknown", "article_count": 0} for method in methods
-            },
-            "total_time": 0.0,
-            "topics_processed": len(topics),
-        },
-        "results": {},
-    }
-
-    # Initialize all topic-method combinations
-    for topic in topics:
-        dummy_data["results"][topic] = {}
-        for method in methods:
-            # Check if article actually exists
-            article_exists = False
-            word_count = 0
-
-            # Check method_topic.md pattern
-            safe_topic = topic.replace(" ", "_").replace("/", "_")
-            article_file = articles_dir / f"{method}_{safe_topic}.md"
-
-            if article_file.exists():
-                article_exists = True
-                try:
-                    with open(article_file, "r") as f:
-                        content = f.read()
-                    word_count = len(content.split())
-                except:
-                    word_count = 0
-            else:
-                # Check method/topic.md pattern
-                method_dir = articles_dir / method
-                if method_dir.exists():
-                    topic_file = method_dir / f"{safe_topic}.md"
-                    if topic_file.exists():
-                        article_exists = True
-                        try:
-                            with open(topic_file, "r") as f:
-                                content = f.read()
-                            word_count = len(content.split())
-                        except:
-                            word_count = 0
-
-            if article_exists:
-                dummy_data["results"][topic][method] = {
-                    "success": True,
-                    "generation_time": 10.0,  # Dummy value
-                    "word_count": word_count,
-                    "article_path": f"articles/{method}_{safe_topic}.md",
-                }
-                dummy_data["summary"]["methods"][method]["article_count"] += 1
-            else:
-                dummy_data["results"][topic][method] = {
-                    "success": False,
-                    "error": "Article file not found",
-                }
-
-    return dummy_data
+    try:
+        ok = save_final_results(
+            results_dir, sorted(topics), sorted(methods), total_time=0.0
+        )
+        if not ok:
+            logger.error("Failed to save reconstructed results.json")
+            return {}
+        with open(results_file, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Reconstruction failed: {e}")
+        return {}
 
 
 def save_results(results_dir: Path, data: Dict):
@@ -290,6 +215,17 @@ def save_results(results_dir: Path, data: Dict):
 def get_article_content(results_dir: Path, method: str, topic: str) -> Optional[str]:
     """Get article content from file without storing in memory."""
     articles_dir = results_dir / "articles"
+
+    # Normalize writer-prefixed topic keys for non-writer methods
+    def _strip_writer_prefixes(t: str) -> str:
+        for pref in ("reviewer tom ", "reviewer ", "only "):
+            if t.lower().startswith(pref):
+                return t[len(pref) :]
+        return t
+
+    non_writer_methods = {"direct", "rag", "storm"}
+    if method in non_writer_methods:
+        topic = _strip_writer_prefixes(topic)
 
     # Normalize topic name (replace spaces with underscores for filenames)
     topic_normalized = topic.replace(" ", "_")
@@ -322,9 +258,6 @@ def main():
     """Main evaluation function."""
     args = parse_arguments()
 
-    # Setup logging
-    setup_logging(args.log_level)
-
     results_dir = Path(args.results_dir)
     if not results_dir.exists():
         logger.error(f"Results directory does not exist: {results_dir}")
@@ -338,19 +271,10 @@ def main():
         logger.info("Loading existing results...")
         data = load_results(results_dir)
 
-        # Check if evaluation already exists and not forcing
+        # Resume mode: if some evaluations already exist and --force is not set,
+        # continue evaluating only the missing pairs (no early exit).
         if not args.force:
-            results = data.get("results", {})
-            has_evaluations = any(
-                "evaluation" in method_data or "metrics" in method_data
-                for topic_data in results.values()
-                for method_data in topic_data.values()
-            )
-            if has_evaluations:
-                logger.info(
-                    "Evaluation results already exist. Use --force to re-evaluate."
-                )
-                return 0
+            logger.info("Resume mode: will skip already-evaluated pairs.")
 
         # Load FreshWiki dataset for evaluation
         logger.info("Loading FreshWiki dataset...")
@@ -373,6 +297,50 @@ def main():
         results = data.get("results", {})
         total_evaluations = 0
         successful_evaluations = 0
+        skipped_missing = 0
+        skipped_existing = 0
+
+        # Pre-compute how many evaluations we will actually run (for ETA)
+        planned_evaluations = 0
+        for _topic, _topic_data in results.items():
+            for _method, _method_data in _topic_data.items():
+                if not isinstance(_method_data, dict):
+                    continue
+                if not args.force and (
+                    "evaluation" in _method_data or "metrics" in _method_data
+                ):
+                    continue
+                planned_evaluations += 1
+
+        eval_loop_start = time.time()
+        completed_evaluations = 0
+        # Auto-save frequency (evaluations). Set to 1 to save after each evaluation.
+        autosave_every = 1
+
+        def _fmt_secs(secs: float) -> str:
+            secs = max(0, int(secs))
+            m, s = divmod(secs, 60)
+            h, m = divmod(m, 60)
+            if h:
+                return f"{h}h{m:02d}m{s:02d}s"
+            if m:
+                return f"{m}m{s:02d}s"
+            return f"{s}s"
+
+        def _mark_progress():
+            nonlocal completed_evaluations
+            if planned_evaluations <= 0:
+                return
+            completed_evaluations += 1
+            elapsed = time.time() - eval_loop_start
+            rate = completed_evaluations / elapsed if elapsed > 0 else 0.0
+            remaining = planned_evaluations - completed_evaluations
+            eta = (remaining / rate) if rate > 0 else 0.0
+            pct = (completed_evaluations / planned_evaluations) * 100.0
+            logger.info(
+                f"Progress: {completed_evaluations}/{planned_evaluations} ({pct:.1f}%) | "
+                f"elapsed {_fmt_secs(elapsed)} | ETA {_fmt_secs(eta)}"
+            )
 
         for topic, topic_data in results.items():
             logger.info(f"Processing topic: {topic}")
@@ -401,14 +369,13 @@ def main():
                     continue
 
                 logger.debug(f"Evaluating {method} for {topic}")
-                total_evaluations += 1
 
                 # Skip if already evaluated and not forcing
                 if not args.force and (
                     "evaluation" in method_data or "metrics" in method_data
                 ):
                     logger.debug(f"Skipping {method}/{topic} - already evaluated")
-                    successful_evaluations += 1
+                    skipped_existing += 1
                     continue
 
                 # Get article content
@@ -432,18 +399,10 @@ def main():
 
                 if not article_content:
                     logger.error(f"Could not find article content for {method}/{topic}")
-                    # Add error to results
-                    method_data["evaluation"] = {
-                        metric: 0.0
-                        for metric in [
-                            "rouge_1",
-                            "rouge_l",
-                            "heading_soft_recall",
-                            "heading_entity_recall",
-                            "article_entity_recall",
-                        ]
-                    }
+                    # Record error only; do not create a zeroed 'evaluation' block
                     method_data["evaluation_error"] = "Could not find article content"
+                    skipped_missing += 1
+                    _mark_progress()
                     continue
 
                 # Create Article object
@@ -454,6 +413,7 @@ def main():
                 # Evaluate the article
                 try:
                     logger.debug(f"Running evaluation for {method}/{topic}")
+                    total_evaluations += 1
                     eval_results = evaluator.evaluate_article(article, freshwiki_entry)
 
                     if eval_results:
@@ -479,31 +439,25 @@ def main():
                         )
                     else:
                         logger.error(f"Evaluation returned None for {method}/{topic}")
-                        method_data["evaluation"] = {
-                            metric: 0.0
-                            for metric in [
-                                "rouge_1",
-                                "rouge_l",
-                                "heading_soft_recall",
-                                "heading_entity_recall",
-                                "article_entity_recall",
-                            ]
-                        }
+                        # Do not create a zeroed 'evaluation' block; record error only
                         method_data["evaluation_error"] = "Evaluation returned None"
 
                 except Exception as e:
                     logger.error(f"Evaluation failed for {method}/{topic}: {e}")
-                    method_data["evaluation"] = {
-                        metric: 0.0
-                        for metric in [
-                            "rouge_1",
-                            "rouge_l",
-                            "heading_soft_recall",
-                            "heading_entity_recall",
-                            "article_entity_recall",
-                        ]
-                    }
+                    # Record error only; do not create a zeroed 'evaluation' block
                     method_data["evaluation_error"] = str(e)
+                finally:
+                    # Count this pair as completed (success or failure)
+                    _mark_progress()
+                    # Periodically persist progress for resume capability
+                    try:
+                        if (
+                            autosave_every == 1
+                            or (completed_evaluations % autosave_every) == 0
+                        ):
+                            save_results(results_dir, data)
+                    except Exception as _e:
+                        logger.debug(f"Autosave failed: {_e}")
 
         # Update results data with evaluation timestamp
         data["evaluation_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -515,7 +469,45 @@ def main():
                 if total_evaluations > 0
                 else 0.0
             ),
+            "skipped_missing": skipped_missing,
+            "skipped_existing": skipped_existing,
         }
+
+        # Compute and persist aggregation by method
+        try:
+            methods_data = {}
+            for topic, topic_data in data.get("results", {}).items():
+                for method, method_data in topic_data.items():
+                    if not isinstance(method_data, dict):
+                        continue
+                    eval_results = method_data.get("evaluation")
+                    if (
+                        method_data.get("success") is True
+                        and eval_results
+                        and isinstance(eval_results, dict)
+                    ):
+                        methods_data.setdefault(method, []).append(eval_results)
+
+            metrics_list = [
+                "rouge_1",
+                "rouge_l",
+                "heading_soft_recall",
+                "heading_entity_recall",
+                "article_entity_recall",
+            ]
+            aggregates = {}
+            for method, res_list in methods_data.items():
+                agg = {}
+                for metric in metrics_list:
+                    vals = [r.get(metric, 0.0) for r in res_list if metric in r]
+                    if vals:
+                        agg[metric] = sum(vals) / len(vals)
+                if agg:
+                    aggregates[method] = agg
+            if aggregates:
+                data["evaluation_aggregate"] = aggregates
+        except Exception as e:
+            logger.warning(f"Failed to compute aggregation: {e}")
 
         # Save updated results
         logger.info("Saving updated results...")
@@ -528,7 +520,8 @@ def main():
         elapsed_time = time.time() - start_time
         logger.info(f"✅ Evaluation completed in {elapsed_time:.1f}s")
         logger.info(
-            f"📊 Evaluated {successful_evaluations}/{total_evaluations} articles successfully"
+            f"📊 New evaluations: {total_evaluations} | successes: {successful_evaluations} | "
+            f"skipped_existing: {skipped_existing} | skipped_missing: {skipped_missing}"
         )
 
         if successful_evaluations < total_evaluations:
