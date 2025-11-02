@@ -28,17 +28,21 @@ def setup_storm_config() -> STORMWikiLMConfigs:
     lm_config = STORMWikiLMConfigs()
 
     # Use fast model for conversation and question asking
-    fast_engine = ConfigContext.get_client("fast")
+    conv_simulator_model = ConfigContext.get_client("conv_simulator")
+    outline_model = ConfigContext.get_client("outline")
     writing_engine = ConfigContext.get_client("writing")
+    polish_model = ConfigContext.get_client("polish")
 
     # Set up all STORM LM configurations
-    lm_config.set_conv_simulator_lm(fast_engine)  # pyright: ignore[reportArgumentType]
-    lm_config.set_question_asker_lm(fast_engine)  # pyright: ignore[reportArgumentType]
-    lm_config.set_outline_gen_lm(writing_engine)  # pyright: ignore[reportArgumentType]
+    lm_config.set_conv_simulator_lm(
+        conv_simulator_model  # pyright: ignore[reportArgumentType]
+    )
+    lm_config.set_question_asker_lm(
+        conv_simulator_model  # pyright: ignore[reportArgumentType]
+    )
+    lm_config.set_outline_gen_lm(outline_model)  # pyright: ignore[reportArgumentType]
     lm_config.set_article_gen_lm(writing_engine)  # pyright: ignore[reportArgumentType]
-    lm_config.set_article_polish_lm(
-        writing_engine
-    )  # pyright: ignore[reportArgumentType]
+    lm_config.set_article_polish_lm(polish_model)  # pyright: ignore[reportArgumentType]
 
     logger.info("STORM LM configuration set up with ConfigContext engines")
     return lm_config

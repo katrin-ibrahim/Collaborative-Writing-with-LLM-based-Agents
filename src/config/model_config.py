@@ -18,9 +18,9 @@ class ModelConfig(BaseConfig):
     ollama_host: Optional[str] = None
 
     # Storm-specific model assignments
+    conv_simulator_model: str = "qwen3:4b"  # Fast model for conversation simulation
     outline_model: str = "qwen3:4b"  # Balanced, for structure
     writing_model: str = "qwen3:4b"  # Quality, for content
-    critique_model: str = "qwen3:4b"  # Reasoning, for self-critique
     polish_model: str = "qwen3:4b"  # Final polish
 
     # Writer-Reviewer specific model assignments
@@ -56,7 +56,7 @@ class ModelConfig(BaseConfig):
         if self.temperatures is None:
             self.temperatures = {
                 # Baseline method temperatures
-                "fast": 0.5,  # Reduced for more focused queries
+                "conv_simulator": 0.5,  # Reduced for more focused queries
                 "outline": 0.4,  # More structured outlines
                 "writing": 0.6,  # Balanced creativity and accuracy
                 "critique": 0.2,  # More conservative critique
@@ -75,7 +75,7 @@ class ModelConfig(BaseConfig):
         if self.token_limits is None:
             self.token_limits = {
                 # Baseline method token limits
-                "fast": 1200,  # Increased for better query generation
+                "conv_simulator": 1200,  # Increased for better query generation
                 "outline": 1200,  # Increased for better structure
                 "writing": 2500,  # Increased for better articles
                 "critique": 1200,  # Increased for thorough critique
@@ -117,10 +117,9 @@ class ModelConfig(BaseConfig):
         # Otherwise use task-specific models
         task_model_map = {
             # Baseline method tasks
-            "fast": self.default_model,
+            "conv_simulator": self.default_model,
             "outline": self.outline_model,
             "writing": self.writing_model,
-            "critique": self.critique_model,
             "polish": self.polish_model,
             # Writer-Reviewer specific tasks
             "query_generation": self.query_generation_model,

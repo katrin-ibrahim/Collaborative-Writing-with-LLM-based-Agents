@@ -6,7 +6,7 @@ Defines the essential contract for all retrieval sources.
 from abc import ABC, abstractmethod
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from src.config.retrieval_config import RetrievalConfig
 from src.retrieval.utils.cache_manager import CacheManager
@@ -53,27 +53,57 @@ class BaseRetriever(ABC):
         self.semantic_enabled = self.config.semantic_filtering_enabled
         self.format_type = format_type
 
-    def __call__(
-        self, query: str, k: Optional[int] = None, **kwargs
-    ) -> List[Dict[str, Any]]:
+    def __call__(self, k: Optional[int] = None, **kwargs) -> List[Dict[str, Any]]:
         """
-        Allow direct call to search method for convenience (single query).
+        Allow direct call to search method for STORM compatibility.
         The final output is converted back to a list of dictionaries for the consumer framework.
         """
+        # Handle flexible calling conventions for STORM compatibility
+        actual_query = None
+        logger.info(f"kwargs received in __call__: {kwargs}")
+
+        if kwargs and len(kwargs) > 0:
+            # STORM calls with positional arguments: retriever(query)
+            actual_query = kwargs["query_or_queries"]
+
+        # Handle empty or invalid queries gracefully
+        if not actual_query:
+            logger.warning("__call__ invoked with empty/invalid query")
+            return []
+
         max_results = (
             k
             if k is not None
             else kwargs.get("max_results", self.config.results_per_query)
         )
 
-        # Pass the single query positionally to search, which now returns List[ResearchChunk]
-        chunk_results: List[ResearchChunk] = self.search(
-            query, max_results=max_results, **kwargs  # Passed positionally
-        )
+        try:
+            # Pass the single query positionally to search, which now returns List[ResearchChunk]
+            chunk_results: List[ResearchChunk] = self.search(
+                query_list=actual_query, max_results=max_results  # Passed positionally
+            )
 
-        # Convert List[ResearchChunk] back to List[Dict[str, Any]] (as requested)
-        dict_results = [chunk.__dict__ for chunk in chunk_results]
-        return dict_results
+            # Convert List[ResearchChunk] back to List[Dict[str, Any]] (as requested)
+            dict_results = []
+            for chunk in chunk_results:
+                result_dict = chunk.__dict__.copy()
+
+                # Add STORM-compatible fields if they don't exist
+                if "snippets" not in result_dict and "content" in result_dict:
+                    result_dict["snippets"] = [result_dict["content"]]
+                if "text" not in result_dict and "content" in result_dict:
+                    result_dict["text"] = result_dict["content"]
+                if "title" not in result_dict:
+                    # Try to extract title from metadata or use a default
+                    metadata = result_dict.get("metadata", {})
+                    result_dict["title"] = metadata.get("article_title", "Unknown")
+
+                dict_results.append(result_dict)
+
+            return dict_results
+        except Exception as e:
+            logger.error(f"Retrieval failed for query '{actual_query}': {e}")
+            return []
 
     # =================== Cache Methods (Delegated to CacheManager) ===================
 
@@ -100,47 +130,33 @@ class BaseRetriever(ABC):
     # =================== Core Search Logic ===================
 
     def search(
-        self,
-        *args,  # For positional argument support
+        self,  # For positional argument support
         max_results: Optional[int] = None,
         topic: Optional[str] = None,
         deduplicate: bool = True,
-        query_list: Optional[List[str]] = None,  # Our preferred internal argument
-        query_or_queries: Optional[
-            Union[str, List[str]]
-        ] = None,  # External storm argument
-        **kwargs,
+        query_list: Optional[List[str]] = None,
     ) -> List[ResearchChunk]:
         """
         Unified search method that handles query processing, caching, and result formatting.
         Returns a list of ResearchChunk objects.
 
         Args:
-            *args: Positional arguments, where the first is often the query.
             max_results: Maximum number of results to retrieve PER query.
             topic: Optional topic string for post-retrieval semantic filtering/scoring.
             deduplicate: Whether to remove duplicate results across queries.
             query_list: Our internal argument for a list of queries.
-            query_or_queries: External argument that can be a single string or list.
-            **kwargs: Additional retrieval parameters for subclasses.
 
         Returns:
             List of ResearchChunk objects.
         """
         logger.debug(
-            f"{self.__class__.__name__}.search called with: args={args}, queries={query_or_queries}, list={query_list}, kwargs={kwargs}"
+            f"{self.__class__.__name__}.search called with:  list={query_list},"
         )
 
         # --- Robust Query Normalization ---
-        # 1. Check the preferred external keyword argument
-        if query_or_queries is not None:
-            raw_queries = query_or_queries
-        # 2. Check the internal keyword argument
-        elif query_list is not None:
+        if query_list is not None:
             raw_queries = query_list
-        # 3. Check for positional arguments (This is the path hit when __call__ is used)
-        elif args:
-            raw_queries = args[0]
+        # Check for positional arguments (This is the path hit when __call__ is used)
         else:
             logger.warning(
                 f"{self.__class__.__name__}.search called with no valid query argument - returning empty list"
@@ -302,12 +318,11 @@ class BaseRetriever(ABC):
                 executor.submit(
                     # Call the standard search method, which now returns List[ResearchChunk]
                     self.search,
-                    query,  # Passed positionally
+                    query_list=[query],  # Passed as a list
                     max_results=max_results,
                     topic=topic,
                     # Disable deduplication inside the concurrent call
-                    deduplicate=False,
-                    **kwargs,
+                    deduplicate=True,
                 ): query
                 for i, query in enumerate(query_list)
             }

@@ -157,7 +157,6 @@ def save_final_results(
                 metadata_file = articles_dir / f"{article_file.stem}_metadata.json"
                 generation_time = 0.0
                 word_count = 0
-                model_info = "unknown"
 
                 if metadata_file.exists():
                     try:
@@ -165,7 +164,6 @@ def save_final_results(
                             metadata = json.load(f)
                             generation_time = metadata.get("generation_time", 0.0)
                             word_count = metadata.get("word_count", 0)
-                            model_info = metadata.get("model", "unknown")
                     except Exception as e:
                         logger.warning(
                             f"Failed to load metadata for {article_file}: {e}"
@@ -177,7 +175,7 @@ def save_final_results(
                         with open(article_file, "r") as f:
                             content = f.read()
                         word_count = len(content.split())
-                    except:
+                    except Exception:
                         word_count = 0
 
                 # Ensure topic exists in results
@@ -209,7 +207,6 @@ def save_final_results(
 
             # Update method summary
             data["summary"]["methods"][method] = {
-                "model": model_info,
                 "article_count": method_articles,
             }
 
@@ -225,7 +222,7 @@ def save_final_results(
     try:
         with open(results_file, "w") as f:
             json.dump(data, f, indent=2, default=str)
-        logger.info(f"✅ Final results saved to: {results_file}")
+        logger.info(f"Final results saved to: {results_file}")
         return True
     except Exception as e:
         logger.error(f"Failed to save final results: {e}")

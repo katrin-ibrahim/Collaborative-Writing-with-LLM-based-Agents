@@ -74,7 +74,7 @@ class RagMethod(BaseMethod):
                     all_results = []
                     for query in queries:
                         results = retrieval_manager.search(
-                            query_or_queries=query,
+                            query_list=[query],
                             max_results=self.retrieval_config.results_per_query,
                         )
                         all_results.extend(results)
@@ -96,7 +96,7 @@ class RagMethod(BaseMethod):
                 for query in queries:
                     try:
                         results = retrieval_manager.search(
-                            query_or_queries=query,
+                            query_list=[query],
                             max_results=self.retrieval_config.results_per_query,
                         )
                         converted_passages = self._convert_to_research_chunks(
