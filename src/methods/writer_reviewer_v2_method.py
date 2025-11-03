@@ -79,6 +79,10 @@ class WriterReviewerV2Method(BaseMethod):
         logger.info(f"Running WriterV2-ReviewerV2 collaboration for: {topic}")
         logger.info(f"Theory of Mind enabled: {self.tom_enabled}")
 
+        # Reset usage counters at start
+        task_models = self._get_task_models_for_method()
+        self._reset_all_client_usage(task_models)
+
         start_time = time.time()
         writer_time = 0
         reviewer_time = 0
@@ -201,6 +205,9 @@ class WriterReviewerV2Method(BaseMethod):
             # Enhanced metadata for WriterV2-ReviewerV2 method
             total_time = time.time() - start_time
 
+            # Collect token usage statistics
+            token_usage = self._collect_token_usage(task_models)
+
             # Get collaboration metrics
             collab_metrics = self._calculate_collaboration_metrics(
                 memory, writer_time, reviewer_time, total_time
@@ -212,14 +219,11 @@ class WriterReviewerV2Method(BaseMethod):
                 {
                     # Standard metadata fields expected by output_manager
                     "generation_time": total_time,
-                    "model": getattr(writer.api_client, "model_path", "unknown"),
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     # Method-specific metadata
                     "method": "writer_reviewer_v2",
                     "tom_enabled": self.tom_enabled,
                     "total_iterations": final_iterations,
-                    "converged": memory.state.get("converged", False),
-                    "convergence_reason": memory.state.get("convergence_reason"),
                     "execution_time": {
                         "total_time": total_time,
                         "writer_time": writer_time,
@@ -230,8 +234,7 @@ class WriterReviewerV2Method(BaseMethod):
                     "theory_of_mind": (
                         self._get_tom_metrics(memory) if self.tom_enabled else None
                     ),
-                    "workflow_type": "hybrid_deterministic",
-                    "agent_versions": {"writer": "v2", "reviewer": "v2"},
+                    "token_usage": token_usage,
                 }
             )
 
@@ -240,7 +243,7 @@ class WriterReviewerV2Method(BaseMethod):
                 f"Final article: {len(final_article.content)} characters, {len(final_article.sections)} sections"
             )
             logger.info(
-                f"Total time: {total_time:.2f}s, Iterations: {final_iterations}, Converged: {final_article.metadata['converged']}"
+                f"Total time: {total_time:.2f}s, Iterations: {final_iterations}, Converged: {final_article.metadata['converged']}, Tokens: {token_usage['total_tokens']}"
             )
 
             return final_article

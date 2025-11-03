@@ -42,15 +42,19 @@ class WriterOnlyV2Method(BaseMethod):
 
     def run(self, topic: str) -> Article:
         """
-        Generate article using WriterV2 agent only.
+        Run WriterV2-only method for article generation.
 
         Args:
             topic: Topic to write about
 
         Returns:
-            Generated article with comprehensive metadata
+            Generated article with WriterV2 metadata
         """
         logger.info(f"Running WriterV2-only method for: {topic}")
+
+        # Reset usage counters at start
+        task_models = self._get_task_models_for_method()
+        self._reset_all_client_usage(task_models)
 
         start_time = time.time()
 
@@ -99,6 +103,9 @@ class WriterOnlyV2Method(BaseMethod):
             if not sections:
                 sections = {}
 
+            # Collect token usage statistics
+            token_usage = self._collect_token_usage(task_models)
+
             # Build final article with comprehensive metadata
             total_time = time.time() - start_time
 
@@ -135,6 +142,7 @@ class WriterOnlyV2Method(BaseMethod):
                         "create_outline",
                         "write_sections",
                     ],
+                    "token_usage": token_usage,
                 },
             )
 
@@ -142,7 +150,9 @@ class WriterOnlyV2Method(BaseMethod):
             logger.info(
                 f"Final article: {len(final_article.content)} characters, {len(final_article.sections)} sections"
             )
-            logger.info(f"Total time: {total_time:.2f}s")
+            logger.info(
+                f"Total time: {total_time:.2f}s, tokens: {token_usage['total_tokens']}"
+            )
 
             return final_article
 

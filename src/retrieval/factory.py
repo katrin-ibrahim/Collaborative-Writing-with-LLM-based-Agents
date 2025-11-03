@@ -51,13 +51,13 @@ def create_retrieval_manager(
     if rm_type == "wiki":
         from src.retrieval.rms.wiki_rm import WikiRM
 
-        base_rm = WikiRM(**default_args)
+        base_rm = WikiRM()
 
     elif rm_type == "faiss":
         try:
             from src.retrieval.rms.faiss_rm import FaissRM
 
-            base_rm = FaissRM(**default_args)
+            base_rm = FaissRM()
         except ImportError as e:
             logger.error(f"FAISS dependencies not available: {e}")
             logger.error("Install with: pip install faiss-cpu sentence-transformers")
@@ -76,8 +76,9 @@ def create_retrieval_manager(
             raise RuntimeError(f"HybridRM failed to initialize: {e}")
 
     else:
-        logger.error(f"Unknown retrieval manager type: {rm_type}")
-        logger.error(f"Supported types: wiki, faiss, hybrid")
+        logger.error(
+            f"Unknown retrieval manager type: {rm_type}, supported types are: wiki, faiss, hybrid"
+        )
         raise ValueError(f"Unsupported retrieval manager type: {rm_type}")
 
     # Cache the instance to avoid repeated model downloads

@@ -1,7 +1,7 @@
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any, List, Literal, Optional
 
 # --- Configuration Values ---
 
@@ -22,10 +22,44 @@ class ArticleOutlineValidationModel(BaseModel):
     title: str = Field(..., description="The original given title of the article.")
     headings: List[str] = Field(
         ...,
-        min_length=3,  # Added min_length for logical outline
+        min_length=3,
         max_length=MAX_HEADING_COUNT,
-        description=f"A list of up to {MAX_HEADING_COUNT} main section headings for the article.",
+        description=f"A list of up to {MAX_HEADING_COUNT} main section headings as plain strings (not objects).",
     )
+
+    @field_validator("headings", mode="before")
+    @classmethod
+    def normalize_headings(cls, v: Any) -> List[str]:
+        """
+        Normalize headings to plain strings.
+        Handles cases where LLM returns [{"title": "..."}, ...] instead of ["...", ...].
+        """
+        if not isinstance(v, list):
+            raise ValueError("headings must be a list")
+
+        normalized = []
+        for item in v:
+            if isinstance(item, str):
+                normalized.append(item)
+            elif isinstance(item, dict):
+                # Extract from {"title": "..."} or similar structures
+                if "title" in item:
+                    normalized.append(str(item["title"]))
+                elif "heading" in item:
+                    normalized.append(str(item["heading"]))
+                elif "name" in item:
+                    normalized.append(str(item["name"]))
+                else:
+                    # Try to get first value if it's a single-key dict
+                    if len(item) == 1:
+                        normalized.append(str(next(iter(item.values()))))
+                    else:
+                        raise ValueError(f"Cannot extract heading from dict: {item}")
+            else:
+                # Try to convert to string
+                normalized.append(str(item))
+
+        return normalized
 
 
 # endregion Writer Validation Models

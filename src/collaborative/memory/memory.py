@@ -356,6 +356,44 @@ class SharedMemory:
 
     # endregion Research Chunks Management
 
+    def delete_chunks_by_ids(self, chunk_ids: List[str]) -> int:
+        """Delete specified chunks and purge references from search summaries.
+
+        Returns the number of removed chunk records.
+        """
+        if not chunk_ids:
+            return 0
+
+        # Remove from research_chunks
+        removed = 0
+        store = self.state.setdefault("research_chunks", {})
+        for cid in list(chunk_ids):
+            if cid in store:
+                del store[cid]
+                removed += 1
+
+        # Purge from search_summaries results lists
+        summaries = self.state.setdefault("search_summaries", {})
+        for sid, summary in summaries.items():
+            try:
+                results = (
+                    summary.get("results", []) if isinstance(summary, dict) else []
+                )
+                if results:
+                    filtered = [
+                        r for r in results if r.get("chunk_id") not in chunk_ids
+                    ]
+                    # Only assign back if anything changed to avoid unnecessary churn
+                    if len(filtered) != len(results):
+                        summary["results"] = filtered
+            except Exception:
+                # Ignore malformed entries, keep going
+                continue
+
+        # Persist once
+        self._persist()
+        return removed
+
     # =================== Typed Feedback Management ===================
     # region Typed Feedback Management
 

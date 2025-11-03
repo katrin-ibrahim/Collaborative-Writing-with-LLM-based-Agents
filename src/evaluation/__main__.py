@@ -31,6 +31,88 @@ logger = logging.getLogger(__name__)
 # Multiprocessing would be slower due to model loading overhead in each process
 
 
+def _aggregate_token_usage_for_method(method: str, token_data_list: list) -> dict:
+    """Aggregate token usage data for a single method."""
+    if not token_data_list:
+        return {}
+
+    # Initialize aggregation
+    total_tokens = 0
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    total_calls = 0
+    by_model_agg = {}
+    by_task_agg = {}
+
+    # Aggregate across all topics for this method
+    for token_usage in token_data_list:
+        if not token_usage:
+            continue
+
+        # Aggregate totals
+        total_tokens += token_usage.get("total_tokens", 0)
+        total_prompt_tokens += token_usage.get("total_prompt_tokens", 0)
+        total_completion_tokens += token_usage.get("total_completion_tokens", 0)
+        total_calls += token_usage.get("total_calls", 0)
+
+        # Aggregate by model
+        by_model = token_usage.get("by_model", {})
+        for model, model_stats in by_model.items():
+            if model not in by_model_agg:
+                by_model_agg[model] = {
+                    "tokens": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "calls": 0,
+                    "tasks": set(),
+                }
+            by_model_agg[model]["tokens"] += model_stats.get("tokens", 0)
+            by_model_agg[model]["prompt_tokens"] += model_stats.get("prompt_tokens", 0)
+            by_model_agg[model]["completion_tokens"] += model_stats.get(
+                "completion_tokens", 0
+            )
+            by_model_agg[model]["calls"] += model_stats.get("calls", 0)
+            by_model_agg[model]["tasks"].update(model_stats.get("tasks", []))
+
+        # Aggregate by task
+        by_task = token_usage.get("by_task", {})
+        for task, task_stats in by_task.items():
+            if task not in by_task_agg:
+                by_task_agg[task] = {
+                    "tokens": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "calls": 0,
+                    "model": task_stats.get("model", "unknown"),
+                }
+            by_task_agg[task]["tokens"] += task_stats.get("tokens", 0)
+            by_task_agg[task]["prompt_tokens"] += task_stats.get("prompt_tokens", 0)
+            by_task_agg[task]["completion_tokens"] += task_stats.get(
+                "completion_tokens", 0
+            )
+            by_task_agg[task]["calls"] += task_stats.get("calls", 0)
+
+    # Convert sets to lists for JSON serialization
+    for model_stats in by_model_agg.values():
+        model_stats["tasks"] = list(model_stats["tasks"])
+
+    num_articles = len(token_data_list)
+    return {
+        "method": method,
+        "article_count": num_articles,
+        "total_tokens": total_tokens,
+        "total_prompt_tokens": total_prompt_tokens,
+        "total_completion_tokens": total_completion_tokens,
+        "total_calls": total_calls,
+        "avg_tokens_per_article": (
+            total_tokens / num_articles if num_articles > 0 else 0
+        ),
+        "avg_calls_per_article": total_calls / num_articles if num_articles > 0 else 0,
+        "by_model": by_model_agg,
+        "by_task": by_task_agg,
+    }
+
+
 def _generate_aggregation_summary(data):
     """Generate and log aggregation summary of evaluation results."""
     print("\n" + "=" * 80)
@@ -82,6 +164,42 @@ def _generate_aggregation_summary(data):
                     "article_entity_recall": "AER (Article Entity Recall)",
                 }
                 print(f"  🔍 {metric_display[metric]}: {avg_value:.1f}")
+
+        # Show token usage and timing information from aggregated data
+        eval_aggregate = data.get("evaluation_aggregate", {})
+        if method in eval_aggregate:
+            method_agg = eval_aggregate[method]
+
+            # Display timing information
+            if "avg_generation_time" in method_agg:
+                avg_time = method_agg["avg_generation_time"]
+                total_time = method_agg.get("total_generation_time", 0)
+                print(
+                    f"  ⏱️ Avg generation time: {avg_time:.1f}s (total: {total_time:.1f}s)"
+                )
+
+            # Display token usage information
+            token_usage = method_agg.get("token_usage", {})
+            if token_usage:
+                avg_tokens = token_usage.get("avg_tokens_per_article", 0)
+                total_tokens = token_usage.get("total_tokens", 0)
+                avg_calls = token_usage.get("avg_calls_per_article", 0)
+                print(
+                    f"  🔢 Avg tokens per article: {avg_tokens:.0f} (total: {total_tokens:,})"
+                )
+                print(f"  📞 Avg API calls per article: {avg_calls:.1f}")
+
+                # Show breakdown by model for multi-model methods
+                by_model = token_usage.get("by_model", {})
+                if len(by_model) > 1:
+                    print("  📋 Token usage by model:")
+                    for model, stats in by_model.items():
+                        tokens = stats.get("tokens", 0)
+                        calls = stats.get("calls", 0)
+                        tasks = stats.get("tasks", [])
+                        print(
+                            f"    • {model}: {tokens:,} tokens, {calls} calls ({len(tasks)} tasks)"
+                        )
 
     print("\n" + "=" * 80)
 
@@ -476,6 +594,8 @@ def main():
         # Compute and persist aggregation by method
         try:
             methods_data = {}
+            methods_token_data = {}
+            methods_timing_data = {}
             for topic, topic_data in data.get("results", {}).items():
                 for method, method_data in topic_data.items():
                     if not isinstance(method_data, dict):
@@ -487,6 +607,18 @@ def main():
                         and isinstance(eval_results, dict)
                     ):
                         methods_data.setdefault(method, []).append(eval_results)
+
+                        # Collect token usage data if available
+                        token_usage = method_data.get("token_usage")
+                        if token_usage:
+                            methods_token_data.setdefault(method, []).append(
+                                token_usage
+                            )
+
+                        # Collect timing data
+                        gen_time = method_data.get("generation_time", 0.0)
+                        if gen_time:
+                            methods_timing_data.setdefault(method, []).append(gen_time)
 
             metrics_list = [
                 "rouge_1",
@@ -502,6 +634,22 @@ def main():
                     vals = [r.get(metric, 0.0) for r in res_list if metric in r]
                     if vals:
                         agg[metric] = sum(vals) / len(vals)
+
+                # Add token usage aggregation
+                if method in methods_token_data:
+                    token_data_list = methods_token_data[method]
+                    token_agg = _aggregate_token_usage_for_method(
+                        method, token_data_list
+                    )
+                    if token_agg:
+                        agg["token_usage"] = token_agg
+
+                # Add timing aggregation
+                if method in methods_timing_data:
+                    timing_data = methods_timing_data[method]
+                    agg["avg_generation_time"] = sum(timing_data) / len(timing_data)
+                    agg["total_generation_time"] = sum(timing_data)
+
                 if agg:
                     aggregates[method] = agg
             if aggregates:

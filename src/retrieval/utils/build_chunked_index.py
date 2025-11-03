@@ -116,14 +116,13 @@ def create_research_chunks(
         # Use the parametrized description generator
         description = DescriptionGenerator.create_description(
             content=chunk_text,
-            source_type="Wikipedia Simple English",
             title=title,
             chunk_idx=j,
             total_chunks=total_chunks,
             categories=article_data.get("categories", []),
             include_position=True,
             include_categories=True,
-            max_preview_length=150,
+            max_preview_length=200,
         )
 
         research_chunk = ResearchChunk(

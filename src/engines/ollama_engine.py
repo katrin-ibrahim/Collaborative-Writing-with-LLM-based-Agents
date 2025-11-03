@@ -124,6 +124,20 @@ class OllamaEngine(BaseEngine):
                 options=options,
             )
 
+            # Store token usage data if available
+            self.last_usage = None
+            if hasattr(response, "prompt_eval_count") or hasattr(
+                response, "eval_count"
+            ):
+                self.last_usage = {
+                    "prompt_tokens": getattr(response, "prompt_eval_count", 0),
+                    "completion_tokens": getattr(response, "eval_count", 0),
+                    "total_tokens": getattr(response, "prompt_eval_count", 0)
+                    + getattr(response, "eval_count", 0),
+                }
+                # Update total usage stats
+                self._update_total_usage(self.last_usage)
+
             content = (
                 response.message.content if response.message.content is not None else ""
             )
@@ -213,6 +227,20 @@ class OllamaEngine(BaseEngine):
                 # Although not directly supported by all Ollama models, passing
                 # the schema in the prompt/context is the best practice.
             )
+
+            # Store token usage data if available
+            self.last_usage = None
+            if hasattr(response, "prompt_eval_count") or hasattr(
+                response, "eval_count"
+            ):
+                self.last_usage = {
+                    "prompt_tokens": getattr(response, "prompt_eval_count", 0),
+                    "completion_tokens": getattr(response, "eval_count", 0),
+                    "total_tokens": getattr(response, "prompt_eval_count", 0)
+                    + getattr(response, "eval_count", 0),
+                }
+                # Update total usage stats
+                self._update_total_usage(self.last_usage)
 
             raw_json_string = (
                 response.message.content.strip()

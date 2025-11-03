@@ -45,6 +45,10 @@ class RagMethod(BaseMethod):
         """
         logger.info(f"Running RAG for: {topic}")
 
+        # Reset usage counters at start
+        task_models = self._get_task_models_for_method()
+        self._reset_all_client_usage(task_models)
+
         start_time = time.time()
         try:
 
@@ -127,6 +131,9 @@ class RagMethod(BaseMethod):
             generation_time = time.time() - start_time
             content_words = len(content.split()) if content else 0
 
+            # Collect token usage statistics
+            token_usage = self._collect_token_usage(task_models)
+
             # Create article with RAG metadata
             article = Article(
                 title=topic,
@@ -149,19 +156,21 @@ class RagMethod(BaseMethod):
                     "queries": queries,
                     "prompt_length": len(rag_prompt),
                     "response_length": len(response) if response else 0,
+                    "token_usage": token_usage,
                 },
             )
 
             logger.info(
                 f"RAG completed for {topic} "
                 f"({content_words} words, {generation_time:.2f}s, "
-                f"{len(all_passages)} passages)"
+                f"{len(all_passages)} passages, {token_usage['total_tokens']} tokens)"
             )
             return article
 
         except Exception as e:
             logger.error(f"RAG failed for '{topic}': {e}")
             # Return error article
+            generation_time = time.time() - start_time
             return Article(
                 title=topic,
                 content=f"Error generating article: {str(e)}",
@@ -169,10 +178,9 @@ class RagMethod(BaseMethod):
                 metadata={
                     "method": "rag",
                     "error": str(e),
-                    "generation_time": (
-                        time.time() - start_time if "start_time" in locals() else 0
-                    ),
+                    "generation_time": generation_time,
                     "word_count": 0,
+                    "token_usage": self._collect_token_usage(task_models),
                 },
             )
 

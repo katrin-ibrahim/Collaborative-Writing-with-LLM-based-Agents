@@ -157,6 +157,7 @@ def save_final_results(
                 metadata_file = articles_dir / f"{article_file.stem}_metadata.json"
                 generation_time = 0.0
                 word_count = 0
+                token_usage = None
 
                 if metadata_file.exists():
                     try:
@@ -164,6 +165,7 @@ def save_final_results(
                             metadata = json.load(f)
                             generation_time = metadata.get("generation_time", 0.0)
                             word_count = metadata.get("word_count", 0)
+                            token_usage = metadata.get("token_usage")
                     except Exception as e:
                         logger.warning(
                             f"Failed to load metadata for {article_file}: {e}"
@@ -182,12 +184,18 @@ def save_final_results(
                 if topic not in data["results"]:
                     data["results"][topic] = {}
 
-                data["results"][topic][method] = {
+                method_data = {
                     "success": True,
                     "generation_time": generation_time,
                     "word_count": word_count,
                     "article_path": str(article_file.relative_to(output_dir)),
                 }
+
+                # Add token usage if available
+                if token_usage:
+                    method_data["token_usage"] = token_usage
+
+                data["results"][topic][method] = method_data
                 method_articles += 1
 
             # Check for method/topic.md structure

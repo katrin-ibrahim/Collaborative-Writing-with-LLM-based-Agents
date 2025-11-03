@@ -139,18 +139,33 @@ REVIEW STRATEGY:
 {strategy_instructions[strategy]}
 {tom_section}
 
-SECTION-SPECIFIC FEEDBACK:
-Provide detailed feedback for each of the following sections:
+ARTICLE SECTIONS:
 {section_list}
 
-For each section, assign a priority level (high/medium/low) based on the severity of issues found.
-
 REQUIRED OUTPUT FORMAT:
-Your response must be a valid JSON object matching the ReviewFeedbackOutput schema:
-- overall_assessment: string (your holistic assessment)
-- section_feedback: array of objects with section_name, feedback, and priority
-- review_strategy_used: "{strategy}"
-- Optional fields based on strategy (citation_issues, suggested_sections, coverage_gaps, accuracy_concerns)
+Your response must be a valid JSON object with the following structure:
+{{
+  "items": [
+    {{
+      "section": "section name or '_overall' for article-level feedback",
+      "type": "one of: citation_missing, citation_invalid, clarity, accuracy, structure, content_expansion, redundancy, tone, depth, flow",
+      "issue": "clear description of what is wrong",
+      "suggestion": "specific actionable recommendation to fix it",
+      "priority": "high, medium, or low",
+      "quote": "optional: exact text excerpt related to the issue",
+      "paragraph_number": "optional: 1-indexed paragraph number",
+      "location_hint": "optional: additional location context"
+    }}
+  ],
+  "overall_assessment": "optional: holistic summary of the article quality"
+}}
+
+GUIDELINES:
+- Create one item per distinct issue found
+- Assign priority based on impact: high (critical), medium (important), low (minor)
+- Use the 'quote' field when referencing specific text
+- Use '_overall' as section name for article-level feedback
+- Be specific and actionable in your suggestions
 
 Focus on providing constructive, actionable feedback that helps the writer improve the article.
 """
@@ -624,6 +639,63 @@ def build_self_refine_prompt(title: str, current_text: str) -> str:
         "CURRENT_TEXT:\n"
         f"{current_text}\n"
     )
+
+
+def build_research_gate_prompt(
+    topic: str,
+    outline_str: str,
+    batch_idx: int,
+    total_batches: int,
+    chunks_formatted: str,
+    max_queries: int,
+) -> str:
+    """Generate prompt for research gate agent to gather more info."""
+    return f"""
+                You are the research gate for the Writer. Topic: {topic}
+
+                Article Outline:
+                {outline_str}
+
+                Reviewing batch {batch_idx + 1}/{total_batches} of retrieved chunks:
+                {chunks_formatted}
+
+                Task:
+                - Identify chunks that do NOT support any section in the outline. List their ids in delete_chunk_ids.
+                - Identify outline sections lacking sufficient supporting chunks. Propose targeted new_queries to fill gaps.
+
+                Rules:
+                - Be conservative with deletions — only remove chunks clearly irrelevant to ALL outline sections.
+                - Limit new_queries to {max_queries} precise queries targeting specific outline sections.
+                - Each new_query must be formatted like a Wikipedia page title:
+                    • Use Title Case (no underscores or all-caps).
+                    • Prefer the core entity name (person, place, organization, season, etc.) rather than repeating the topic.
+                    • Add parenthetical disambiguation if needed (e.g., "(2021 season)" or "(organization)").
+                    • Keep titles concise and natural — around 2–6 words.
+                - Keep reasoning short and actionable.
+                - Set action="retry" if you recommend any changes, otherwise "continue".
+                """
+
+
+def build_outline_gate_prompt(topic: str, outline_str: str, ctx: Optional[str]) -> str:
+    if ctx:
+        prev_refinement_dec_ctx = f"You previously decided to refine the outline with the following reasoning:\n{ctx}\n"
+    else:
+        prev_refinement_dec_ctx = ""
+    return f"""You just created an outline for the article:
+                {topic} outline:
+                {outline_str}
+                {prev_refinement_dec_ctx}
+                If a quick refinement (adding, merging, or reordering sections) would clearly improve the outline, set action="retry"; otherwise "continue".
+                Give reasoning briefly, mentioning which sections or entities might need changes.
+                Follow these rules:
+                - Choose "retry" ONLY if:
+                  • Important subtopics or entities mentioned in the research are missing.
+                  • The logical order of sections is clearly confusing or incomplete.
+                  • Key entities, concepts or time periods are missing.
+                - Choose "continue" if the outline is coherent and covers all major aspects,
+                  even if minor details could be improved.
+                - Default to "continue" if uncertain.
+                """
 
 
 # endregion Writer Prompt Templates

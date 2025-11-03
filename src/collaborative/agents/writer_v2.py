@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
+    build_outline_gate_prompt,
+    build_research_gate_prompt,
     build_revision_batch_prompt,
     build_self_refine_prompt,
     build_single_section_revision_prompt,
@@ -43,8 +45,8 @@ MAX_QUERIES_CONFIG = (
     else 5
 )
 MAX_CHUNKS_PER_SECTION = (
-    retrieval_config.max_content_pieces
-    if retrieval_config and hasattr(retrieval_config, "max_content_pieces")
+    retrieval_config.final_passages
+    if retrieval_config and hasattr(retrieval_config, "final_passages")
     else 10
 )
 
@@ -76,6 +78,28 @@ class ChunkSelectionValidationModel(BaseModel):
 class GateDecision(BaseModel):
     action: Literal["continue", "retry"]
     reasoning: str
+
+
+class ResearchSteerModel(BaseModel):
+    """Structured output for the research gate.
+
+    Either recommend chunk deletions and/or new queries. The action controls routing.
+    """
+
+    action: Literal["continue", "retry"]
+    reasoning: str = Field(
+        description="Brief rationale explaining deletions and/or new queries"
+    )
+    delete_chunk_ids: List[str] = Field(
+        default_factory=list,
+        description="Chunk ids to delete due to redundancy, low relevance, or low quality",
+    )
+    new_queries: List[str] = Field(
+        default_factory=list,
+        min_length=0,
+        max_length=MAX_QUERIES_CONFIG,
+        description="Additional targeted queries to improve coverage",
+    )
 
 
 # ======================== MINIMAL STATE ========================
@@ -112,7 +136,7 @@ class WriterV2(BaseAgent):
         )
         self.needs_refine = getattr(self.config, "should_self_refine", False)
 
-        self._research_ctx: Optional[str] = None
+        self._research_ctx: Optional[List[str]] = None
         self._outline_ctx: Optional[str] = None
         self._research_retries: int = 0
         self._refine_retries: int = 0
@@ -141,6 +165,9 @@ class WriterV2(BaseAgent):
         workflow.add_node("router", self._router_by_iteration)
         workflow.add_node("research", self._research)  # Initial Flow Only
         workflow.add_node("outline", self._outline)  # Initial Flow Only
+        workflow.add_node(
+            "refine_research", self._refine_research
+        )  # Initial Flow Only - Gate after outline
         workflow.add_node("refine_outline", self._refine_outline)  # Initial Flow Only
         workflow.add_node("write", self._write_draft)  # Initial Flow Only
         workflow.add_node("revise", self._revise_draft)  # Revision Flow Only
@@ -158,25 +185,38 @@ class WriterV2(BaseAgent):
             },
         )
 
-        workflow.add_conditional_edges(
-            "research",
-            self._should_continue_research,  # LLM gate
-            {"retry": "research", "continue": "outline"},
-        )
+        # 2. Research -> Outline (no gate, just collect chunks)
+        workflow.add_edge("research", "outline")
 
+        # 3. Outline -> Research Gate (with outline context)
         workflow.add_conditional_edges(
             "outline",
+            self._should_refine_research,  # LLM gate with outline context
+            {
+                "retry": "refine_research",
+                "continue_outline": "refine_outline",
+                "continue_write": "write",
+            },
+        )
+
+        # 4. Research Gate -> back to Research or continue
+        workflow.add_conditional_edges(
+            "refine_research",
+            lambda state: "research" if self._research_ctx else "refine_outline",
+            {"research": "research", "refine_outline": "refine_outline"},
+        )
+
+        # 5. Outline Refinement
+        workflow.add_conditional_edges(
+            "refine_outline",
             self._should_refine_outline,
             {"retry": "refine_outline", "continue": "write"},
         )
-        workflow.add_edge("refine_outline", "write")
 
-        # 3. Post-Content Edges (Shared for write and revise)
-        # Write (Initial flow) feeds into optional self-refine or finalize
+        # 6. Post-Content Edges (Shared for write and revise)
         workflow.add_conditional_edges(
             "write", self._should_self_refine, {"refine": "self_refine", "done": END}
         )
-        # Revise goes to finalize directly
         workflow.add_edge("revise", END)
 
         return workflow.compile()
@@ -187,52 +227,123 @@ class WriterV2(BaseAgent):
 
     # ======================= GRAPH CONDITIONALS =======================
     # region Graph Conditionals
-    def _should_continue_research(self, state) -> str:
+    # ======================== ROUTER NODE ========================
+    def _router_by_iteration(self, state: MinimalState) -> MinimalState:
+        """Determine flow type based on iteration."""
+        if self.iteration == 0:
+            self.flow_type = "INITIAL_FLOW"
+            logger.info("Router selected flow: INITIAL_FLOW")
+        else:
+            self.flow_type = "REVISION_FLOW"
+            logger.info(
+                f"Router selected flow: REVISION_FLOW for iteration {self.iteration}"
+            )
+        return state
+
+    # ======================== RESEARCH GATE NODE ========================
+    def _should_refine_research(self, state) -> str:
         """
-        Decide: do another research pass ('retry') or move on ('continue').
+        Decide: do another research pass ('retry') or move on to outline refinement or writing.
+        Uses outline context to make informed decisions about chunk relevance and gaps.
+        Reviews all chunks via batched LLM calls to ensure complete coverage.
         """
         if self._research_retries >= 2:
-            logger.info("Max research retries reached, proceeding to outline.")
-            return "continue"
+            logger.info(
+                "Max research retries reached, proceeding to outline refinement."
+            )
+            return "continue_outline"
 
         chunk_summaries = self.shared_memory.get_search_summaries()
-        chunk_summaries_str = build_formatted_chunk_summaries(
-            chunk_summaries,
-            max_content_pieces=getattr(self, "num_chunks", 10),
-            fields=["description"],
-        )
         topic = self.shared_memory.get_topic()
-        writer_client = self.get_task_client("writer")
-        try:
-            dec: GateDecision = writer_client.call_structured_api(
-                prompt=f"""
-                You just finished a research step for the topic:
-                {topic},
-                using the following chunk summaries for context:
-                {chunk_summaries_str}
-                Decide if more research would clearly improve coverage or fill missing entities, set action="retry"; otherwise "continue".
-                Explain your reasoning briefly, including any queries you would like to research further, provide concrete actionable advice.
-                Follow these rules:
-                - Choose "retry" ONLY if major entities, concepts, or events remain uncovered.
-                - Choose "retry" if the retrieved chunks show redundancy or low diversity (many repeats).
-                - Choose "retry" if key factual gaps or unanswered subtopics exist.
-                - Choose "continue" if new searches would likely produce the same or marginally useful results.
-                - Default to "continue" if uncertain.
-                """,
-                output_schema=GateDecision,
-                system_prompt="Answer with JSON only.",
-                temperature=0.0,
-                max_tokens=120,
-            )
-            if dec.action == "retry":
-                self._research_ctx = dec.reasoning
-                self._research_retries += 1
-                return "retry"
-            else:
-                return "continue"
-        except Exception:
-            return "continue"
+        outline = self.shared_memory.get_outline()
 
+        if not outline or not outline.headings:
+            logger.warning(
+                "No outline available for research gate, skipping refinement."
+            )
+            return "continue_write"
+
+        outline_str = "\n".join(outline.headings)
+        writer_client = self.get_task_client("writer")
+
+        batch_size = (
+            self.retrieval_config.final_passages if self.retrieval_config else 10
+        )
+
+        all_delete_ids = []
+        all_new_queries = []
+        all_decisions = []
+
+        total_chunks = sum(len(summary.results) for summary in chunk_summaries.values())
+        total_batches = (total_chunks + batch_size - 1) // batch_size
+
+        logger.info(
+            f"Research gate (post-outline) reviewing {total_chunks} chunks in {total_batches} batch(es)"
+        )
+
+        for batch_idx in range(total_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, total_chunks)
+
+            chunks_formatted = build_formatted_chunk_summaries(
+                chunk_summaries,
+                max_content_pieces=None,
+                fields=["description", "chunk_id"],
+                start_idx=start_idx,
+                end_idx=end_idx,
+            )
+
+            try:
+                prompt = build_research_gate_prompt(
+                    topic,
+                    outline_str,
+                    batch_idx,
+                    total_batches,
+                    chunks_formatted,
+                    MAX_QUERIES_CONFIG,
+                )
+
+                dec: ResearchSteerModel = writer_client.call_structured_api(
+                    prompt=prompt,
+                    output_schema=ResearchSteerModel,
+                    system_prompt="Answer with JSON only.",
+                    temperature=0.0,
+                    max_tokens=200,
+                )
+
+                all_decisions.append(dec.action)
+                if getattr(dec, "delete_chunk_ids", None):
+                    all_delete_ids.extend(dec.delete_chunk_ids)
+                if getattr(dec, "new_queries", None):
+                    all_new_queries.extend(dec.new_queries)
+
+            except Exception as e:
+                logger.warning(f"Batch {batch_idx + 1} review failed: {e}")
+                continue
+
+        all_delete_ids = list(dict.fromkeys(all_delete_ids))
+        all_new_queries = list(dict.fromkeys(all_new_queries))[:MAX_QUERIES_CONFIG]
+
+        if all_delete_ids:
+            try:
+                removed = self.shared_memory.delete_chunks_by_ids(all_delete_ids)
+                logger.info(f"Research gate deleted {removed} chunks: {all_delete_ids}")
+            except Exception as del_exc:
+                logger.warning(f"Failed to delete chunks {all_delete_ids}: {del_exc}")
+
+        if all_new_queries:
+            self._research_ctx = all_new_queries
+            logger.info(f"Research gate proposed {len(all_new_queries)} new queries")
+
+        should_retry = "retry" in all_decisions and all_new_queries
+
+        if should_retry:
+            self._research_retries += 1
+            return "retry"
+
+        return "continue_outline" if self._refine_retries < 1 else "continue_write"
+
+    # ======================== OUTLINE GATE NODE ========================
     def _should_refine_outline(self, state) -> str:
         """
         Decide: refine outline once ('retry') or proceed to writing ('continue').
@@ -252,53 +363,28 @@ class WriterV2(BaseAgent):
         self._refine_retries += 1
         try:
             dec: GateDecision = writer_client.call_structured_api(
-                prompt=f"""You just created an outline for the article:
-                {topic} outline:
-                {outline_str}
-                If a quick refinement (adding, merging, or reordering sections) would clearly improve the outline, set action="retry"; otherwise "continue".
-                Give reasoning briefly, mentioning which sections or entities might need changes.
-                Follow these rules:
-                - Choose "retry" ONLY if:
-                  • Important subtopics or entities mentioned in the research are missing.
-                  • The logical order of sections is clearly confusing or incomplete.
-                  • Key entities, concepts or time periods are missing.
-                - Choose "continue" if the outline is coherent and covers all major aspects,
-                  even if minor details could be improved.
-                - Default to "continue" if uncertain.
-                """,
+                prompt=build_outline_gate_prompt(topic, outline_str, self._outline_ctx),
                 output_schema=GateDecision,
                 system_prompt="Answer with JSON only.",
                 temperature=0.0,
                 max_tokens=120,
             )
             if dec.action == "retry":
-                self._research_ctx = dec.reasoning
-                self._research_retries += 1
+                self._outline_ctx = dec.reasoning
+                self._refine_retries += 1
                 return "retry"
             else:
                 return "continue"
         except Exception:
             return "continue"  # fail safe
 
+    # ======================== SELF-REFINE GATE NODE ========================
     def _should_self_refine(self, state: MinimalState) -> str:
         """Conditional: Checks if self-refine is configured and needed (Post-content)."""
         if getattr(self.config, "should_self_refine", False) and self.needs_refine:
             logger.info("Self-refinement flag is set. Rerouting to self_refine.")
             return "refine"
         return "done"
-
-    # ======================== ROUTER NODE ========================
-    def _router_by_iteration(self, state: MinimalState) -> MinimalState:
-        """Determine flow type based on iteration."""
-        if self.iteration == 0:
-            self.flow_type = "INITIAL_FLOW"
-            logger.info("Router selected flow: INITIAL_FLOW")
-        else:
-            self.flow_type = "REVISION_FLOW"
-            logger.info(
-                f"Router selected flow: REVISION_FLOW for iteration {self.iteration}"
-            )
-        return state
 
     # endregion Graph Conditionals
 
@@ -308,27 +394,67 @@ class WriterV2(BaseAgent):
     def _research(self, state: MinimalState) -> MinimalState:
         """Research node: two-phase research process (initial + secondary search)."""
         topic = self.shared_memory.get_topic()
-        logger.info(f"Starting two-phase research for topic: {topic}")
+        logger.info(f"Starting research for topic: {topic}")
 
-        # --- PHASE 1: Initial Search ---
+        # If we already have validated queries in context (from the gate), execute them
+        if self._research_ctx and len(self._research_ctx) > 0:
+            # Deduplicate and cap to configured maximum
+            seen = set()
+            deduped = []
+            for q in self._research_ctx:
+                if q and q not in seen:
+                    seen.add(q)
+                    deduped.append(q)
+            max_q = (
+                self.retrieval_config.num_queries
+                if self.retrieval_config
+                and hasattr(self.retrieval_config, "num_queries")
+                else MAX_QUERIES_CONFIG
+            )
+            queries = deduped[:max_q]
+            if queries:
+                logger.info(f"Research: executing {len(queries)} gate-provided queries")
+                self._execute_search_phase(queries=queries)
+            else:
+                logger.info(
+                    "Research: research_ctx had no usable queries after dedup/cap"
+                )
+            # Clear after consumption to avoid reuse
+            self._research_ctx = None
+            return state
+
+        # No context provided -> first pass: initial topic search + generated queries
+        logger.info(
+            "Research: no existing context; running initial topic search + generated queries"
+        )
         self._execute_search_phase(queries=[topic], rm_type="faiss")
 
-        # Retrieve the top result to ground the next phase
         top_chunk = self._get_best_chunk()
-
-        # If initial search failed or provided no context, log and continue
         if not top_chunk:
             logger.warning(
                 "Initial search provided no context. Proceeding without secondary queries."
             )
             return state
 
-        # --- PHASE 2: Secondary Search ---
         secondary_queries = self._generate_queries(topic=topic, top_chunk=top_chunk)
         if secondary_queries:
             self._execute_search_phase(queries=secondary_queries)
         else:
             logger.info("No secondary queries generated by LLM. Search complete.")
+        return state
+
+    # ======================== REFINE RESEARCH NODE ========================
+    def _refine_research(self, state: MinimalState) -> MinimalState:
+        """Execute additional research queries suggested by the research gate."""
+        if not self._research_ctx or len(self._research_ctx) == 0:
+            logger.info("No new queries from research gate, proceeding.")
+            return state
+
+        logger.info(
+            f"Refine research: executing {len(self._research_ctx)} queries from gate"
+        )
+        self._execute_search_phase(queries=self._research_ctx)
+        self._research_ctx = None
         return state
 
     # ======================== OUTLINE NODE ========================
@@ -340,7 +466,7 @@ class WriterV2(BaseAgent):
         chunk_summaries = self.shared_memory.get_search_summaries()
         formatted_chunk_summaries = build_formatted_chunk_summaries(
             chunk_summaries,
-            max_content_pieces=self.retrieval_config.max_content_pieces,
+            max_content_pieces=self.retrieval_config.final_passages,
             fields=["description"],
         )
 
@@ -396,7 +522,7 @@ class WriterV2(BaseAgent):
             chunk_summaries = self.shared_memory.get_search_summaries()
             formatted_chunk_summaries = build_formatted_chunk_summaries(
                 chunk_summaries,
-                max_content_pieces=self.retrieval_config.max_content_pieces,
+                max_content_pieces=self.retrieval_config.final_passages,
                 fields=["description"],
             )
 
@@ -458,7 +584,7 @@ class WriterV2(BaseAgent):
         chunk_summaries = self.shared_memory.get_search_summaries()
         chunk_summaries_str = build_formatted_chunk_summaries(
             chunk_summaries,
-            max_content_pieces=getattr(self, "num_chunks", 20),
+            max_content_pieces=self.retrieval_config.final_passages,
             fields=["description", "chunk_id"],
         )
         mode = getattr(getattr(self, "config", None), "writing_mode", "section")
@@ -586,9 +712,7 @@ class WriterV2(BaseAgent):
             return
 
         # 1. Get Configuration and Manager Instance
-        rm_type = (
-            self.retrieval_config.retrieval_manager
-        )  # Assumes config has this attribute
+        rm_type = self.retrieval_config.retrieval_manager
         try:
             retrieval_manager = create_retrieval_manager(rm_type)
         except NotImplementedError:
@@ -824,7 +948,7 @@ class WriterV2(BaseAgent):
                 section,
                 topic,
                 chunk_summaries_str,
-                self.retrieval_config.max_content_pieces,
+                self.retrieval_config.final_passages,
             )
             selection_client = self.get_task_client("section_selection")
             sel = selection_client.call_structured_api(

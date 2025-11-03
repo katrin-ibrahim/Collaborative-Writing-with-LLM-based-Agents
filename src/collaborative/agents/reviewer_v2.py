@@ -284,7 +284,7 @@ class ReviewerV2(BaseAgent):
         """
         Autonomous planning: determines LLM review strategy.
 
-        Now considers:
+
         - Article metrics (word count, sections)
         - Citation validation results
         - Previous feedback items and their status (if iteration > 0)

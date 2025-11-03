@@ -1,7 +1,7 @@
 # src/utils/content/description_generator.py
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 
 class DescriptionGenerator:
@@ -136,32 +136,28 @@ class DescriptionGenerator:
     @staticmethod
     def create_description(
         content: str,
-        source_type: str,
         title: str,
         chunk_idx: int = 0,
         total_chunks: int = 1,
         categories: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        max_preview_length: int = 150,
-        include_position: bool = True,
-        include_categories: bool = True,
-        custom_prefix: Optional[str] = None,
+        max_preview_length: int = 200,
+        include_title: bool = False,
+        include_position: bool = False,
+        include_categories: bool = False,
     ) -> str:
         """
         Create a comprehensive, informative description for a research chunk.
 
         Args:
             content: The chunk content text
-            source_type: Type of source (e.g., "Wikipedia")
             title: Document/article title
             chunk_idx: Zero-based index of this chunk
             total_chunks: Total chunks in the document
             categories: Optional list of categories/topics
-            metadata: Optional additional metadata
             max_preview_length: Maximum length for content preview
+            include_title: Whether to include the title
             include_position: Whether to include chunk position info
             include_categories: Whether to include category information
-            custom_prefix: Custom prefix to override default source_type
 
         Returns:
             Formatted description string
@@ -171,17 +167,10 @@ class DescriptionGenerator:
             content, max_length=max_preview_length
         )
 
-        # Build description parts
+        # Build description part
         parts = []
-
-        # Source prefix
-        if custom_prefix:
-            parts.append(custom_prefix)
-        else:
-            parts.append(source_type)
-
-        # Title
-        parts.append(f"'{title}'")
+        if include_title:
+            parts.append(title)
 
         # Categories (if available and requested)
         if include_categories and categories:
@@ -189,25 +178,6 @@ class DescriptionGenerator:
             parts.append(f"[{category_str}]")
 
         # Metadata (if available) - e.g., year, authors
-        if metadata:
-            meta_parts = []
-            if "year" in metadata:
-                meta_parts.append(str(metadata["year"]))
-            if "authors" in metadata and metadata["authors"]:
-                # Take first author only
-                first_author = metadata["authors"][0]
-                if isinstance(first_author, dict):
-                    first_author = first_author.get("name", "")
-                meta_parts.append(
-                    f"{first_author} et al."
-                    if len(metadata["authors"]) > 1
-                    else first_author
-                )
-            if "journal" in metadata:
-                meta_parts.append(metadata["journal"])
-
-            if meta_parts:
-                parts.append(f"({', '.join(meta_parts)})")
 
         # Position information (if requested and multi-chunk)
         if include_position and total_chunks > 1:

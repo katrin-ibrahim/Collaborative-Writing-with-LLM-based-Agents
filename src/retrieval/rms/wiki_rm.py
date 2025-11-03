@@ -238,12 +238,8 @@ class WikiRM(BaseRetriever):
         for idx, chunk in enumerate(chunks):
             description = self.description_generator.create_description(
                 content=chunk,
-                source_type="Wikipedia",
                 title=p.title,
                 chunk_idx=idx,
-                categories=getattr(p, "categories", None),
-                include_categories=True,
-                max_preview_length=200,
             )
 
             research_chunk = ResearchChunk(

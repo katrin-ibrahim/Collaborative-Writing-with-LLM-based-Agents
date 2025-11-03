@@ -44,6 +44,10 @@ class StormMethod(BaseMethod):
         """
         logger.info(f"Running STORM method for: {topic}")
 
+        # Reset usage counters at start
+        task_models = self._get_task_models_for_method()
+        self._reset_all_client_usage(task_models)
+
         start_time = time.time()
         try:
             # Setup STORM configuration using ConfigContext
@@ -87,6 +91,9 @@ class StormMethod(BaseMethod):
             generation_time = time.time() - start_time
             content_words = len(content.split()) if content else 0
 
+            # Collect token usage statistics
+            token_usage = self._collect_token_usage(task_models)
+
             # Get model info from ConfigContext
             writing_engine = ConfigContext.get_client("writing")
 
@@ -101,16 +108,18 @@ class StormMethod(BaseMethod):
                     "storm_config": storm_params,
                     "model": writing_engine.model,
                     "temperature": writing_engine.temperature,
+                    "token_usage": token_usage,
                 },
             )
 
             logger.info(
-                f"STORM method completed for {topic} ({content_words} words, {generation_time:.2f}s)"
+                f"STORM method completed for {topic} ({content_words} words, {generation_time:.2f}s, {token_usage['total_tokens']} tokens)"
             )
             return article
 
         except Exception as e:
             logger.error(f"STORM method failed for '{topic}': {e}")
+            generation_time = time.time() - start_time
             return Article(
                 title=topic,
                 content=f"Error generating article with STORM method: {str(e)}",
@@ -118,7 +127,8 @@ class StormMethod(BaseMethod):
                 metadata={
                     "method": "storm",
                     "error": str(e),
-                    "generation_time": time.time() - start_time,
+                    "generation_time": generation_time,
                     "word_count": 0,
+                    "token_usage": self._collect_token_usage(task_models),
                 },
             )

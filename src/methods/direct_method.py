@@ -38,8 +38,12 @@ class DirectMethod(BaseMethod):
         """
         logger.info(f"Running direct prompting for: {topic}")
 
+        # Reset usage counters at start
+        task_models = self._get_task_models_for_method()
+        self._reset_all_client_usage(task_models)
+
+        start_time = time.time()
         try:
-            start_time = time.time()
 
             # Get the writing client from ConfigContext
             client = ConfigContext.get_client("writing")
@@ -53,6 +57,9 @@ class DirectMethod(BaseMethod):
 
             generation_time = time.time() - start_time
             content_words = len(content.split()) if content else 0
+
+            # Collect token usage statistics
+            token_usage = self._collect_token_usage(task_models)
 
             # Create article with metadata
             article = Article(
@@ -69,18 +76,21 @@ class DirectMethod(BaseMethod):
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "prompt_length": len(prompt),
                     "response_length": len(response) if response else 0,
+                    "token_usage": token_usage,
                 },
             )
 
             logger.info(
                 f"Direct prompting completed for {topic} "
-                f"({content_words} words, {generation_time:.2f}s)"
+                f"({content_words} words, {generation_time:.2f}s, "
+                f"{token_usage['total_tokens']} tokens)"
             )
             return article
 
         except Exception as e:
             logger.error(f"Direct prompting failed for '{topic}': {e}")
             # Return error article
+            generation_time = time.time() - start_time
             return Article(
                 title=topic,
                 content=f"Error generating article: {str(e)}",
@@ -88,9 +98,8 @@ class DirectMethod(BaseMethod):
                 metadata={
                     "method": "direct",
                     "error": str(e),
-                    "generation_time": (
-                        time.time() - start_time if "start_time" in locals() else 0
-                    ),
+                    "generation_time": generation_time,
                     "word_count": 0,
+                    "token_usage": self._collect_token_usage(task_models),
                 },
             )

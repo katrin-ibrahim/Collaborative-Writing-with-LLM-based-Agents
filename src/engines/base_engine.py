@@ -44,6 +44,15 @@ class BaseEngine(ABC):
             "max_tokens": max_tokens,
         }
 
+        # Token usage tracking
+        self.last_usage = None
+        self.total_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+        }
+
         logger.info(f"{self.__class__.__name__} initialized with model: {model}")
 
     @abstractmethod
@@ -204,4 +213,41 @@ class BaseEngine(ABC):
 
     def _create_error_response(self, error_msg: str) -> Any:
         """Create error response in LiteLLM format."""
-        return self._create_response(f"Error: {error_msg}", "")
+
+        class ErrorResponse:
+            def __init__(self, error_msg, model_name):
+                self.choices = []
+                self.model = model_name
+                self.error = error_msg
+                self.usage = None
+                self.id = f"error-{int(time.time())}"
+                self.object = "error"
+                self.created = int(time.time())
+
+        return ErrorResponse(error_msg, self.model_name)
+
+    def get_usage_stats(self) -> dict:
+        """Get current token usage statistics."""
+        return {"last_usage": self.last_usage, "total_usage": self.total_usage.copy()}
+
+    def reset_usage_stats(self) -> dict:
+        """Reset and return the current usage stats."""
+        stats = self.get_usage_stats()
+        self.total_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+        }
+        self.last_usage = None
+        return stats
+
+    def _update_total_usage(self, usage_data: dict):
+        """Update total usage with data from last call."""
+        if usage_data:
+            self.total_usage["prompt_tokens"] += usage_data.get("prompt_tokens", 0)
+            self.total_usage["completion_tokens"] += usage_data.get(
+                "completion_tokens", 0
+            )
+            self.total_usage["total_tokens"] += usage_data.get("total_tokens", 0)
+            self.total_usage["calls"] += 1
