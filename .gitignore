@@ -27,7 +27,3 @@ src/tests/integration/results
 *.index
 *.db
 *.log
-
-
-generate_exp.py
-run_experiments.sh

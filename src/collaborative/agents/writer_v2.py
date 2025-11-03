@@ -77,7 +77,7 @@ class ChunkSelectionValidationModel(BaseModel):
 
 class GateDecision(BaseModel):
     action: Literal["continue", "retry"]
-    reasoning: str
+    reasoning: Optional[str] = None
 
 
 class ResearchSteerModel(BaseModel):
@@ -87,8 +87,9 @@ class ResearchSteerModel(BaseModel):
     """
 
     action: Literal["continue", "retry"]
-    reasoning: str = Field(
-        description="Brief rationale explaining deletions and/or new queries"
+    reasoning: Optional[str] = Field(
+        default=None,
+        description="Brief rationale explaining deletions and/or new queries",
     )
     delete_chunk_ids: List[str] = Field(
         default_factory=list,
@@ -308,7 +309,6 @@ class WriterV2(BaseAgent):
                     output_schema=ResearchSteerModel,
                     system_prompt="Answer with JSON only.",
                     temperature=0.0,
-                    max_tokens=200,
                 )
 
                 all_decisions.append(dec.action)

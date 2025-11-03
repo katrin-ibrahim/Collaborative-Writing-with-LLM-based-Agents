@@ -19,14 +19,12 @@ class RetrievalConfig(BaseConfig):
 
     # Single Source of Truth for Retrieval Flow
     num_queries: int = 5  # How many search queries to generate
-    results_per_query: int = (
-        8  # How many results per query - increased for smart chunk filtering (was 3)
-    )
+    results_per_query: int = 8
     max_content_pieces: int = (
         3  # How many sections/chunks per result (replaces wiki_max_sections)
     )
     final_passages: int = (
-        10  # Final context size (replaces max_final_passages, retrieve_top_k)
+        8  # Final context size (replaces max_final_passages, retrieve_top_k)
     )
 
     # Content Processing
