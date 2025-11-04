@@ -23,7 +23,7 @@ try:
     import torch
 except Exception:  # torch might be unavailable in some environments
     torch = None
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +272,49 @@ def extract_entities_batch(texts: list, batch_size: int = 16) -> list:
     # Batch process chunks
     sentences = [Sentence(chunk) for chunk in chunked_texts]
     for i in range(0, len(sentences), batch_size):
-        ner_tagger.predict(sentences[i : i + batch_size], mini_batch_size=batch_size)
+        batch = sentences[i : i + batch_size]
+        # Try predicting the whole batch first. If it fails or hangs, fall back
+        # to progressively smaller sub-batches and finally per-sentence prediction.
+        try:
+            ner_tagger.predict(batch, mini_batch_size=min(batch_size, 8))
+        except Exception as e:
+            logger.warning(
+                "FLAIR predict failed for batch %d:%d (%s). Falling back to smaller chunks.",
+                i,
+                i + len(batch),
+                e,
+            )
+            # Try smaller sub-batches
+            try:
+                sub_batch_size = max(1, min(4, len(batch)))
+                for j in range(0, len(batch), sub_batch_size):
+                    sub = batch[j : j + sub_batch_size]
+                    try:
+                        ner_tagger.predict(sub, mini_batch_size=1)
+                    except Exception as e2:
+                        logger.debug(
+                            "Sub-batch predict failed (%d:%d): %s, trying per-sentence",
+                            i + j,
+                            i + j + len(sub),
+                            e2,
+                        )
+                        # Fallback: per-sentence prediction to avoid losing all entities
+                        for s_idx, s in enumerate(sub):
+                            try:
+                                ner_tagger.predict([s], mini_batch_size=1)
+                            except Exception as e3:
+                                logger.error(
+                                    "FLAIR predict failed for single sentence at index %d: %s",
+                                    i + j + s_idx,
+                                    e3,
+                                )
+            except Exception as e_all:
+                logger.error(
+                    "FLAIR fallback prediction failed for batch %d:%d: %s",
+                    i,
+                    i + len(batch),
+                    e_all,
+                )
     # Collect entities per original text
     entities_per_text = [set() for _ in texts]
     for sent, idx in zip(sentences, chunk_map):
@@ -365,18 +407,46 @@ def calculate_heading_soft_recall(
         if ref_embeddings.size == 0 or gen_embeddings.size == 0:
             return 0.0
 
+        # Defensive sanitization: replace NaN/Inf with zeros and warn
+        if (
+            not np.isfinite(ref_embeddings).all()
+            or not np.isfinite(gen_embeddings).all()
+        ):
+            logger.warning(
+                "Embedding output contains NaN/Inf; sanitizing to zeros before normalization"
+            )
+            ref_embeddings = np.nan_to_num(
+                ref_embeddings, nan=0.0, posinf=0.0, neginf=0.0
+            )
+            gen_embeddings = np.nan_to_num(
+                gen_embeddings, nan=0.0, posinf=0.0, neginf=0.0
+            )
+
         # Normalize row-wise to unit vectors to compute cosine similarity via matmul
         def _normalize_rows(x: np.ndarray) -> np.ndarray:
             norms = np.linalg.norm(x, axis=1, keepdims=True)
-            norms = np.maximum(norms, 1e-12)
+            # Prevent division by tiny numbers which can produce extremely large values
+            tiny = 1e-8
+            zero_mask = norms < tiny
+            # Replace tiny norms with 1.0 so zero rows remain zero after division
+            norms[zero_mask] = 1.0
             return x / norms
 
         ref_norm = _normalize_rows(ref_embeddings)
         gen_norm = _normalize_rows(gen_embeddings)
 
-        # Cosine similarity matrix (ref x gen)
-        sim = ref_norm @ gen_norm.T
-        hsr_score = float(sim.max(axis=1).mean())
+        # Cosine similarity matrix (ref x gen). Guard against numerical issues.
+        try:
+            sim = ref_norm @ gen_norm.T
+            # Replace any non-finite similarities with zero (treat as no similarity)
+            if not np.isfinite(sim).all():
+                sim = np.nan_to_num(sim, nan=0.0, posinf=0.0, neginf=0.0)
+        except Exception as e:
+            logger.warning(f"HSR similarity computation failed: {e}")
+            return 0.0
+
+        # For each reference heading pick best matching generated heading, then average
+        hsr_score = float(np.nanmax(sim, axis=1).mean())
         logger.debug(f"Heading Soft Recall: {hsr_score}")
         return hsr_score
 
@@ -435,7 +505,7 @@ def calculate_heading_entity_recall(
 
 def calculate_heading_metrics(
     generated_content: str, reference_headings: List[str]
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Calculate both heading metrics (HSR and HER) from content and reference headings."""
     generated_headings = extract_headings_from_content(generated_content)
 
@@ -515,7 +585,7 @@ def format_metrics_for_display(
 
 
 def calculate_composite_score(
-    metrics: Dict[str, float], weights: Dict[str, float] = None
+    metrics: Dict[str, float], weights: Optional[Dict[str, float]] = None
 ) -> float:
     """Calculate a weighted composite score from multiple metrics."""
     if weights is None:

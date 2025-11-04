@@ -20,8 +20,6 @@ class SessionStorage:
                 "iteration": 0,
                 "feedback_history": [],
                 "current_feedback": [],
-                "converged": False,
-                "convergence_reason": None,
             }
 
         try:

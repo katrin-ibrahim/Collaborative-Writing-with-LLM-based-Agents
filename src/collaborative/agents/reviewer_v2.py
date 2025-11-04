@@ -185,7 +185,8 @@ class ReviewerV2(BaseAgent):
                     continue  # Skip overall assessment for verification
 
                 for item in items:
-                    item_summary = f"[{section_name}] {item.issue}"
+                    # Include id token so the verifier can reference exact items in structured output
+                    item_summary = f"[{section_name}] id={item.id} | {item.issue}"
 
                     status = item.status
                     if status == "addressed":

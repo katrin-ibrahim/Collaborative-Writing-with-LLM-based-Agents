@@ -6,13 +6,11 @@ from datetime import datetime
 # =================== Search Space ===================
 # Note: These values are now used for agentic experiments (src.main)
 backends = ["ollama"]
-methods_to_test = ["writer_only"]
+methods_to_test = ["writer_reviewer"]
 num_topics = [20]
 model_configs = ["balanced_writer"]
-writing_modes = ["section", "full_article"]
-revise_modes = [
-    "pending_sections"
-]  # FIXED: Must contain at least one element for itertools.product to run
+writing_modes = ["full_article"]
+revise_modes = ["pending_sections", "single_section"]
 retrieval_managers = ["wiki"]
 
 

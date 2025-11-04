@@ -13,7 +13,7 @@ class CollaborationConfig(BaseConfig):
     """Configuration for collaborative writing parameters."""
 
     # Core collaboration parameters
-    max_iterations: int = 4
+    max_iterations: int = 3
     min_iterations: int = 1  # don't stop before this
     resolution_rate_threshold: float = 0.9
     stall_tolerance: int = 2  # consecutive low-improvement iters allowed

@@ -48,6 +48,7 @@ class MemoryState(TypedDict):
     # Optional fields
     initial_outline: Optional[Outline]
     metadata: Dict[str, Any]
+    penalized_chunk_ids: List[str]
 
 
 class SharedMemory:
@@ -88,6 +89,7 @@ class SharedMemory:
             ensure_key(raw_data, "feedback_items", {})
             ensure_key(raw_data, "metadata", {})
             ensure_key(raw_data, "item_index", {})
+            ensure_key(raw_data, "penalized_chunk_ids", [])
             self.state: MemoryState = MemoryState(**raw_data)
         else:
             # Create new state with defaults
@@ -106,6 +108,7 @@ class SharedMemory:
                 metadata={},
                 feedback_by_iteration={},
                 item_index={},
+                penalized_chunk_ids=[],
             )
 
         # Persist if new state
@@ -393,6 +396,24 @@ class SharedMemory:
         # Persist once
         self._persist()
         return removed
+
+    # =================== Chunk Penalization Management ===================
+    def get_penalized_chunk_ids(self) -> List[str]:
+        """Return the list of penalized chunk ids (kept but deprioritized)."""
+        return list(self.state.get("penalized_chunk_ids", []))
+
+    def add_penalized_chunks(self, chunk_ids: List[str]) -> int:
+        """Add chunk ids to the penalized list (idempotent). Returns number added."""
+        if not chunk_ids:
+            return 0
+        existing = set(self.state.get("penalized_chunk_ids", []))
+        before = len(existing)
+        for cid in chunk_ids:
+            if cid:
+                existing.add(cid)
+        self.state["penalized_chunk_ids"] = list(existing)
+        self._persist()
+        return len(existing) - before
 
     # =================== Typed Feedback Management ===================
     # region Typed Feedback Management

@@ -5,6 +5,7 @@ Eliminates redundancy and provides consistent naming.
 
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 from src.config.base_config import BaseConfig
 
@@ -40,6 +41,10 @@ class RetrievalConfig(BaseConfig):
 
     # Storm
     queries_per_turn: int = 3  # How many queries per conversation turn
+
+    # Policy for handling chunks deemed irrelevant by the research gate
+    # 'delete' removes them from memory; 'penalize' keeps them but pushes to the end of context ordering
+    irrelevant_chunk_policy: Literal["delete", "penalize"] = "delete"
 
     def get_file_pattern(self) -> str:
         # Define how experiment outputs for retrieval should be named

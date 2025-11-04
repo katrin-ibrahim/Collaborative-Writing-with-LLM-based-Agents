@@ -211,18 +211,20 @@ ITEMS NEEDING CLARIFICATION ({len(needs_clarification_items)}):
 ---
 
 VERIFICATION TASK:
-Analyze the current article and evaluate:
+Analyze the current article and evaluate each listed feedback item. For EVERY item shown above, decide one status:
+- "verified_addressed": the writer's change is present and correct
+- "pending": still not fixed or insufficiently addressed
+- "wont_fix": you agree the item should remain won't-fix given the writer's rationale
 
-1. **Addressed Items**: Were the marked items actually fixed? Verify changes are present.
-2. **Pending Items**: Why weren't these addressed? Are they difficult or were they overlooked?
-3. **Won't Fix Items**: Are the reasons valid? Should these be reconsidered?
-4. **Needs Clarification**: Can you provide the clarification requested?
+IMPORTANT ID RULE:
+- Each line includes an id token in the form "id=<ID>" when available. Use that exact ID string in your output.
+- If a line does not show an id, omit it from updates (do NOT invent ids).
 
-Provide a concise summary (4-6 sentences) assessing:
-- How well the writer responded overall
-- Which addressed items were successfully implemented
-- Which pending items are most important to tackle next
-- Any concerns about won't-fix or clarification requests
+
+GUIDELINES:
+- Include an update for EVERY item that shows an id=...
+- Base decisions ONLY on the current article content and the item description
+- Keep the summary concise and factual
 """
 
 
@@ -288,6 +290,7 @@ def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
     - Keep the tone factual, neutral, and encyclopedic — matching real Wikipedia article structure.
     - Ensure exactly {HEADING_COUNT} headings in total.
     - Headings must be a flat list of strings — no objects, no key–value pairs, no nested arrays, no annotations.
+    - DO NOT Return a DICT or ANYTHING other than a LIST of strings.
     """
 
 
@@ -346,10 +349,19 @@ required to write the section titled "{section_heading}" for the main article on
 
 Strict Selection Rules:
 1. **Relevance is Key:** Select only the chunk IDs that are *most* relevant and necessary to support the content of the section heading.
-2. **Limit:** Select no more than {num_chunks} chunk IDs.
-3. **Format:** Return a single JSON object with a key called chunk_ids, which is a list of string chunk IDs.".
-4. **ID Integrity:** Use only the literal chunk IDs provided in the Research Context. Do not shorten, invent, or modify the IDs.
-5. **No Chatter:** Do not include any text, reasoning, markdown, or preamble outside the required JSON object.
+2. **Minimum Requirement:** You MUST select AT LEAST ONE chunk. Even if the match isn't perfect, choose the most relevant available chunks.
+3. **Limit:** Select no more than {num_chunks} chunk IDs.
+4. **Format:** Return a single JSON object with a key called chunk_ids, which is a list of string chunk IDs.
+5. **ID Integrity:** Use only the literal chunk IDs provided in the Research Context. Do not shorten, invent, or modify the IDs.
+6. **No Chatter:** Do not include any text, reasoning, markdown, or preamble outside the required JSON object.
+
+CRITICAL: If you find no perfect matches, select the chunks that are most INDIRECTLY relevant or provide useful context.
+Examples of indirect relevance:
+- General background on the topic that could inform the section
+- Related entities, events, or concepts mentioned in the section heading
+- Chronological context if the section involves a specific time period
+
+DO NOT return an empty list. Always select at least the best available option(s).
 """
 
     return f"{task_description}\n{research_context}"
@@ -523,6 +535,7 @@ def build_single_section_revision_prompt(
     article: "Article",
     section: str,
     items: list["FeedbackStoredModel"],
+    research_ctx: str,
 ) -> str:
     current_text = (
         article.content
@@ -545,8 +558,9 @@ def build_single_section_revision_prompt(
         "",
         f"ARTICLE_TITLE: {article.title}",
         f"SECTION: {section}",
+        f"RESEARCH_CONTEXT: {safe_trim(research_ctx)}",
         "CURRENT_TEXT:",
-        safe_trim(current_text, max_chars=6000),
+        safe_trim(current_text),
         "PENDING_FEEDBACK_ITEMS:",
     ]
     for it in items:
@@ -570,6 +584,7 @@ def build_single_section_revision_prompt(
 def build_revision_batch_prompt(
     article: "Article",
     pending_by_section: dict[str, list["FeedbackStoredModel"]],
+    research_ctx: str,
 ) -> str:
     lines: list[str] = [
         "ROLE: You are revising an encyclopedia-style article.",
@@ -588,6 +603,7 @@ def build_revision_batch_prompt(
         "- Keep length roughly similar unless feedback asks otherwise.",
         "",
         f"ARTICLE_TITLE: {article.title}",
+        f"RESEARCH_CONTEXT: {safe_trim(research_ctx)}",
         "",
         "SECTIONS_TO_REVISE:",
     ]

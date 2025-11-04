@@ -97,6 +97,9 @@ class WriterReviewerV2Method(BaseMethod):
             # Set memory instance for tools and agents to access
             ConfigContext.set_memory_instance(memory)
             self.shared_memory = memory
+            logger.info(
+                f"Initialized shared memory for collaboration with key: {memory.session_id}"
+            )
 
             # Initialize V2 agents
             writer = WriterV2()
@@ -243,7 +246,7 @@ class WriterReviewerV2Method(BaseMethod):
                 f"Final article: {len(final_article.content)} characters, {len(final_article.sections)} sections"
             )
             logger.info(
-                f"Total time: {total_time:.2f}s, Iterations: {final_iterations}, Converged: {final_article.metadata['converged']}, Tokens: {token_usage['total_tokens']}"
+                f"Total time: {total_time:.2f}s, Iterations: {final_iterations}, Tokens: {token_usage['total_tokens']}"
             )
 
             return final_article

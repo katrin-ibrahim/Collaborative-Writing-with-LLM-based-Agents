@@ -34,6 +34,32 @@ class ArticleOutlineValidationModel(BaseModel):
         Normalize headings to plain strings.
         Handles cases where LLM returns [{"title": "..."}, ...] instead of ["...", ...].
         """
+        # Accept several input shapes from the LLM and coerce to list of items:
+        # - already a list: use as-is
+        # - a single string: wrap into [string]
+        # - a dict: could be either a wrapper like {"headings": [...]}, or a single heading object like {"title": "..."}
+        if isinstance(v, str):
+            v = [v]
+        elif isinstance(v, dict):
+            # Try to find common container keys that hold the actual list
+            for candidate in (
+                "headings",
+                "items",
+                "sections",
+                "sections_list",
+                "titles",
+            ):
+                if candidate in v and isinstance(v[candidate], list):
+                    v = v[candidate]
+                    break
+                # If container key maps to a dict, treat its keys as headings
+                if candidate in v and isinstance(v[candidate], dict):
+                    v = list(v[candidate].keys())
+                    break
+            else:
+                # Treat the dict as a single heading object
+                v = [v]
+
         if not isinstance(v, list):
             raise ValueError("headings must be a list")
 
@@ -49,9 +75,38 @@ class ArticleOutlineValidationModel(BaseModel):
                     normalized.append(str(item["heading"]))
                 elif "name" in item:
                     normalized.append(str(item["name"]))
+                # If the dict contains a nested list of headings under common keys, extend from it
+                elif any(
+                    k in item and isinstance(item[k], list)
+                    for k in ("headings", "items", "sections", "titles")
+                ):
+                    for k in ("headings", "items", "sections", "titles"):
+                        if k in item and isinstance(item[k], list):
+                            for sub in item[k]:
+                                if isinstance(sub, str):
+                                    normalized.append(sub)
+                                elif isinstance(sub, dict):
+                                    if "title" in sub:
+                                        normalized.append(str(sub["title"]))
+                                    elif "heading" in sub:
+                                        normalized.append(str(sub["heading"]))
+                                    elif "name" in sub:
+                                        normalized.append(str(sub["name"]))
+                                    elif len(sub) == 1:
+                                        normalized.append(str(next(iter(sub.values()))))
+                                    else:
+                                        # Fallback: use keys if multiple
+                                        normalized.extend([str(x) for x in sub.keys()])
+                                else:
+                                    normalized.append(str(sub))
+                            break
                 else:
-                    # Try to get first value if it's a single-key dict
-                    if len(item) == 1:
+                    # If multiple keys given (e.g., {"Heading A": "...", "Heading B": "..."}),
+                    # treat the keys as headings.
+                    if len(item) > 1:
+                        normalized.extend([str(k) for k in item.keys()])
+                    elif len(item) == 1:
+                        # Single-key dict: use the sole value
                         normalized.append(str(next(iter(item.values()))))
                     else:
                         raise ValueError(f"Cannot extract heading from dict: {item}")
@@ -213,6 +268,28 @@ class VerificationValidationModel(BaseModel):
         description="Per-item verification decisions."
     )
     summary: str = Field(description="4–6 sentence summary of verification findings.")
+
+    @field_validator("updates", mode="before")
+    @classmethod
+    def normalize_updates(cls, v: Any) -> List[dict]:
+        """
+        Normalize updates to list of dicts.
+        Handles cases where LLM returns {"id=...": "status", ...} instead of [{"id": "...", "status": "..."}, ...].
+        """
+        if isinstance(v, list):
+            return v
+        elif isinstance(v, dict):
+            # LLM returned a dict mapping id→status (e.g., {"id=xyz": "pending"})
+            # Convert to list of VerifierStatusUpdate-compatible dicts
+            normalized = []
+            for k, status_val in v.items():
+                # Extract the id: strip "id=" prefix if present
+                id_str = k.replace("id=", "").strip()
+                normalized.append({"id": id_str, "status": status_val})
+            return normalized
+        else:
+            raise ValueError("updates must be a list or dict")
+        return v
 
 
 # endregion Reviewer Feedback Models

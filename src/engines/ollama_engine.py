@@ -255,7 +255,7 @@ class OllamaEngine(BaseEngine):
                 return validated_model
 
             except ValidationError as ve:
-                logger.error(f"Pydantic Validation failed for structured output: {ve}")
+                logger.error(f"failed to validate JSON: {raw_json_string}, error: {ve}")
                 # Fallback: attempt to extract JSON if LLM added preamble/markdown
                 try:
                     extracted_data = self.extract_json(raw_json_string)
