@@ -8,6 +8,7 @@ All metrics are implemented as pure functions for easy testing and reuse.
 """
 
 from collections import Counter
+from difflib import SequenceMatcher
 from functools import lru_cache
 
 import logging
@@ -456,10 +457,32 @@ def calculate_heading_soft_recall(
 
 
 def calculate_heading_entity_recall(
-    generated_headings: List[str], reference_headings: List[str]
+    generated_headings: List[str],
+    reference_headings: List[str],
+    fuzzy_threshold: float = 0.8,
+    use_semantic: bool = True,
 ) -> float:
-    """Calculate Heading Entity Recall (HER) using entity extraction on headings only."""
-    logger.debug("=== Heading Entity Recall Calculation ===")
+    """
+    Calculate Heading Entity Recall (HER) using entity extraction with fuzzy/semantic matching.
+
+    Args:
+        generated_headings: List of headings from generated article
+        reference_headings: List of headings from reference article
+        fuzzy_threshold: Minimum similarity ratio (0-1) to consider entities as matching.
+                        Default 0.8 for string similarity, 0.75 for semantic similarity.
+        use_semantic: If True, use semantic embeddings. If False, use string similarity.
+
+    Returns:
+        Float between 0 and 1 representing recall score
+
+    Note:
+        - Semantic matching (default): Uses embeddings to match semantically related entities
+        - Fuzzy matching: Uses string similarity for partial matches
+        Both approaches give partial credit for similar but not identical entities.
+    """
+    logger.debug(
+        "=== Heading Entity Recall Calculation (with fuzzy/semantic matching) ==="
+    )
     logger.debug(f"Generated headings: {generated_headings}")
     logger.debug(f"Reference headings: {reference_headings}")
 
@@ -485,17 +508,107 @@ def calculate_heading_entity_recall(
         logger.debug("All generated heading entities: %s", gen_entities)
 
     if not ref_entities:
-        logger.debug("No reference heading entities, returning 0.0 (undefined HER)")
-        return 0.0
+        logger.debug("No reference heading entities, returning 1.0 (nothing to recall)")
+        return 1.0
 
-    # Calculate overlap
-    overlap = len(ref_entities.intersection(gen_entities))
-    if logger.isEnabledFor(logging.DEBUG):
-        common_entities = ref_entities.intersection(gen_entities)
-        logger.debug("Common heading entities (%d): %s", overlap, common_entities)
-    recall = overlap / len(ref_entities)
-    logger.debug(f"Heading Entity Recall: {overlap}/{len(ref_entities)} = {recall}")
-    return recall
+    # Choose matching strategy
+    if use_semantic:
+        # Semantic matching using embeddings
+        sentence_model = _get_sentence_model()
+        if sentence_model is None:
+            logger.warning(
+                "Sentence model unavailable, falling back to string similarity"
+            )
+            use_semantic = False
+
+    if use_semantic:
+        # Convert entities to lists for encoding
+        ref_entities_list = sorted(list(ref_entities))
+        gen_entities_list = sorted(list(gen_entities))
+
+        try:
+            # Encode entities
+            ref_embeddings = np.asarray(sentence_model.encode(ref_entities_list))
+            gen_embeddings = np.asarray(sentence_model.encode(gen_entities_list))
+
+            # Normalize for cosine similarity
+            def _normalize_rows(x: np.ndarray) -> np.ndarray:
+                norms = np.linalg.norm(x, axis=1, keepdims=True)
+                norms[norms < 1e-8] = 1.0
+                return x / norms
+
+            ref_norm = _normalize_rows(ref_embeddings)
+            gen_norm = _normalize_rows(gen_embeddings)
+
+            # Compute similarity matrix (ref x gen)
+            similarity_matrix = ref_norm @ gen_norm.T
+
+            # For each reference entity, find best match
+            matched_count = 0
+            semantic_threshold = 0.75  # Semantic similarity threshold
+
+            for i, ref_entity in enumerate(ref_entities_list):
+                best_similarity = similarity_matrix[i].max()
+                best_idx = similarity_matrix[i].argmax()
+                best_match = gen_entities_list[best_idx]
+
+                if best_similarity >= semantic_threshold:
+                    matched_count += 1
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Semantic match: '{ref_entity}' ≈ '{best_match}' (similarity={best_similarity:.2f})"
+                        )
+                elif logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"No match for '{ref_entity}' (best: '{best_match}' at {best_similarity:.2f})"
+                    )
+
+            recall = matched_count / len(ref_entities)
+            logger.debug(
+                f"Heading Entity Recall (semantic): {matched_count}/{len(ref_entities)} = {recall:.2%}"
+            )
+            return recall
+
+        except Exception as e:
+            logger.error(
+                f"Semantic matching failed: {e}, falling back to string similarity"
+            )
+            use_semantic = False
+
+    if not use_semantic:
+        # Fuzzy string matching as fallback
+        matched_count = 0
+        for ref_entity in ref_entities:
+            best_similarity = 0.0
+            best_match = None
+
+            for gen_entity in gen_entities:
+                # Calculate similarity ratio between the two entities
+                similarity = SequenceMatcher(
+                    None, ref_entity.lower(), gen_entity.lower()
+                ).ratio()
+
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = gen_entity
+
+            # If best match exceeds threshold, count as a match
+            if best_similarity >= fuzzy_threshold:
+                matched_count += 1
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Fuzzy match: '{ref_entity}' ≈ '{best_match}' (similarity={best_similarity:.2f})"
+                    )
+            elif logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"No match for '{ref_entity}' (best: '{best_match}' at {best_similarity:.2f})"
+                )
+
+        recall = matched_count / len(ref_entities)
+        logger.debug(
+            f"Heading Entity Recall (fuzzy): {matched_count}/{len(ref_entities)} = {recall:.2%}"
+        )
+        return recall
 
 
 # ============================================================================
