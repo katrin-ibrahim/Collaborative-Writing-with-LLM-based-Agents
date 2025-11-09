@@ -147,11 +147,12 @@ def save_final_results(
             for article_file in articles_dir.glob(f"{method}_*.md"):
                 topic_part = article_file.stem[len(method) + 1 :]
 
-                # Handle topics with slashes that were replaced with underscores
+                # Keep topic with underscores to match the topics list format
+                # Only handle special case of and/or slashes
                 if "and_or" in topic_part:
                     topic = topic_part.replace("and_or", "and/or")
                 else:
-                    topic = topic_part.replace("_", " ")
+                    topic = topic_part  # Keep underscores as-is
 
                 # Load metadata if available
                 metadata_file = articles_dir / f"{article_file.stem}_metadata.json"
@@ -202,7 +203,8 @@ def save_final_results(
             method_dir = articles_dir / method
             if method_dir.exists() and method_dir.is_dir():
                 for article_file in method_dir.glob("*.md"):
-                    topic = article_file.stem.replace("_", " ")
+                    # Keep topic with underscores to match the topics list format
+                    topic = article_file.stem
 
                     if topic not in data["results"]:
                         data["results"][topic] = {}
