@@ -1,6 +1,7 @@
 # src/utils/config_context.py
 
 import logging
+from typing import Optional
 
 from src.collaborative.memory.memory import SharedMemory
 from src.config.collaboration_config import CollaborationConfig
@@ -28,8 +29,7 @@ class ConfigContext:
     _collaboration_config: CollaborationConfig
     _storm_config: StormConfig
     _memory_instance: SharedMemory
-
-    from typing import Optional
+    _output_dir: Optional[str] = None
 
     @classmethod
     def initialize(
@@ -161,3 +161,14 @@ class ConfigContext:
         if cls._memory_instance is None:
             raise RuntimeError("ConfigContext: SharedMemory instance not set.")
         return cls._memory_instance
+
+    @classmethod
+    def set_output_dir(cls, output_dir: str):
+        """Set the experiment output directory."""
+        cls._output_dir = output_dir
+        logger.info(f"Output directory registered with ConfigContext: {output_dir}")
+
+    @classmethod
+    def get_output_dir(cls) -> Optional[str]:
+        """Get the experiment output directory."""
+        return cls._output_dir

@@ -32,6 +32,10 @@ class BaseConfig(ABC):
         # Filter out None overrides
         actual_overrides = {k: v for k, v in overrides.items() if v is not None}
 
+        # Handle "default" as special case - use default config without file
+        if config_name == "default":
+            config_name = None
+
         if config_name:
             # Use the abstract method to get file pattern
             temp_instance = cls()  # Need instance to call get_file_pattern

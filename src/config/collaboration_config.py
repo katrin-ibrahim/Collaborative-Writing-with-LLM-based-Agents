@@ -22,6 +22,15 @@ class CollaborationConfig(BaseConfig):
     writing_mode: str = "section"  # "section" or "full_article"
     revise_mode: str = "pending_sections"  # "single_section" or "pending_section"
     should_self_refine: bool = False  # whether writers self-refine
+    two_phase_research: bool = (
+        True  # if True: direct search + generated queries; if False: generated queries only
+    )
+
+    # Reviewer enhancement parameters
+    ground_reviewer_with_research: bool = (
+        True  # if True: reviewer sees full research chunks for fact-checking
+    )
+    max_suggested_queries: int = 3  # maximum queries reviewer can suggest per iteration
 
     def get_file_pattern(self) -> str:
         return "configs/collaboration_{}.yaml"
