@@ -90,21 +90,14 @@ def validate_citations(
 
     # Validate chunk existence
     try:
-        result = shared_memory.get_chunks_by_ids(list(ref_map.keys()))
-        if result.get("success"):
-            chunks_data = result.get("chunks", {})
-            # If chunks_data is a dict, use its keys; if it's a list, extract IDs
-            if isinstance(chunks_data, dict):
-                found_chunk_ids = set(chunks_data.keys())
+        chunks_data = shared_memory.get_chunks_by_ids(list(ref_map.keys()))
+        found_chunk_ids = set(chunks_data.keys())
+
+        for chunk_id in ref_map.keys():
+            if chunk_id in found_chunk_ids:
+                validation_results["valid_citations"] += 1
             else:
-                found_chunk_ids = set(
-                    getattr(chunk, "id", None) for chunk in chunks_data
-                )
-            for chunk_id in ref_map.keys():
-                if chunk_id in found_chunk_ids:
-                    validation_results["valid_citations"] += 1
-                else:
-                    validation_results["missing_chunks"].append(chunk_id)
+                validation_results["missing_chunks"].append(chunk_id)
     except Exception as e:
         logger.warning(f"Citation validation failed: {e}")
 

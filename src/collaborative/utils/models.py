@@ -129,6 +129,7 @@ class FeedbackType(str, Enum):
 
     CITATION_MISSING = "citation_missing"
     CITATION_INVALID = "citation_invalid"
+    NEEDS_SOURCE = "needs_source"
     CLARITY = "clarity"
     ACCURACY = "accuracy"
     STRUCTURE = "structure"
@@ -174,6 +175,21 @@ class FeedbackValidationModel(BaseModel):
         default=None, description="Optional locator hint within the section."
     )
 
+    @field_validator("paragraph_number", mode="before")
+    @classmethod
+    def coerce_paragraph_number(cls, v: Any) -> Optional[int]:
+        """Convert empty strings to None for paragraph_number."""
+        if v == "" or v is None:
+            return None
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except ValueError:
+                return None
+        return v
+
 
 class ReviewerTaskValidationModel(BaseModel):
     """
@@ -185,6 +201,10 @@ class ReviewerTaskValidationModel(BaseModel):
     )
     overall_assessment: Optional[str] = Field(
         default=None, description="Optional short holistic summary."
+    )
+    suggested_queries: List[str] = Field(
+        default_factory=list,
+        description="Optional list of specific search queries to fill knowledge gaps identified during review.",
     )
 
 
@@ -210,8 +230,23 @@ class FeedbackStoredModel(BaseModel):
         default=None, description="Optional 1-indexed paragraph."
     )
     location_hint: Optional[str] = Field(
-        default=None, description="Optional locator hint."
+        default=None, description="Optional locator hint within the section."
     )
+
+    @field_validator("paragraph_number", mode="before")
+    @classmethod
+    def coerce_paragraph_number(cls, v: Any) -> Optional[int]:
+        """Convert empty strings to None for paragraph_number."""
+        if v == "" or v is None:
+            return None
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except ValueError:
+                return None
+        return v
 
     # added by Python
     id: str = Field(description="Globally unique id (e.g., 'intro_iter2_item0').")
