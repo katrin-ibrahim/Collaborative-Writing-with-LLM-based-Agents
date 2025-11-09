@@ -1,0 +1,46 @@
+# Ollama configuration for UKP server — Variant: BALANCED WRITER
+mode: 'ollama'
+override_model: null
+ollama_host: 'http://10.167.31.201:11434/'
+
+outline_model: 'llama3.2:3b-instruct-q4_K_M'
+writing_model: 'qwen2.5:14b' # <= writer medium
+critique_model: 'deepseek-r1:14b'
+polish_model: 'mistral:7b-instruct'
+default_model: 'qwen2.5:14b' # <= same as writer
+
+query_generation_model: 'qwen2.5:7b' # tried command r7b, but spits out generic queries
+create_outline_model: 'llama3.2:3b-instruct-q4_K_M'
+section_selection_model: 'qwen2.5:32b'
+writer_model: 'qwen2.5:14b' # <= writer medium
+revision_model: 'gemma3:27b'
+revision_batch_model: 'gemma3:27b'
+self_refine_model: 'mistral:7b-instruct'
+reviewer_model: 'gpt-oss:20b'
+
+temperatures:
+  fast: 0.2
+  outline: 0.2
+  writing: 0.28
+  critique: 0.15
+  polish: 0.22
+  query_generation: 0.45
+  section_selection: 0.0
+  writer: 0.28
+  revision: 0.18
+  revision_batch: 0.18
+  self_refine: 0.2
+  reviewer: 0.15
+
+token_limits:
+  fast: 2000
+  outline: 800
+  writing: 3500
+  critique: 2200
+  polish: 2200
+  query_generation: 192
+  section_selection: 3000
+  writer: 3500
+  revision: 3500
+  revision_batch: 3500
+  reviewer: 3200
