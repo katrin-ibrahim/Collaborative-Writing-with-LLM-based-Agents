@@ -1,5 +1,3 @@
-import hashlib
-import time
 from pathlib import Path
 
 import logging
@@ -44,6 +42,9 @@ class MemoryState(TypedDict):
         int, Dict[str, FeedbackStoredModel]
     ]  # iteration -> {item_id: item_data}
     item_index: Dict[str, int]  # item_id -> index (for feedback management)
+    suggested_queries_by_iteration: Dict[
+        int, List[str]
+    ]  # iteration -> list of suggested queries from reviewer
 
     # Optional fields
     initial_outline: Optional[Outline]
@@ -60,12 +61,21 @@ class SharedMemory:
     def __init__(
         self,
         topic: str,
-        storage_dir: str = "data/memory",
+        storage_dir: Optional[str] = None,
         tom_enabled: bool = False,
+        experiment_name: Optional[str] = None,
     ):
         self.topic = topic
-        self.session_id = self._generate_session_id(topic)
-        self.storage_dir = Path(storage_dir)
+        self.experiment_name = experiment_name
+        self.session_id = self._generate_session_id(topic, experiment_name)
+
+        # If no storage_dir provided, use default data/memory
+        if storage_dir is None:
+            storage_dir = "data/memory"
+
+        # Create memory subdirectory within the storage path
+        self.storage_dir = Path(storage_dir) / "memory"
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         self.storage = SessionStorage(self.storage_dir, self.session_id)
 
@@ -90,6 +100,7 @@ class SharedMemory:
             ensure_key(raw_data, "metadata", {})
             ensure_key(raw_data, "item_index", {})
             ensure_key(raw_data, "penalized_chunk_ids", [])
+            ensure_key(raw_data, "suggested_queries_by_iteration", {})
             self.state: MemoryState = MemoryState(**raw_data)
         else:
             # Create new state with defaults
@@ -109,6 +120,7 @@ class SharedMemory:
                 feedback_by_iteration={},
                 item_index={},
                 penalized_chunk_ids=[],
+                suggested_queries_by_iteration={},
             )
 
         # Persist if new state
@@ -233,10 +245,23 @@ class SharedMemory:
 
     # =================== Session Management ===================
     # region Session Management
-    def _generate_session_id(self, topic: str) -> str:
-        timestamp = str(int(time.time()))
-        topic_hash = hashlib.md5(topic.encode()).hexdigest()[:8]
-        return f"{topic_hash}_{timestamp}"
+    def _generate_session_id(
+        self, topic: str, experiment_name: Optional[str] = None
+    ) -> str:
+        """Generate session ID matching article naming: {method}_{topic}."""
+        # Sanitize topic for filesystem use
+        safe_topic = topic.replace("/", "_").replace(" ", "_")
+        # Remove any other problematic characters
+        import re
+
+        safe_topic = re.sub(r"[^\w\-_]", "_", safe_topic)
+        # Collapse multiple underscores
+        safe_topic = re.sub(r"_+", "_", safe_topic).strip("_")
+
+        # Use experiment_name (method name) as prefix if provided
+        if experiment_name:
+            return f"{experiment_name}_{safe_topic}"
+        return safe_topic
 
     def _persist(self) -> None:
         # Convert state to JSON-serializable format
@@ -600,3 +625,49 @@ class SharedMemory:
 
         # --- 4. Persist changes ---
         self._persist()
+
+    # =================== Suggested Queries Management ===================
+    # region Suggested Queries Management
+
+    def store_suggested_queries(self, iteration: int, queries: List[str]) -> None:
+        """
+        Store suggested queries from reviewer for a specific iteration.
+
+        Args:
+            iteration: Iteration number when queries were suggested
+            queries: List of search query strings suggested by reviewer
+        """
+        if not queries:
+            return
+
+        self.state["suggested_queries_by_iteration"][iteration] = queries
+        self._persist()
+        logger.info(
+            f"Stored {len(queries)} suggested queries for iteration {iteration}"
+        )
+
+    def get_suggested_queries(self, iteration: int) -> List[str]:
+        """
+        Retrieve suggested queries for a specific iteration.
+
+        Args:
+            iteration: Iteration number to retrieve queries for
+
+        Returns:
+            List of query strings, empty list if none exist
+        """
+        return self.state["suggested_queries_by_iteration"].get(iteration, [])
+
+    def clear_suggested_queries(self, iteration: int) -> None:
+        """
+        Clear suggested queries for a specific iteration after they've been processed.
+
+        Args:
+            iteration: Iteration number to clear queries for
+        """
+        if iteration in self.state["suggested_queries_by_iteration"]:
+            del self.state["suggested_queries_by_iteration"][iteration]
+            self._persist()
+            logger.info(f"Cleared suggested queries for iteration {iteration}")
+
+    # endregion Suggested Queries Management
