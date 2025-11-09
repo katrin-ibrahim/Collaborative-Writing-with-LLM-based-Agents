@@ -41,13 +41,11 @@ class ContentFilter:
                 for row in reader:
                     if "url" in row and row["url"]:
                         self.exclude_urls.add(row["url"])
-                        # Also add the title-based URL format
-                        if "topic" in row and row["topic"]:
-                            topic_url = f"https://en.wikipedia.org/wiki/{row['topic'].replace(' ', '_')}"
-                            self.exclude_urls.add(topic_url)
+                        # Do NOT add topic-based URL variations
+                        # This allows related articles while blocking exact matches
 
             logger.info(
-                f"Loaded {len(self.exclude_urls)} URLs to exclude from FreshWiki dataset"
+                f"Loaded {len(self.exclude_urls)} URLs to exclude from FreshWiki dataset (exact matches only)"
             )
         except Exception as e:
             logger.warning(f"Failed to load FreshWiki exclude URLs: {e}")
