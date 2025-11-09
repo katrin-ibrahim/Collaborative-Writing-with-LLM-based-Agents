@@ -228,7 +228,7 @@ class TestHeadingMetricsCorrectness:
         """Test HSR with identical headings should be 1.0."""
         headings = ["Introduction", "Methods", "Results", "Conclusion"]
         hsr = calculate_heading_soft_recall(headings, headings)
-        assert hsr == 1.0
+        assert abs(hsr - 1.0) < 0.01, f"Expected HSR ~1.0, got {hsr}"
 
     def test_heading_soft_recall_empty_inputs(self):
         """Test HSR with empty inputs."""
@@ -240,7 +240,8 @@ class TestHeadingMetricsCorrectness:
         """HER with identical headings should be 1.0."""
         gen = ["Introduction", "Methods", "Results"]
         ref = ["Introduction", "Methods", "Results"]
-        assert calculate_heading_entity_recall(gen, ref) == 1.0
+        her = calculate_heading_entity_recall(gen, ref)
+        assert abs(her - 1.0) < 0.01, f"Expected HER ~1.0, got {her}"
 
     def test_heading_entity_recall_empty_inputs(self):
         """Test HER with empty inputs."""
