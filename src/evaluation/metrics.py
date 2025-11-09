@@ -512,6 +512,8 @@ def calculate_heading_entity_recall(
         return 1.0
 
     # Choose matching strategy
+    # Bind sentence_model to ensure it is always defined for static analysis
+    sentence_model = None
     if use_semantic:
         # Semantic matching using embeddings
         sentence_model = _get_sentence_model()
@@ -527,9 +529,16 @@ def calculate_heading_entity_recall(
         gen_entities_list = sorted(list(gen_entities))
 
         try:
-            # Encode entities
-            ref_embeddings = np.asarray(sentence_model.encode(ref_entities_list))
-            gen_embeddings = np.asarray(sentence_model.encode(gen_entities_list))
+            # Ensure sentence_model is present before attempting to encode
+            assert sentence_model is not None
+
+            # Encode entities, explicitly requesting numpy output for clarity
+            ref_embeddings = np.asarray(
+                sentence_model.encode(ref_entities_list, convert_to_numpy=True)
+            )
+            gen_embeddings = np.asarray(
+                sentence_model.encode(gen_entities_list, convert_to_numpy=True)
+            )
 
             # Normalize for cosine similarity
             def _normalize_rows(x: np.ndarray) -> np.ndarray:

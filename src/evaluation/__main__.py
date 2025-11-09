@@ -15,6 +15,7 @@ import logging
 from typing import Dict, Optional
 
 from src.evaluation.evaluator import ArticleEvaluator
+from src.evaluation.llm_judge_ollama import score_articles
 from src.utils.data import FreshWikiLoader
 from src.utils.experiment import save_final_results
 
@@ -165,8 +166,43 @@ def _generate_aggregation_summary(data):
                 }
                 print(f"  🔍 {metric_display[metric]}: {avg_value:.1f}")
 
-        # Show token usage and timing information from aggregated data
+        # Show LLM judge scores if available
         eval_aggregate = data.get("evaluation_aggregate", {})
+        if method in eval_aggregate:
+            method_agg = eval_aggregate[method]
+            llm_judge_data = method_agg.get("llm_judge")
+            if llm_judge_data:
+                print(
+                    f"  📝 LLM Judge Scores ({llm_judge_data.get('num_articles', 0)} articles):"
+                )
+                print(
+                    f"     Interest Level: {llm_judge_data.get('interest_level', 0):.2f}/5"
+                )
+                print(
+                    f"     Coherence & Organization: {llm_judge_data.get('coherence_organization', 0):.2f}/5"
+                )
+                print(
+                    f"     Relevance & Focus: {llm_judge_data.get('relevance_focus', 0):.2f}/5"
+                )
+                print(
+                    f"     Broad Coverage: {llm_judge_data.get('broad_coverage', 0):.2f}/5"
+                )
+
+                # Calculate overall average
+                llm_avg = (
+                    sum(
+                        [
+                            llm_judge_data.get("interest_level", 0),
+                            llm_judge_data.get("coherence_organization", 0),
+                            llm_judge_data.get("relevance_focus", 0),
+                            llm_judge_data.get("broad_coverage", 0),
+                        ]
+                    )
+                    / 4
+                )
+                print(f"     Overall Average: {llm_avg:.2f}/5 ({llm_avg * 20:.1f}%)")
+
+        # Show token usage and timing information from aggregated data
         if method in eval_aggregate:
             method_agg = eval_aggregate[method]
 
@@ -236,6 +272,21 @@ Examples:
         "--force",
         action="store_true",
         help="Force re-evaluation even if evaluation results already exist",
+    )
+    parser.add_argument(
+        "--llm_judge",
+        action="store_true",
+        help="[DEPRECATED] LLM judge now runs unconditionally. This flag is ignored.",
+    )
+    parser.add_argument(
+        "--llm_judge_model",
+        default="qwen2.5:32b",
+        help="Ollama model for LLM judge (default: qwen2.5:32b). Recommended: qwen2.5:32b, deepseek-r1:14b, or gemma3:27b",
+    )
+    parser.add_argument(
+        "--llm_judge_host",
+        default="http://10.167.31.201:11434",
+        help="Ollama server URL (default: UKP server http://10.167.31.201:11434)",
     )
 
     return parser.parse_args()
@@ -405,9 +456,6 @@ def main():
 
         logger.info(f"Loaded {len(entries)} FreshWiki entries")
 
-        # Create topic lookup
-        topic_lookup = {entry.topic: entry for entry in entries}
-
         # Create evaluator
         evaluator = ArticleEvaluator()
 
@@ -555,9 +603,35 @@ def main():
                         logger.debug(
                             f"   AER: {eval_results.get('article_entity_recall', 0):.1f}%"
                         )
+
+                        # Run LLM judge unconditionally
+                        try:
+                            logger.debug(f"Running LLM judge for {method}/{topic}")
+                            llm_results = score_articles(
+                                article_texts=[article_content],
+                                model=args.llm_judge_model,
+                                host=args.llm_judge_host,
+                                temperature=0.0,
+                            )
+                            if llm_results and "error" not in llm_results[0]:
+                                method_data["llm_judge"] = llm_results[0]
+                                logger.debug(
+                                    f"✅ LLM judge completed for {method}/{topic}"
+                                )
+                                logger.debug(
+                                    f"   Interest: {llm_results[0].get('interest_level', 0)}/5"
+                                )
+                                logger.debug(
+                                    f"   Coherence: {llm_results[0].get('coherence_organization', 0)}/5"
+                                )
+                            else:
+                                logger.warning(
+                                    f"LLM judge failed for {method}/{topic}: {llm_results[0].get('error', 'Unknown error')}"
+                                )
+                        except Exception as e:
+                            logger.warning(f"LLM judge error for {method}/{topic}: {e}")
                     else:
                         logger.error(f"Evaluation returned None for {method}/{topic}")
-                        # Do not create a zeroed 'evaluation' block; record error only
                         method_data["evaluation_error"] = "Evaluation returned None"
 
                 except Exception as e:
@@ -596,6 +670,8 @@ def main():
             methods_data = {}
             methods_token_data = {}
             methods_timing_data = {}
+            methods_llm_judge_data = {}
+
             for topic, topic_data in data.get("results", {}).items():
                 for method, method_data in topic_data.items():
                     if not isinstance(method_data, dict):
@@ -620,6 +696,13 @@ def main():
                         if gen_time:
                             methods_timing_data.setdefault(method, []).append(gen_time)
 
+                        # Collect LLM judge data if available
+                        llm_judge_result = method_data.get("llm_judge")
+                        if llm_judge_result and isinstance(llm_judge_result, dict):
+                            methods_llm_judge_data.setdefault(method, []).append(
+                                llm_judge_result
+                            )
+
             metrics_list = [
                 "rouge_1",
                 "rouge_l",
@@ -627,6 +710,13 @@ def main():
                 "heading_entity_recall",
                 "article_entity_recall",
             ]
+            llm_judge_metrics = [
+                "interest_level",
+                "coherence_organization",
+                "relevance_focus",
+                "broad_coverage",
+            ]
+
             aggregates = {}
             for method, res_list in methods_data.items():
                 agg = {}
@@ -634,6 +724,18 @@ def main():
                     vals = [r.get(metric, 0.0) for r in res_list if metric in r]
                     if vals:
                         agg[metric] = sum(vals) / len(vals)
+
+                # Add LLM judge aggregation
+                if method in methods_llm_judge_data:
+                    llm_judge_list = methods_llm_judge_data[method]
+                    llm_judge_agg = {}
+                    for metric in llm_judge_metrics:
+                        vals = [r.get(metric, 0) for r in llm_judge_list if metric in r]
+                        if vals:
+                            llm_judge_agg[metric] = sum(vals) / len(vals)
+                    if llm_judge_agg:
+                        llm_judge_agg["num_articles"] = len(llm_judge_list)
+                        agg["llm_judge"] = llm_judge_agg
 
                 # Add token usage aggregation
                 if method in methods_token_data:
