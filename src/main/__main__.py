@@ -59,7 +59,9 @@ def load_configurations(args):
             convergence_threshold=args.convergence_threshold,
             writing_mode=args.writing_mode,
             revise_mode=args.revise_mode,
-            should_self_refine=args.self_refine,
+            should_self_refine=not args.no_self_refine,
+            two_phase_research=args.two_phase_research,
+            ground_reviewer_with_research=not args.no_reviewer_grounding,
         )
         logger.info(f"Loaded collaboration config: {args.collaboration_config}")
 
@@ -68,6 +70,7 @@ def load_configurations(args):
             f"Failed to load collaboration config '{args.collaboration_config}': {e}, Falling back to default configuration"
         )
         collaboration_config = CollaborationConfig.get_default()
+        collaboration_config.two_phase_research = args.two_phase_research
 
     # Model configuration - may be None
     try:
@@ -140,6 +143,9 @@ def main():
     # Setup output directory
     output_dir = setup_output_directory(args)
     output_manager = OutputManager(str(output_dir), debug_mode=args.debug)
+
+    # Register output_dir in ConfigContext so methods can access it
+    ConfigContext.set_output_dir(str(output_dir))
 
     runner = Runner(
         output_manager=output_manager,

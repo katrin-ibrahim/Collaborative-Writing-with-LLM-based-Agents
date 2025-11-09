@@ -4,6 +4,39 @@ Based on baselines CLI but focused on collaborative methods.
 """
 
 import argparse
+from pathlib import Path
+
+
+def _get_available_model_configs() -> list[str]:
+    """
+    Dynamically discover available model configuration files.
+
+    Returns:
+        List of config names (without 'model_' prefix and '.yaml' extension)
+    """
+    config_dir = Path(__file__).parent.parent / "config" / "configs"
+    if not config_dir.exists():
+        return ["ollama_localhost"]
+
+    config_files = list(config_dir.glob("model_*.yaml"))
+    config_names = [f.stem.replace("model_", "") for f in config_files]
+    return sorted(config_names) if config_names else ["ollama_localhost"]
+
+
+def _get_available_collaboration_configs() -> list[str]:
+    """
+    Dynamically discover available collaboration configuration files.
+
+    Returns:
+        List of config names (without 'collaboration_' prefix and '.yaml' extension)
+    """
+    config_dir = Path(__file__).parent.parent / "config" / "configs"
+    if not config_dir.exists():
+        return ["default"]
+
+    config_files = list(config_dir.glob("collaboration_*.yaml"))
+    config_names = [f.stem.replace("collaboration_", "") for f in config_files]
+    return sorted(config_names) if config_names else ["default"]
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -36,6 +69,7 @@ def parse_arguments() -> argparse.Namespace:
         nargs="+",
         choices=[
             "writer_only",
+            "writer_v3",
             "writer_reviewer",
             "writer_reviewer_tom",
             "direct",
@@ -48,20 +82,14 @@ def parse_arguments() -> argparse.Namespace:
 
     # =================== Common Configuration ===================
     config_group = parser.add_argument_group("Configuration Options")
+
+    available_configs = _get_available_model_configs()
+
     config_group.add_argument(
         "--model_config",
         "-c",
         default="ollama_localhost",
-        choices=[
-            "ollama_localhost",
-            "ollama_ukp",
-            "slurm",
-            "slurm_thinking",
-            "small_writer",
-            "balanced_writer",
-            "large_writer",
-        ],
-        help="Model configuration preset (default: ollama_localhost)",
+        help=f"Model configuration preset (default: ollama_localhost). Available at startup: {', '.join(available_configs)}. Dynamically generated configs are also supported.",
     )
 
     config_group.add_argument(
@@ -79,7 +107,6 @@ def parse_arguments() -> argparse.Namespace:
         choices=[
             "wiki",
             "faiss",
-            "hybrid",
         ],
         help="Retrieval manager type (overrides config file)",
     )
@@ -152,15 +179,15 @@ def parse_arguments() -> argparse.Namespace:
         help="Random seed for reproducibility",
     )
 
-    # Collaboration-specific options (for future use)
+    # Collaboration-specific options
+    available_collab_configs = _get_available_collaboration_configs()
 
     parser.add_argument(
         "--collaboration_config",
         "-cc",
         type=str,
         default="default",
-        choices=["default", "aggressive", "conservative"],
-        help="Collaboration configuration preset to use",
+        help=f"Collaboration configuration preset to use (default: default). Available at startup: {', '.join(available_collab_configs)}. Dynamically generated configs are also supported.",
     )
 
     parser.add_argument(
@@ -180,19 +207,38 @@ def parse_arguments() -> argparse.Namespace:
         "--writing_mode",
         "-wm",
         choices=["section", "full_article"],
+        default="section",
         help="Set the writing mode (default: section)",
     )
     parser.add_argument(
         "--revise_mode",
         "-revm",
         choices=["single_section", "pending_sections"],
-        help="Set the revise mode (default: peinding_sections)",
+        default="pending_sections",
+        help="Set the revise mode (default: pending_sections - optimal from sequential ablation)",
     )
     parser.add_argument(
-        "--self_refine",
-        "-sr",
+        "--no_self_refine",
+        "-nsr",
         action="store_true",
-        help="Enable self-refinement by writers",
+        dest="no_self_refine",
+        help="Disable self-refinement by writers (default: self-refine enabled)",
+    )
+
+    parser.add_argument(
+        "--two_phase_research",
+        "-tpr",
+        action="store_true",
+        default=False,
+        help="Enable two-phase research (direct topic search + generated queries). Default: disabled (only use generated queries)",
+    )
+
+    parser.add_argument(
+        "--no_reviewer_grounding",
+        "-nrg",
+        action="store_true",
+        dest="no_reviewer_grounding",
+        help="Disable grounding the reviewer with research (default: reviewer grounding enabled)",
     )
 
     # Parse arguments
