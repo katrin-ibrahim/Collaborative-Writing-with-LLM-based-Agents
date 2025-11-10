@@ -88,7 +88,7 @@ def parse_arguments() -> argparse.Namespace:
     config_group.add_argument(
         "--model_config",
         "-c",
-        default="ollama_localhost",
+        default="ollama_ukp",
         help=f"Model configuration preset (default: ollama_localhost). Available at startup: {', '.join(available_configs)}. Dynamically generated configs are also supported.",
     )
 
@@ -96,6 +96,57 @@ def parse_arguments() -> argparse.Namespace:
         "--override_model",
         "-om",
         help="Override model to use for all tasks instead of task-specific models (e.g., qwen2.5:7b, qwen2.5:14b, qwen2.5:32b, gpt-oss:20b)",
+    )
+
+    # =================== Granular Model Parameters ===================
+    model_group = parser.add_argument_group("Granular Model Configuration")
+
+    model_group.add_argument(
+        "--query_generation_model",
+        "-qgm",
+        help="Model for generating search queries",
+    )
+
+    model_group.add_argument(
+        "--create_outline_model",
+        "-oum",
+        help="Model for creating article outlines",
+    )
+
+    model_group.add_argument(
+        "--section_selection_model",
+        "-ssm",
+        help="Model for selecting relevant chunks",
+    )
+
+    model_group.add_argument(
+        "--writer_model",
+        "-wtm",
+        help="Model for writing content",
+    )
+
+    model_group.add_argument(
+        "--revision_model",
+        "-rvm",
+        help="Model for revising sections based on feedback",
+    )
+
+    model_group.add_argument(
+        "--revision_batch_model",
+        "-rbm",
+        help="Model for revising multiple sections in batch",
+    )
+
+    model_group.add_argument(
+        "--self_refine_model",
+        "-srm",
+        help="Model for self-refinement",
+    )
+
+    model_group.add_argument(
+        "--reviewer_model",
+        "-rwm",
+        help="Model for holistic review and feedback generation",
     )
 
     # =================== Granular Retrieval Parameters ===================

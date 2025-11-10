@@ -78,6 +78,14 @@ def load_configurations(args):
             args.model_config,  # Could be None
             override_model=args.override_model,
             mode=args.backend,  # Pass backend as override
+            query_generation_model=args.query_generation_model,
+            create_outline_model=args.create_outline_model,
+            section_selection_model=args.section_selection_model,
+            writer_model=args.writer_model,
+            revision_model=args.revision_model,
+            revision_batch_model=args.revision_batch_model,
+            self_refine_model=args.self_refine_model,
+            reviewer_model=args.reviewer_model,
         )
         if args.model_config:
             logger.info(f"Loaded model config: {args.model_config}")
@@ -147,9 +155,16 @@ def main():
     # Register output_dir in ConfigContext so methods can access it
     ConfigContext.set_output_dir(str(output_dir))
 
+    # Initialize state manager for resume/checkpoint functionality
+    from src.utils.experiment import ExperimentStateManager
+
+    state_manager = ExperimentStateManager(output_dir, args.methods)
+    state_manager.load_checkpoint()
+
     runner = Runner(
         output_manager=output_manager,
     )
+    runner.set_state_manager(state_manager)
 
     # Load topics
     freshwiki = FreshWikiLoader()

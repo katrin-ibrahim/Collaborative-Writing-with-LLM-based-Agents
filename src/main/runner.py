@@ -79,8 +79,10 @@ class Runner:
 
             logger.info(f"Running {method} on {len(method_topics)} topics")
 
-            # Run method on all topics
-            method_results = [self.run_single_topic(topic, method) for topic in topics]
+            # Run method on all topics (filtered for completed)
+            method_results = [
+                self.run_single_topic(topic, method) for topic in method_topics
+            ]
 
             results.extend(method_results)
 
@@ -91,6 +93,6 @@ class Runner:
 
                 # Mark complete if state manager available
                 if self.state_manager:
-                    self.state_manager.mark_complete(topic, method)
+                    self.state_manager.mark_topic_completed(topic, method)
 
         return results
