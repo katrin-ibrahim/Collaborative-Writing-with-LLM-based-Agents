@@ -5,7 +5,7 @@ import time
 import logging
 
 from src.collaborative.agents.reviewer_v2 import ReviewerV2
-from src.collaborative.agents.writer_v2 import WriterV2
+from src.collaborative.agents.writer_v3 import WriterV3
 from src.collaborative.memory.convergence import ConvergenceChecker
 from src.collaborative.memory.memory import SharedMemory
 from src.config.config_context import ConfigContext
@@ -88,10 +88,20 @@ class WriterReviewerV2Method(BaseMethod):
         reviewer_time = 0
 
         try:
+            # Get experiment output directory from ConfigContext
+            output_dir = ConfigContext.get_output_dir()
+
+            # Determine experiment name based on ToM setting
+            experiment_name = (
+                "writer_reviewer_tom_v2" if self.tom_enabled else "writer_reviewer_v2"
+            )
+
             # Initialize shared memory with Theory of Mind support
             memory = SharedMemory(
                 topic=topic,
+                storage_dir=output_dir,  # Store memory files in experiment dir
                 tom_enabled=self.tom_enabled,
+                experiment_name=experiment_name,
             )
 
             # Set memory instance for tools and agents to access
@@ -101,8 +111,8 @@ class WriterReviewerV2Method(BaseMethod):
                 f"Initialized shared memory for collaboration with key: {memory.session_id}"
             )
 
-            # Initialize V2 agents
-            writer = WriterV2()
+            # Initialize V3 agents
+            writer = WriterV3()
             reviewer = ReviewerV2()
 
             # Check if we have an existing draft, otherwise create initial draft

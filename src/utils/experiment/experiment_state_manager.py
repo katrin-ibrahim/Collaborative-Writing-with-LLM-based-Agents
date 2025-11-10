@@ -1,4 +1,3 @@
-import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -86,243 +85,63 @@ class ExperimentStateManager:
     def validate_topic_state(self, topic: str, method: str) -> str:
         """
         Validate the completion state of a topic for a given method.
+        Checks if article file exists with substantial content (>50 chars).
 
         Returns:
             'completed', 'in_progress', or 'not_started'
         """
-        if method == "storm":
-            return self._validate_storm_state(topic)
-        elif method == "direct":
-            return self._validate_direct_state(topic)
-        elif method == "rag":
-            return self._validate_rag_state(topic)
-        elif method == "agentic":
-            return self._validate_agentic_state(topic)
-        else:
-            logger.warning(f"Unknown method {method}, treating as not_started")
+        articles_dir = self.output_dir / "articles"
+        safe_topic = topic.replace(" ", "_").replace("/", "_")
+        article_file = articles_dir / f"{method}_{safe_topic}.md"
+        metadata_file = articles_dir / f"{method}_{safe_topic}_metadata.json"
+
+        if not article_file.exists():
             return "not_started"
 
-    def _validate_storm_state(self, topic: str) -> str:
-        """Validate STORM completion state for a topic."""
-        articles_dir = self.output_dir / "articles"
-        storm_outputs_dir = self.output_dir / "storm_outputs"
+        try:
+            with open(article_file, "r", encoding="utf-8") as f:
+                content = f.read()
 
-        # Check for completed article (current format: method_topic.md)
-        safe_topic = topic.replace(" ", "_").replace("/", "_")
-        article_file = articles_dir / f"storm_{safe_topic}.md"
-        metadata_file = articles_dir / f"storm_{safe_topic}_metadata.json"
-
-        if article_file.exists():
-            try:
-                # Check article content
-                with open(article_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Validate article has substantial content
-                if content and len(content.strip()) > 100:
-                    # Also check metadata if available
-                    if metadata_file.exists():
-                        try:
-                            with open(metadata_file, "r") as f:
-                                metadata = json.load(f)
-                            if metadata.get("method") == "storm":
-                                return "completed"
-                        except:
-                            pass
-                    return "completed"
-                else:
-                    logger.warning(
-                        f"STORM article for {topic} exists but appears incomplete"
-                    )
-                    return "in_progress"
-
-            except Exception as e:
-                logger.warning(f"Failed to validate STORM article for {topic}: {e}")
+            if content and len(content.strip()) > 50:
+                if metadata_file.exists():
+                    try:
+                        with open(metadata_file, "r") as f:
+                            metadata = json.load(f)
+                        if metadata.get("method") == method:
+                            return "completed"
+                    except Exception:
+                        pass
+                return "completed"
+            else:
+                logger.warning(
+                    f"{method} article for {topic} exists but appears incomplete"
+                )
                 return "in_progress"
 
-        # Check for intermediate STORM files
-        topic_storm_dir = storm_outputs_dir / topic.replace(" ", "_").replace("/", "_")
-        if topic_storm_dir.exists() and any(topic_storm_dir.iterdir()):
+        except Exception as e:
+            logger.warning(f"Failed to validate {method} article for {topic}: {e}")
             return "in_progress"
 
-        return "not_started"
-
-    def _validate_direct_state(self, topic: str) -> str:
-        """Validate direct prompting completion state for a topic."""
-        articles_dir = self.output_dir / "articles"
-        safe_topic = topic.replace(" ", "_").replace("/", "_")
-        article_file = articles_dir / f"direct_{safe_topic}.md"
-        metadata_file = articles_dir / f"direct_{safe_topic}_metadata.json"
-
-        if article_file.exists():
-            try:
-                # Check article content
-                with open(article_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Validate article has substantial content
-                if content and len(content.strip()) > 50:
-                    # Also check metadata if available
-                    if metadata_file.exists():
-                        try:
-                            with open(metadata_file, "r") as f:
-                                metadata = json.load(f)
-                            if metadata.get("method") == "direct":
-                                return "completed"
-                        except:
-                            pass
-                    return "completed"
-                else:
-                    logger.warning(
-                        f"Direct article for {topic} exists but appears incomplete"
-                    )
-                    return "in_progress"
-
-            except Exception as e:
-                logger.warning(f"Failed to validate direct article for {topic}: {e}")
-                return "in_progress"
-
-        return "not_started"
-
-    def _validate_rag_state(self, topic: str) -> str:
-        """Validate RAG completion state for a topic."""
-        articles_dir = self.output_dir / "articles"
-        safe_topic = topic.replace(" ", "_").replace("/", "_")
-        article_file = articles_dir / f"rag_{safe_topic}.md"
-        metadata_file = articles_dir / f"rag_{safe_topic}_metadata.json"
-
-        if article_file.exists():
-            try:
-                # Check article content
-                with open(article_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Validate article has substantial content
-                if content and len(content.strip()) > 50:
-                    # Also check metadata if available
-                    if metadata_file.exists():
-                        try:
-                            with open(metadata_file, "r") as f:
-                                metadata = json.load(f)
-                            if metadata.get("method") == "rag":
-                                return "completed"
-                        except:
-                            pass
-                    return "completed"
-                else:
-                    logger.warning(
-                        f"RAG article for {topic} exists but appears incomplete"
-                    )
-                    return "in_progress"
-
-            except Exception as e:
-                logger.warning(f"Failed to validate RAG article for {topic}: {e}")
-                return "in_progress"
-
-        return "not_started"
-
-    def _validate_agentic_state(self, topic: str) -> str:
-        """Validate agentic writer completion state for a topic."""
-        articles_dir = self.output_dir / "articles"
-        safe_topic = topic.replace(" ", "_").replace("/", "_")
-        article_file = articles_dir / f"agentic_{safe_topic}.md"
-        metadata_file = articles_dir / f"agentic_{safe_topic}_metadata.json"
-
-        if article_file.exists():
-            try:
-                # Check article content
-                with open(article_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Validate article has substantial content
-                if content and len(content.strip()) > 50:
-                    # Also check metadata if available
-                    if metadata_file.exists():
-                        try:
-                            with open(metadata_file, "r") as f:
-                                metadata = json.load(f)
-                            if metadata.get("method") == "agentic":
-                                return "completed"
-                        except:
-                            pass
-                    return "completed"
-                else:
-                    logger.warning(
-                        f"Agentic article for {topic} exists but appears incomplete"
-                    )
-                    return "in_progress"
-
-            except Exception as e:
-                logger.warning(f"Failed to validate agentic article for {topic}: {e}")
-                return "in_progress"
-
-        return "not_started"
-
     def cleanup_in_progress_topic(self, topic: str, method: str):
-        """Clean up incomplete intermediate files for a topic/method."""
+        """Clean up incomplete article files for a topic/method."""
         try:
-            if method == "storm":
-                self._cleanup_storm_intermediate(topic)
-            elif method == "direct":
-                self._cleanup_direct_intermediate(topic)
-            elif method == "rag":
-                self._cleanup_rag_intermediate(topic)
-            elif method == "agentic":
-                self._cleanup_agentic_intermediate(topic)
+            articles_dir = self.output_dir / "articles"
+            safe_topic = topic.replace(" ", "_").replace("/", "_")
+            article_file = articles_dir / f"{method}_{safe_topic}.md"
+            metadata_file = articles_dir / f"{method}_{safe_topic}_metadata.json"
+
+            if article_file.exists():
+                article_file.unlink()
+                logger.debug(f"Removed incomplete article: {article_file}")
+
+            if metadata_file.exists():
+                metadata_file.unlink()
+                logger.debug(f"Removed incomplete metadata: {metadata_file}")
 
             logger.info(f"Cleaned up incomplete {method} files for topic: {topic}")
 
         except Exception as e:
             logger.error(f"Failed to cleanup {method} files for {topic}: {e}")
-
-    def _cleanup_storm_intermediate(self, topic: str):
-        """Clean up incomplete STORM intermediate files."""
-        storm_outputs_dir = self.output_dir / "storm_outputs"
-        topic_storm_dir = storm_outputs_dir / topic
-
-        if topic_storm_dir.exists():
-            shutil.rmtree(topic_storm_dir)
-            logger.debug(f"Removed STORM intermediate directory: {topic_storm_dir}")
-
-        # Also remove incomplete article file
-        articles_dir = self.output_dir / "articles"
-        article_file = articles_dir / f"{topic}_storm.json"
-        if article_file.exists():
-            article_file.unlink()
-            logger.debug(f"Removed incomplete STORM article: {article_file}")
-
-    def _cleanup_direct_intermediate(self, topic: str):
-        """Clean up incomplete direct prompting files."""
-        articles_dir = self.output_dir / "articles"
-        article_file = articles_dir / f"{topic}_direct.json"
-
-        if article_file.exists():
-            article_file.unlink()
-            logger.debug(f"Removed incomplete direct article: {article_file}")
-
-    def _cleanup_rag_intermediate(self, topic: str):
-        """Clean up incomplete RAG files."""
-        articles_dir = self.output_dir / "articles"
-        article_file = articles_dir / f"{topic}_rag.json"
-
-        if article_file.exists():
-            article_file.unlink()
-            logger.debug(f"Removed incomplete RAG article: {article_file}")
-
-    def _cleanup_agentic_intermediate(self, topic: str):
-        """Clean up incomplete agentic writer files."""
-        articles_dir = self.output_dir / "articles"
-        safe_topic = topic.replace(" ", "_").replace("/", "_")
-        article_file = articles_dir / f"agentic_{safe_topic}.md"
-        metadata_file = articles_dir / f"agentic_{safe_topic}_metadata.json"
-
-        if article_file.exists():
-            article_file.unlink()
-            logger.debug(f"Removed incomplete agentic article: {article_file}")
-
-        if metadata_file.exists():
-            metadata_file.unlink()
-            logger.debug(f"Removed incomplete agentic metadata: {metadata_file}")
 
     def mark_topic_completed(self, topic: str, method: str):
         """Mark a topic as completed for a method and save checkpoint."""

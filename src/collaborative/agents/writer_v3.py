@@ -1,7 +1,9 @@
 # src/collaborative/agents/writer_v2.py
+from datetime import datetime
+
 import logging
 from langgraph.graph import END, StateGraph
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
@@ -74,6 +76,14 @@ class ChunkSelectionValidationModel(BaseModel):
         description=f"A list of up to {MAX_CHUNKS_PER_SECTION} chunk_ids for the current section.",
     )
 
+    @field_validator("chunk_ids", mode="before")
+    @classmethod
+    def coerce_chunk_ids_to_strings(cls, v: Any) -> List[str]:
+        """Coerce chunk IDs to strings (LLMs often return them as integers)."""
+        if not isinstance(v, list):
+            return v
+        return [str(item) for item in v]
+
 
 class GateDecision(BaseModel):
     action: Literal["continue", "retry"]
@@ -102,6 +112,14 @@ class ResearchSteerModel(BaseModel):
         description="Additional targeted queries to improve coverage",
     )
 
+    @field_validator("delete_chunk_ids", mode="before")
+    @classmethod
+    def coerce_chunk_ids_to_strings(cls, v: Any) -> List[str]:
+        """Coerce chunk IDs to strings (LLMs often return them as integers)."""
+        if not isinstance(v, list):
+            return v
+        return [str(item) for item in v]
+
 
 # ======================== MINIMAL STATE ========================
 
@@ -111,7 +129,7 @@ class MinimalState(TypedDict):
 
 
 # ======================== WRITER AGENT ========================
-class WriterV2(BaseAgent):
+class WriterV3(BaseAgent):
     """
     Simplified Writer agent with hybrid Python/LLM architecture.
 
@@ -166,9 +184,6 @@ class WriterV2(BaseAgent):
         workflow.add_node("router", self._router_by_iteration)
         workflow.add_node("research", self._research)  # Initial Flow Only
         workflow.add_node("outline", self._outline)  # Initial Flow Only
-        workflow.add_node(
-            "refine_research", self._refine_research
-        )  # Initial Flow Only - Gate after outline
         workflow.add_node("refine_outline", self._refine_outline)  # Initial Flow Only
         workflow.add_node("write", self._write_draft)  # Initial Flow Only
         workflow.add_node("revise", self._revise_draft)  # Revision Flow Only
@@ -194,17 +209,10 @@ class WriterV2(BaseAgent):
             "outline",
             self._should_refine_research,  # LLM gate with outline context
             {
-                "retry": "refine_research",
+                "retry": "research",
                 "continue_outline": "refine_outline",
                 "continue_write": "write",
             },
-        )
-
-        # 4. Research Gate -> back to Research or continue
-        workflow.add_conditional_edges(
-            "refine_research",
-            lambda state: "research" if self._research_ctx else "refine_outline",
-            {"research": "research", "refine_outline": "refine_outline"},
         )
 
         # 5. Outline Refinement
@@ -214,7 +222,7 @@ class WriterV2(BaseAgent):
             {"retry": "refine_outline", "continue": "write"},
         )
 
-        # 6. Post-Content Edges (Shared for write and revise)
+        # 7. Post-Content Edges (Shared for write and revise)
         workflow.add_conditional_edges(
             "write", self._should_self_refine, {"refine": "self_refine", "done": END}
         )
@@ -292,6 +300,7 @@ class WriterV2(BaseAgent):
                 fields=["description", "chunk_id"],
                 start_idx=start_idx,
                 end_idx=end_idx,
+                penalize_ids=self.shared_memory.get_penalized_chunk_ids(),
             )
 
             try:
@@ -326,10 +335,23 @@ class WriterV2(BaseAgent):
 
         if all_delete_ids:
             try:
-                removed = self.shared_memory.delete_chunks_by_ids(all_delete_ids)
-                logger.info(f"Research gate deleted {removed} chunks: {all_delete_ids}")
+                policy = getattr(
+                    self.retrieval_config, "irrelevant_chunk_policy", "penalize"
+                )
+                if policy == "delete":
+                    removed = self.shared_memory.delete_chunks_by_ids(all_delete_ids)
+                    logger.info(
+                        f"Research gate deleted {removed} chunks due to irrelevance policy: {all_delete_ids}"
+                    )
+                else:
+                    added = self.shared_memory.add_penalized_chunks(all_delete_ids)
+                    logger.info(
+                        f"Research gate penalized {added} chunks (pushed to end of context): {all_delete_ids}"
+                    )
             except Exception as del_exc:
-                logger.warning(f"Failed to delete chunks {all_delete_ids}: {del_exc}")
+                logger.warning(
+                    f"Failed to apply irrelevance policy for {all_delete_ids}: {del_exc}"
+                )
 
         if all_new_queries:
             self._research_ctx = all_new_queries
@@ -468,6 +490,7 @@ class WriterV2(BaseAgent):
             chunk_summaries,
             max_content_pieces=self.retrieval_config.final_passages,
             fields=["description"],
+            penalize_ids=self.shared_memory.get_penalized_chunk_ids(),
         )
 
         outline_prompt_str = outline_prompt(
@@ -586,6 +609,7 @@ class WriterV2(BaseAgent):
             chunk_summaries,
             max_content_pieces=self.retrieval_config.final_passages,
             fields=["description", "chunk_id"],
+            penalize_ids=self.shared_memory.get_penalized_chunk_ids(),
         )
         mode = getattr(getattr(self, "config", None), "writing_mode", "section")
         if mode not in ("section", "full_article"):
@@ -848,9 +872,22 @@ class WriterV2(BaseAgent):
         """Generate secondary search queries using LLM reasoning."""
         top_chunk_context = top_chunk.content if top_chunk else ""
 
+        # Try to augment the prompt with Wikipedia categories (if available)
+        try:
+            from src.utils.wikipedia_categories import WikipediaCategoryFetcher
+
+            fetcher = WikipediaCategoryFetcher()
+            cats = fetcher.get_categories(topic, max_categories=6)
+            if cats:
+                cat_section = "\n\nWIKIPEDIA_CATEGORIES: " + ", ".join(cats)
+            else:
+                cat_section = ""
+        except Exception:
+            cat_section = ""
+
         prompt = search_query_generation_prompt(
             topic,
-            context=top_chunk_context,
+            context=(top_chunk_context or "") + cat_section,
             num_queries=self.retrieval_config.num_queries,
         )
         if self._research_ctx is not None:
@@ -932,6 +969,7 @@ class WriterV2(BaseAgent):
                 "iteration": self.shared_memory.state.get("iteration", 0),
                 "sections_count": len(outline.headings),
                 "writing_mode": "full_article",
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
@@ -983,8 +1021,16 @@ class WriterV2(BaseAgent):
         """
         Batch mode: one LLM call to revise all sections that have PENDING feedback.
         """
+        research_summary = self.shared_memory.get_search_summaries()
+        research_ctx = build_formatted_chunk_summaries(
+            research_summary,
+            max_content_pieces=self.retrieval_config.final_passages,
+            fields=["description"],
+        )
         # 1) Prompt → batch model
-        batch_prompt = build_revision_batch_prompt(article, pending_by_section)
+        batch_prompt = build_revision_batch_prompt(
+            article, pending_by_section, research_ctx
+        )
         client = self.get_task_client("revision_batch")
         batch_model = client.call_structured_api(
             prompt=batch_prompt, output_schema=WriterValidationBatchModel
@@ -1032,15 +1078,17 @@ class WriterV2(BaseAgent):
 
         # 4) Apply patches → rebuild → persist once
         article.sections = dict(article.sections or {})
+        overall_content = None
+
         for sec, text in section_patches.items():
             if sec == "_overall":
-                # apply to full content only (no full re-write elsewhere)
-                article.content = text
+                overall_content = text
             else:
                 article.sections[sec] = text
 
-        # rebuild from sections if we have them
-        if article.sections:
+        if overall_content:
+            article.content = overall_content
+        elif article.sections:
             try:
                 article.content = build_full_article_content(
                     article.title, article.sections
@@ -1059,10 +1107,18 @@ class WriterV2(BaseAgent):
         Sequential mode: one LLM call per section that has PENDING feedback.
         """
         client = self.get_task_client("revision")
+        research_summary = self.shared_memory.get_search_summaries()
+        research_ctx = build_formatted_chunk_summaries(
+            research_summary,
+            max_content_pieces=self.retrieval_config.final_passages,
+            fields=["description"],
+        )
 
         for section, items in pending_by_section.items():
             # 1) Prompt → single section model
-            prompt = build_single_section_revision_prompt(article, section, items)
+            prompt = build_single_section_revision_prompt(
+                article, section, items, research_ctx
+            )
             vm = client.call_structured_api(
                 prompt=prompt, output_schema=WriterValidationModel
             )
@@ -1083,14 +1139,15 @@ class WriterV2(BaseAgent):
                 )
 
             if section == "_overall":
-                # apply to full content only (no full re-write elsewhere)
                 article.content = vm.updated_content
             else:
                 article.sections = dict(article.sections or {})
                 article.sections[section] = vm.updated_content
 
-        # 4) rebuild once at the end → persist once
-        if article.sections:
+        # 4) Rebuild from sections if we have them and didn't just do _overall
+        if article.sections and not any(
+            section == "_overall" for section in pending_by_section.keys()
+        ):
             try:
                 article.content = build_full_article_content(
                     article.title, article.sections

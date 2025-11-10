@@ -29,6 +29,11 @@ def create_method(method_name: str) -> BaseMethod:
 
         return WriterOnlyV2Method()
 
+    elif method_name == "writer_v3":
+        from src.methods.writer_only_v3_method import WriterOnlyV3Method
+
+        return WriterOnlyV3Method()
+
     elif method_name == "writer_reviewer":
         from src.methods.writer_reviewer_v2_method import WriterReviewerV2Method
 
@@ -57,6 +62,7 @@ def create_method(method_name: str) -> BaseMethod:
     else:
         supported_methods = [
             "writer_only",
+            "writer_v3",
             "writer_reviewer",
             "writer_reviewer_tom",
             "direct",

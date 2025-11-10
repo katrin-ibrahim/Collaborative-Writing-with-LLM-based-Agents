@@ -170,6 +170,52 @@ class ModelConfig(BaseConfig):
         """Get default configuration."""
         return cls()
 
+    @classmethod
+    def from_yaml_with_overrides(
+        cls, config_name: Optional[str] = None, **overrides
+    ) -> "ModelConfig":
+        """
+        Load from YAML with overrides, applying special override_model logic.
+
+        If override_model is set, it applies to all task-specific models UNLESS
+        that specific model is explicitly provided in overrides.
+        """
+        # Extract override_model if present
+        override_model = overrides.get("override_model")
+
+        # Track which task models were explicitly provided
+        task_model_keys = {
+            "query_generation_model",
+            "create_outline_model",
+            "section_selection_model",
+            "writer_model",
+            "revision_model",
+            "revision_batch_model",
+            "self_refine_model",
+            "reviewer_model",
+            "conv_simulator_model",
+            "outline_model",
+            "writing_model",
+            "polish_model",
+        }
+
+        explicitly_set_models = {
+            key
+            for key in task_model_keys
+            if key in overrides and overrides[key] is not None
+        }
+
+        # Call parent implementation
+        config = super().from_yaml_with_overrides(config_name, **overrides)
+
+        # Apply override_model to any task models that weren't explicitly set
+        if override_model:
+            for model_key in task_model_keys:
+                if model_key not in explicitly_set_models:
+                    setattr(config, model_key, override_model)
+
+        return config
+
     def get_file_pattern(self):
         return "configs/model_{}.yaml"
 
