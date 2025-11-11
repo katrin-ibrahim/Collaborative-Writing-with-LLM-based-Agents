@@ -217,13 +217,21 @@ class SharedMemory:
         return self.state.get("drafts_by_iteration", {}).get(str(prev_iteration))
 
     def get_current_draft_as_article(self) -> Optional[Article]:
-        """Get current article as Article object."""
+        """Get current article as Article object, rebuilding content from sections if available."""
+        from src.collaborative.utils.writer_utils import build_full_article_content
 
-        # Create Article object
+        topic = self.state.get("topic", "Untitled")
+        sections = self.state.get("current_sections", {})
+        content = self.state.get("current_draft", "")
+
+        # Rebuild content from sections to ensure proper heading structure
+        if sections:
+            content = build_full_article_content(topic, sections)
+
         article = Article(
-            title=self.state.get("topic", "Untitled"),
-            content=self.state.get("current_draft", ""),
-            sections=self.state.get("current_sections", {}),
+            title=topic,
+            content=content,
+            sections=sections,
             metadata=self.state.get("metadata", {}),
         )
         return article

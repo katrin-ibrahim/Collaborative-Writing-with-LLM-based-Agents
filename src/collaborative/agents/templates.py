@@ -43,6 +43,8 @@ def build_review_prompt_for_strategy(
     validation_results: Dict,
     tom_context: Optional[str],
     strategy: str,
+    research_context: Optional[str] = None,
+    max_suggested_queries: int = 3,
 ) -> str:
     """Build strategy-aware review prompt with dynamic sections."""
 
@@ -63,56 +65,64 @@ Citation Validation:
 - Needs source tags: {validation_results.get('needs_source_count', 0)}
 """
 
+    # Include research context if provided
+    research_section = ""
+    if research_context:
+        research_section = f"""
+AVAILABLE RESEARCH CONTEXT:
+The following research chunks were used by the writer. Use this to identify factual gaps and missing information:
+
+{research_context}
+
+NOTE: You can now perform true fact-checking by comparing article claims against this research context.
+Identify specific entities, facts, or claims that are missing or need additional sourcing.
+"""
+
     # Strategy-specific instructions
     strategy_instructions = {
         "citation-focused": """
 FOCUS: Citation quality and completeness.
 
-Your primary task is to assess citation quality:
-- Identify all claims that lack proper citations
-- Flag invalid or missing chunk IDs
-- Assess overall citation coverage
-- Provide specific guidance on improving citations
+Your primary task is to assess citation quality using ONLY these feedback types:
+- "citation_missing" - For claims that lack proper citations
+- "citation_invalid" - For invalid or missing chunk IDs
+- "needs_source" - For claims needing additional sourcing
 
-**IMPORTANT**: Populate the 'citation_issues' field with a list of specific problems found.
-Example: ["Section 'Background' paragraph 2 lacks citation for population claim", "Invalid chunk ID in 'Methods' section"]
+Create individual feedback items (in the 'items' array) for each citation issue found.
+DO NOT create items with types like 'citation_issues', 'citation_coverage', or 'citation_quality'.
 """,
         "expansion-focused": """
 FOCUS: Content gaps and structural improvements.
 
-Your primary task is to identify areas for expansion:
-- Suggest new sections that would improve coverage
-- Identify existing sections that need more depth
-- Highlight important topics not adequately covered
-- Provide specific suggestions for content additions
+Your primary task is to identify areas for expansion using ONLY these feedback types:
+- "content_expansion" - For sections that need more depth or missing topics
+- "structure" - For organizational improvements
+- "depth" - For areas lacking sufficient detail
 
-**IMPORTANT**: Populate both 'suggested_sections' and 'coverage_gaps' fields with actionable lists.
-Example suggested_sections: ["Economic Impact Analysis", "Historical Context"]
-Example coverage_gaps: ["No discussion of environmental factors", "Missing stakeholder perspectives"]
+Create individual feedback items (in the 'items' array) for each expansion opportunity.
+DO NOT create items with types like 'coverage_gaps' or 'suggested_sections'.
 """,
         "accuracy-focused": """
 FOCUS: Factual accuracy and claim verification.
 
-Your primary task is to ensure factual reliability:
-- Flag claims that appear unverified or questionable
-- Check for internal contradictions
-- Assess the quality and appropriateness of sources
-- Identify statements that need stronger evidence
+Your primary task is to ensure factual reliability using ONLY these feedback types:
+- "accuracy" - For claims that appear unverified or questionable
+- "needs_source" - For statements needing stronger evidence
+- "citation_missing" - For unsupported factual claims
 
-**IMPORTANT**: Populate the 'accuracy_concerns' field with specific claims needing attention.
-Example: ["Population figure in intro needs verification", "Date discrepancy between sections 2 and 4"]
+Create individual feedback items (in the 'items' array) for each accuracy concern.
+DO NOT create items with types like 'accuracy_concerns' or 'factual_issues'.
 """,
         "holistic": """
 FOCUS: Overall article quality and coherence.
 
-Your task is to provide balanced, comprehensive feedback:
-- Assess structure, flow, and organization
-- Evaluate content quality and depth
-- Check citations and accuracy
-- Consider readability and clarity
-- Balance all aspects of article quality
+Your task is to provide balanced, comprehensive feedback using ANY of these feedback types:
+- "citation_missing", "citation_invalid", "needs_source" (for citations)
+- "clarity", "accuracy", "structure" (for quality)
+- "content_expansion", "redundancy", "tone", "depth", "flow" (for content)
 
-The optional fields (citation_issues, suggested_sections, etc.) can be populated if relevant, but are not required for holistic reviews.
+Create individual feedback items (in the 'items' array) for each distinct issue.
+Balance all aspects of article quality without focusing too heavily on any single type.
 """,
     }
 
@@ -124,6 +134,25 @@ The optional fields (citation_issues, suggested_sections, etc.) can be populated
     if tom_context:
         tom_section = f"\n\nCollaborative Context (Theory of Mind):\n{tom_context}\n"
 
+    # Suggested queries instruction
+    suggested_queries_instruction = ""
+    if research_context:
+        suggested_queries_instruction = f"""
+
+KNOWLEDGE GAP IDENTIFICATION:
+If you identify factual gaps or missing entities that could be filled with additional research, populate the 'suggested_queries' field.
+These should be specific, targeted Wikipedia-style search queries that would help the writer fill the gaps.
+
+Rules for suggested_queries:
+- Maximum {max_suggested_queries} queries per review
+- Format as Wikipedia page titles (e.g., "Chris Scott (Australian footballer)", "UEFA Euro 2016 knockout phase")
+- Focus on missing entities, events, or concepts that would strengthen the article
+- Only suggest queries for HIGH-PRIORITY gaps that significantly impact article quality
+- Leave empty if current research coverage is adequate
+
+Example suggested_queries: ["Economic impact of 2020 Olympics", "Historical context of USMCA negotiations", "Biden climate policy timeline"]
+"""
+
     return f"""You are reviewing an article using a {strategy} review strategy.
 
 ARTICLE INFORMATION:
@@ -134,6 +163,7 @@ Content:
 
 {metrics_text}
 {validation_text}
+{research_section}
 
 REVIEW STRATEGY:
 {strategy_instructions[strategy]}
@@ -148,7 +178,7 @@ Your response must be a valid JSON object with the following structure:
   "items": [
     {{
       "section": "section name or '_overall' for article-level feedback",
-      "type": "one of: citation_missing, citation_invalid, clarity, accuracy, structure, content_expansion, redundancy, tone, depth, flow",
+      "type": "MUST be exactly one of these 11 values: citation_missing, citation_invalid, needs_source, clarity, accuracy, structure, content_expansion, redundancy, tone, depth, flow",
       "issue": "clear description of what is wrong",
       "suggestion": "specific actionable recommendation to fix it",
       "priority": "high, medium, or low",
@@ -157,8 +187,25 @@ Your response must be a valid JSON object with the following structure:
       "location_hint": "optional: additional location context"
     }}
   ],
-  "overall_assessment": "optional: holistic summary of the article quality"
+  "overall_assessment": "optional: holistic summary of the article quality",
+  "suggested_queries": []
 }}
+
+CRITICAL TYPE CONSTRAINT:
+The "type" field MUST be EXACTLY one of these 11 strings (no variations allowed):
+1. citation_missing
+2. citation_invalid
+3. needs_source
+4. clarity
+5. accuracy
+6. structure
+7. content_expansion
+8. redundancy
+9. tone
+10. depth
+11. flow
+
+DO NOT use: citation_issues, citation_coverage, coverage_gaps, accuracy_concerns, or any other variations.
 
 GUIDELINES:
 - Create one item per distinct issue found
@@ -168,10 +215,8 @@ GUIDELINES:
 - Be specific and actionable in your suggestions
 
 Focus on providing constructive, actionable feedback that helps the writer improve the article.
+{suggested_queries_instruction}
 """
-
-
-# Add to templates.py (optional - the prompt is inline above, but can extract)
 
 
 def build_verification_prompt(
@@ -282,11 +327,20 @@ def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
 
     {research_context}
 
-    Guidelines:
+    Guidelines for Wikipedia-style section headings:
     - Each heading must refer to a concrete entity, event, or concept found in the context.
+    - Prioritize entity-rich headings that include NAMES of people, places, organizations, or specific events.
+      Examples: "Response by Pakistani Government", "Impact in Sindh Province", "International Aid from UN"
+      (NOT: "Government Response", "Regional Impact", "International Aid")
+
+    - For events about disasters/incidents: prefer sections like "Background", "Impact in [Region]", "Response", "Aftermath"
+    - For events about elections: prefer sections like "Background", "Candidates", "Campaign", "Results", "Aftermath"
+    - For events about conflicts: prefer sections like "Background", "Belligerents", "Course of battle", "Casualties", "Aftermath"
+
     - Maintain a logical flow from background and participants to event details, consequences, and legacy.
-    - Avoid abstract or essay-like titles (e.g., "Analysis", "Reactions", "Summary").
-    - Use short, descriptive noun phrases (ideally under 8 words).
+    - Avoid abstract or analytical titles (e.g., "Analysis of Causes", "Climate Factors", "Implications").
+    - Avoid generic process-oriented titles (e.g., "How it Happened", "Why it Occurred").
+    - Use short noun phrases naming the specific subject (ideally under 8 words).
     - Keep the tone factual, neutral, and encyclopedic — matching real Wikipedia article structure.
     - Ensure exactly {HEADING_COUNT} headings in total.
     - Headings must be a flat list of strings — no objects, no key–value pairs, no nested arrays, no annotations.
@@ -301,15 +355,23 @@ def refine_outline_prompt(
     research_context = consolidate_research(topic, top_chunk, chunk_summaries)
 
     prompt = f"""
-You are refining an existing article outline for the topic: "{topic}", to be more detailed and entity rich.
+You are refining an existing article outline for the topic: "{topic}", to be more entity-rich and Wikipedia-style.
 The outline should be informed by the research context provided below.
 {research_context}
 
 Existing Outline:
 {previous_outline}
+
 Your task is to enhance this outline by:
-- Making section titles more specific and analytical
-- Ensuring all sections leverage entities from the research context
+- Making section titles more specific and entity-rich (include names of people, places, organizations, specific events)
+- Converting analytical/topical headings into factual, entity-focused ones
+  Example transformations:
+  • "Climate Factors" → "Monsoon Season in Pakistan"
+  • "Government Response" → "Response by Pakistani Government"
+  • "Environmental Impact" → "Impact in Sindh Province"
+- Ensuring all sections leverage concrete entities from the research context
+- Following Wikipedia conventions: "Background", "Impact in [Region]", "Response", "Aftermath" patterns
+- Avoiding abstract/analytical titles like "Analysis", "Implications", "Causes and Effects"
 - Maintaining exactly {HEADING_COUNT} sections
 """
     return prompt
@@ -334,6 +396,23 @@ def select_section_chunks_prompt(
 ) -> str:
     """Generate prompt for selecting relevant research chunks for a section."""
 
+    # Extract year from topic if present for temporal awareness
+    import re
+
+    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
+    topic_year = year_match.group(0) if year_match else None
+
+    year_awareness = ""
+    if topic_year:
+        year_awareness = f"""
+TEMPORAL AWARENESS:
+The topic is about {topic_year}. When selecting chunks:
+- STRONGLY PREFER chunks that mention {topic_year} or events from {topic_year}
+- PENALIZE chunks about different years (e.g., {int(topic_year)-1}, {int(topic_year)+1}) unless they provide essential background
+- If chunks mention specific years, they should align with {topic_year}
+- General background without year mentions is acceptable
+"""
+
     # 1. Structure the research context clearly
     research_context = f"""
 Research Context (Chunk Summaries):
@@ -347,13 +426,16 @@ Research Context (Chunk Summaries):
 You are acting as a Research Editor. Your task is to select the exact set of research chunks
 required to write the section titled "{section_heading}" for the main article on "{topic}".
 
+{year_awareness}
+
 Strict Selection Rules:
 1. **Relevance is Key:** Select only the chunk IDs that are *most* relevant and necessary to support the content of the section heading.
-2. **Minimum Requirement:** You MUST select AT LEAST ONE chunk. Even if the match isn't perfect, choose the most relevant available chunks.
-3. **Limit:** Select no more than {num_chunks} chunk IDs.
-4. **Format:** Return a single JSON object with a key called chunk_ids, which is a list of string chunk IDs.
-5. **ID Integrity:** Use only the literal chunk IDs provided in the Research Context. Do not shorten, invent, or modify the IDs.
-6. **No Chatter:** Do not include any text, reasoning, markdown, or preamble outside the required JSON object.
+2. **Temporal Relevance:** If the topic has a specific year, prioritize chunks from that year over other years.
+3. **Minimum Requirement:** You MUST select AT LEAST ONE chunk. Even if the match isn't perfect, choose the most relevant available chunks.
+4. **Limit:** Select no more than {num_chunks} chunk IDs.
+5. **Format:** Return a single JSON object with a key called chunk_ids, which is a list of string chunk IDs.
+6. **ID Integrity:** Use only the literal chunk IDs provided in the Research Context. Do not shorten, invent, or modify the IDs.
+7. **No Chatter:** Do not include any text, reasoning, markdown, or preamble outside the required JSON object.
 
 CRITICAL: If you find no perfect matches, select the chunks that are most INDIRECTLY relevant or provide useful context.
 Examples of indirect relevance:
@@ -458,6 +540,22 @@ def search_query_generation_prompt(
     topic: str, context: str = "", num_queries: int = 5
 ) -> str:
     """Generate prompt for creating targeted search queries for structured output."""
+
+    # Extract year from topic if present (e.g., "2022 AFL Grand Final" -> 2022)
+    import re
+
+    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
+    topic_year = year_match.group(0) if year_match else None
+
+    year_awareness_section = ""
+    if topic_year:
+        year_awareness_section = f"""
+CRITICAL: The topic is about {topic_year}. Focus on:
+- Events, people, and entities relevant to {topic_year}
+- Do NOT query about different years unless getting background context
+- Prefer specific {topic_year} entities over general historical articles
+"""
+
     context_section = ""
     if context:
         context_section = f"""
@@ -477,6 +575,8 @@ Titles must look like real Wikipedia article names — not questions.
 
 INPUT TOPIC: "{topic}"
 
+{year_awareness_section}
+
 {context_section}
 
 INSTRUCTIONS
@@ -484,11 +584,16 @@ INSTRUCTIONS
 - Use Wikipedia disambiguation style when needed: e.g., "Chris Scott (Australian footballer)".
 - Avoid generic phrases like: result(s), history, finals series, overview, introduction, guide.
 - ≤ 8 words per title. No punctuation except parentheses or hyphens.
+- If topic contains a year, prioritize entities from that specific year.
 
 EXAMPLES
 Topic: "UEFA Euro 2016 Final"
 Good → ["Portugal national football team", "France national football team", "Stade de France", "Éder (footballer, born 1987)", "UEFA Euro 2016 knockout phase"]
 Bad  → ["Euro 2016 Final Result", "Euro 2016 History"]
+
+Topic: "2022 AFL Grand Final"
+Good → ["Geelong Football Club", "Sydney Swans", "Melbourne Cricket Ground", "2022 AFL season", "Joel Selwood"]
+Bad  → ["AFL Grand Final", "2023 AFL Grand Final", "Grand Final history"]
 
 Topic: "NASA Mars Perseverance"
 Good → ["Perseverance (rover)", "Mars 2020", "Ingenuity (helicopter)", "Jezero crater", "Mars Sample Return"]
@@ -549,9 +654,10 @@ def build_single_section_revision_prompt(
         "OUTPUT RULES:",
         "- Return a single JSON object matching WriterValidationModel exactly.",
         "- content_type MUST be 'partial_section'.",
-        "- updated_content MUST be the FULL replacement text of THIS section only.",
+        "- If section is '_overall', updated_content MUST be the FULL article with title heading (# Title) and all section headings (## Section Name).",
+        "- If section is NOT '_overall', updated_content MUST be ONLY that section's text, starting with the markdown H2 heading (## Section Name).",
         "- updates MUST include a status for EVERY feedback id listed (addressed or wont_fix).",
-        "- Keep tone neutral, factual, precise; no markdown headers or preambles.",
+        "- Keep tone neutral, factual, precise; no conversational preambles.",
         "- Preserve correct facts; NEVER invent citations or sources.",
         "- If a suggestion is unsafe or clearly wrong, set status='wont_fix' and explain shortly in writer_comment.",
         "- Keep length roughly similar unless feedback asks otherwise.",
@@ -596,8 +702,9 @@ def build_revision_batch_prompt(
         "- For each item:",
         "  - content_type MUST be 'partial_section'.",
         "  - updated_content MUST be the FULL replacement text for that section.",
+        "  - If the section is NOT '_overall', START updated_content with the markdown H2 heading: ## Section Name",
         "  - updates MUST include a status for EVERY feedback id listed for that section (addressed or wont_fix).",
-        "- Keep tone neutral, factual; no markdown headers or preambles.",
+        "- Keep tone neutral, factual; no conversational preambles.",
         "- Preserve correct facts; NEVER invent citations or sources.",
         "- If a suggestion is unsafe or clearly wrong, set status='wont_fix' and explain briefly.",
         "- Keep length roughly similar unless feedback asks otherwise.",
@@ -666,6 +773,23 @@ def build_research_gate_prompt(
     max_queries: int,
 ) -> str:
     """Generate prompt for research gate agent to gather more info."""
+
+    # Extract year from topic for temporal filtering
+    import re
+
+    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
+    topic_year = year_match.group(0) if year_match else None
+
+    year_filter_instruction = ""
+    if topic_year:
+        year_filter_instruction = f"""
+                TEMPORAL FILTERING (CRITICAL):
+                - The topic is about {topic_year}.
+                - DELETE chunks that primarily discuss different years (e.g., {int(topic_year)-1}, {int(topic_year)+1}, {int(topic_year)+5}) unless they provide essential background.
+                - KEEP chunks about {topic_year} or general timeless information.
+                - When proposing new queries, focus on {topic_year}-specific entities and events.
+                """
+
     return f"""
                 You are the research gate for the Writer. Topic: {topic}
 
@@ -675,12 +799,15 @@ def build_research_gate_prompt(
                 Reviewing batch {batch_idx + 1}/{total_batches} of retrieved chunks:
                 {chunks_formatted}
 
+                {year_filter_instruction}
+
                 Task:
                 - Identify chunks that do NOT support any section in the outline. List their ids in delete_chunk_ids.
                 - Identify outline sections lacking sufficient supporting chunks. Propose targeted new_queries to fill gaps.
 
                 Rules:
                 - Be conservative with deletions — only remove chunks clearly irrelevant to ALL outline sections.
+                - AGGRESSIVELY delete chunks about wrong years if the topic has a specific year.
                 - Limit new_queries to {max_queries} precise queries targeting specific outline sections.
                 - Each new_query must be formatted like a Wikipedia page title:
                     • Use Title Case (no underscores or all-caps).

@@ -485,6 +485,40 @@ class ReviewerV2(BaseAgent):
                 raise RuntimeError("No current draft article found in memory")
             metrics = get_article_metrics(article.content)
 
+            # Get configuration for reviewer grounding
+            from src.config.config_context import ConfigContext
+
+            collab_config = ConfigContext.get_collaboration_config()
+            ground_reviewer = getattr(
+                collab_config, "ground_reviewer_with_research", True
+            )
+            max_suggested_queries = getattr(collab_config, "max_suggested_queries", 3)
+
+            # Conditionally include research context
+            research_context = None
+            if ground_reviewer:
+                chunk_summaries = self.shared_memory.get_search_summaries()
+                from src.collaborative.utils.writer_utils import (
+                    build_formatted_chunk_summaries,
+                )
+
+                retrieval_config = ConfigContext.get_retrieval_config()
+                research_context = build_formatted_chunk_summaries(
+                    chunk_summaries,
+                    max_content_pieces=(
+                        retrieval_config.final_passages if retrieval_config else 10
+                    ),
+                    fields=["description", "content"],
+                    penalize_ids=self.shared_memory.get_penalized_chunk_ids(),
+                )
+                logger.info(
+                    "Reviewer grounding enabled: including research context in review"
+                )
+            else:
+                logger.info(
+                    "Reviewer grounding disabled: metadata-only review (no research chunks)"
+                )
+
             # Build strategy-aware prompt
             prompt = build_review_prompt_for_strategy(
                 article=article,
@@ -492,13 +526,15 @@ class ReviewerV2(BaseAgent):
                 validation_results=self.validation_results,
                 tom_context=self.tom_context,
                 strategy=self.review_strategy,
+                research_context=research_context,
+                max_suggested_queries=max_suggested_queries,
             )
             prompt += """
-            IMPORTANT - Quote Field Guidelines:
-            - USE quote: When feedback targets specific text (e.g., citation needed for "X showed Y")
-            - OMIT quote: When feedback is conceptual or section-level (e.g., "add more depth", "reorganize structure")
-            - You can mix: Some items with quotes, some without, based on what makes sense
-            """
+IMPORTANT - Quote Field Guidelines:
+- USE quote: When feedback targets specific text (e.g., citation needed for "X showed Y")
+- OMIT quote: When feedback is conceptual or section-level (e.g., "add more depth", "reorganize structure")
+- You can mix: Some items with quotes, some without, based on what makes sense
+"""
 
             review_client = self.get_task_client("review")
             llm_output: ReviewerTaskValidationModel = review_client.call_structured_api(
@@ -509,6 +545,19 @@ class ReviewerV2(BaseAgent):
             items = finalize_feedback_items(llm_output, iteration=self.iteration)
             self.shared_memory.store_feedback_items_for_iteration(self.iteration, items)
             self.reviewer_overall_assessment = llm_output.overall_assessment or ""
+
+            # Store suggested queries if provided
+            if llm_output.suggested_queries:
+                # Cap to configured maximum
+                suggested_queries = llm_output.suggested_queries[:max_suggested_queries]
+                self.shared_memory.store_suggested_queries(
+                    self.iteration, suggested_queries
+                )
+                logger.info(
+                    f"Reviewer suggested {len(suggested_queries)} additional queries: {suggested_queries}"
+                )
+            else:
+                logger.info("Reviewer suggested no additional queries")
 
             logger.info("✓ Stored article-level review data")
 
