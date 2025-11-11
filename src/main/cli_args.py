@@ -68,7 +68,6 @@ def parse_arguments() -> argparse.Namespace:
         "-m",
         nargs="+",
         choices=[
-            "writer_only",
             "writer_v3",
             "writer_reviewer",
             "writer_reviewer_tom",
@@ -159,6 +158,7 @@ def parse_arguments() -> argparse.Namespace:
             "wiki",
             "faiss",
         ],
+        default="wiki",
         help="Retrieval manager type (overrides config file)",
     )
 
@@ -202,34 +202,6 @@ def parse_arguments() -> argparse.Namespace:
         help="Experiment name for auto-generated output directory (e.g., 'semantic_filtering_test')",
     )
 
-    output_group.add_argument(
-        "--auto_name",
-        "-an",
-        action="store_true",
-        help="Auto-generate output directory name based on experiment parameters",
-    )
-
-    parser.add_argument(
-        "--dry_run",
-        "-dry",
-        action="store_true",
-        help="Print configuration and exit without running",
-    )
-    # Advanced options
-    parser.add_argument(
-        "--max_workers",
-        "-mw",
-        type=int,
-        help="Maximum number of parallel workers (default: auto)",
-    )
-
-    parser.add_argument(
-        "--seed",
-        "-s",
-        type=int,
-        help="Random seed for reproducibility",
-    )
-
     # Collaboration-specific options
     available_collab_configs = _get_available_collaboration_configs()
 
@@ -271,7 +243,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--no_self_refine",
         "-nsr",
-        action="store_true",
+        action="store_false",
         dest="no_self_refine",
         help="Disable self-refinement by writers (default: self-refine enabled)",
     )

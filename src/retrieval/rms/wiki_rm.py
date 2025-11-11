@@ -32,7 +32,7 @@ class WikiRM(BaseRetriever):
         self.retrieval_config = ConfigContext.get_retrieval_config()
         if self.retrieval_config is None:
             raise RuntimeError(
-                "Retrieval config is None. Ensure ConfigContext is properly initialized before using FaissRM."
+                "Retrieval config is None. Ensure ConfigContext is properly initialized before using WikiRM."
             )
 
         # Automatically resolve cache_dir to absolute path from project root

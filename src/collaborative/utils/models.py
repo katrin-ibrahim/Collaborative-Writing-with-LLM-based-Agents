@@ -302,7 +302,7 @@ class VerificationValidationModel(BaseModel):
     updates: List[VerifierStatusUpdate] = Field(
         description="Per-item verification decisions."
     )
-    summary: str = Field(description="4–6 sentence summary of verification findings.")
+    summary: Any = Field(description="4–6 sentence summary of verification findings.")
 
     @field_validator("updates", mode="before")
     @classmethod

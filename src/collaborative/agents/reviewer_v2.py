@@ -509,7 +509,6 @@ class ReviewerV2(BaseAgent):
                         retrieval_config.final_passages if retrieval_config else 10
                     ),
                     fields=["description", "content"],
-                    penalize_ids=self.shared_memory.get_penalized_chunk_ids(),
                 )
                 logger.info(
                     "Reviewer grounding enabled: including research context in review"

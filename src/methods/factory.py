@@ -24,12 +24,7 @@ def create_method(method_name: str) -> BaseMethod:
         ValueError: If method_name is not supported
     """
 
-    if method_name == "writer_only":
-        from src.methods.writer_only_v2_method import WriterOnlyV2Method
-
-        return WriterOnlyV2Method()
-
-    elif method_name == "writer_v3":
+    if method_name == "writer_v3":
         from src.methods.writer_only_v3_method import WriterOnlyV3Method
 
         return WriterOnlyV3Method()

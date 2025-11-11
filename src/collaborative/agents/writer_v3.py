@@ -274,7 +274,7 @@ class WriterV3(BaseAgent):
             return "continue_write"
 
         outline_str = "\n".join(outline.headings)
-        writer_client = self.get_task_client("writer")
+        research_client = self.get_task_client("chunk_selection")
 
         batch_size = (
             self.retrieval_config.final_passages if self.retrieval_config else 10
@@ -313,7 +313,7 @@ class WriterV3(BaseAgent):
                     MAX_QUERIES_CONFIG,
                 )
 
-                dec: ResearchSteerModel = writer_client.call_structured_api(
+                dec: ResearchSteerModel = research_client.call_structured_api(
                     prompt=prompt,
                     output_schema=ResearchSteerModel,
                     system_prompt="Answer with JSON only.",
@@ -372,10 +372,10 @@ class WriterV3(BaseAgent):
         outline_str = (
             "\n".join(outline.headings) if outline else "No outline available."
         )
-        writer_client = self.get_task_client("writer")
+        outline_client = self.get_task_client("create_outline")
         self._refine_retries += 1
         try:
-            dec: GateDecision = writer_client.call_structured_api(
+            dec: GateDecision = outline_client.call_structured_api(
                 prompt=build_outline_gate_prompt(topic, outline_str, self._outline_ctx),
                 output_schema=GateDecision,
                 system_prompt="Answer with JSON only.",
