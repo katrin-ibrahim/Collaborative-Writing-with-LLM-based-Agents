@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional
 
 from src.collaborative.utils.models import SearchSummary
 
@@ -24,7 +24,6 @@ def build_formatted_chunk_summaries(
     fields: List[str],
     start_idx: Optional[int] = None,
     end_idx: Optional[int] = None,
-    penalize_ids: Optional[Union[Set[str], List[str]]] = None,
 ) -> str:
     """
     Build a formatted string of chunk summaries including specified fields.
@@ -53,13 +52,6 @@ def build_formatted_chunk_summaries(
             else c.get("relevance_rank", float("inf"))
         )
     )
-
-    # Push penalized chunks to the end while preserving relative order
-    if penalize_ids:
-        penal_set = set(penalize_ids)
-        preferred = [c for c in all_chunks if c.get("chunk_id") not in penal_set]
-        penalized = [c for c in all_chunks if c.get("chunk_id") in penal_set]
-        all_chunks = preferred + penalized
 
     # Apply max_content_pieces to limit total chunks (unless using explicit slicing)
     if start_idx is None and end_idx is None and max_content_pieces is not None:
