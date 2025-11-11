@@ -161,6 +161,9 @@ def main():
     state_manager = ExperimentStateManager(output_dir, args.methods)
     state_manager.load_checkpoint()
 
+    # Save initial checkpoint to ensure it exists from the start
+    state_manager.save_checkpoint()
+
     runner = Runner(
         output_manager=output_manager,
     )

@@ -10,37 +10,50 @@ logger = logging.getLogger(__name__)
 
 
 def setup_output_directory(args) -> Path:
-    """Setup output directory for new or resumed experiments."""
+    """
+    Setup output directory for new or resumed experiments.
+    Automatically detects if checkpoint exists when using --experiment_name and resumes.
+    """
     from src.utils.io import OutputManager
 
-    if args.resume_dir:
-        # Resume from specific directory
+    if getattr(args, "resume_dir", None):
         resume_dir = OutputManager.verify_resume_dir(args.resume_dir)
         logger.info(f"📂 Resuming from specified directory: {resume_dir}")
         return Path(resume_dir)
 
-    # Check if custom output directory is specified
-    if hasattr(args, "output_dir") and args.output_dir:
+    if getattr(args, "output_dir", None):
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"📂 Using custom output directory: {output_dir}")
         return output_dir
 
-    # If no custom output_dir specified, create new experiment directory using OutputManager
-    custom_name = (
-        getattr(args, "experiment_name", None)
-        if hasattr(args, "experiment_name")
-        else None
-    )
-    output_path = OutputManager.create_output_dir(
-        args.backend, args.methods, args.num_topics, custom_name=custom_name
-    )
+    custom_name = getattr(args, "experiment_name", None)
+
+    if custom_name:
+        potential_dir = Path("results") / args.backend / custom_name
+        checkpoint_file = potential_dir / "checkpoint.json"
+
+        if checkpoint_file.exists():
+            logger.info(
+                f"📂 Found existing checkpoint, resuming experiment: {potential_dir}"
+            )
+            return potential_dir
+        else:
+            logger.info(f"📂 Creating new experiment with custom name: {custom_name}")
+
+    # Call create_output_dir with custom_name only when it's a non-empty str to satisfy type checkers
+    if isinstance(custom_name, str) and custom_name:
+        output_path = OutputManager.create_output_dir(
+            args.backend, args.methods, args.num_topics, custom_name=custom_name
+        )
+    else:
+        output_path = OutputManager.create_output_dir(
+            args.backend, args.methods, args.num_topics
+        )
+
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    if custom_name:
-        logger.info(f"📂 Created new run directory with custom name: {output_dir}")
-    else:
-        logger.info(f"📂 Created new run directory: {output_dir}")
+    logger.info(f"📂 Created new run directory: {output_dir}")
     return output_dir
 
 
