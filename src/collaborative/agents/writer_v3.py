@@ -18,13 +18,17 @@ from src.collaborative.agents.templates import (
     refine_outline_prompt,
     search_query_generation_prompt,
     select_section_chunks_prompt,
+    select_sections_chunks_batch_prompt,
     write_full_article_prompt,
     write_section_content_prompt,
+    write_sections_batch_prompt,
 )
 from src.collaborative.memory.memory import SharedMemory
 from src.collaborative.tom.theory_of_mind import AgentRole
 from src.collaborative.utils.models import (
     ArticleOutlineValidationModel,
+    BatchChunkSelectionModel,
+    BatchSectionWritingModel,
     FeedbackStatus,
     FeedbackStoredModel,
     WriterValidationBatchModel,
@@ -919,17 +923,157 @@ class WriterV3(BaseAgent):
         chunk_summaries_str: str,
         tom_context: Optional[str],
     ) -> "Article":
-        """Sequential section writing (no threads)."""
+        """Batch section writing with batch size 2 for better quality."""
+        BATCH_SIZE = 2
         sections_out: Dict[str, str] = {}
-        for h in outline.headings:
-            text = self._write_single_section(
-                section=h,
-                topic=topic,
-                chunk_summaries_str=chunk_summaries_str,
-                tom_context=tom_context,
+        headings = outline.headings
+
+        # Step 1: Single batched chunk selection for ALL sections
+        logger.info(f"Batch selecting chunks for all {len(headings)} sections")
+        select_prompt = select_sections_chunks_batch_prompt(
+            headings,
+            topic,
+            chunk_summaries_str,
+            self.retrieval_config.final_passages,
+        )
+        selection_client = self.get_task_client("section_selection")
+
+        # Get chunk selections for all sections
+        section_chunks_map = {}
+        try:
+            batch_selection = selection_client.call_structured_api(
+                prompt=select_prompt, output_schema=BatchChunkSelectionModel
             )
-            if text:
-                sections_out[h] = text.strip()
+            for selection in batch_selection.selections:
+                section_chunks_map[selection.section_heading] = selection.chunk_ids
+        except Exception as e:
+            logger.warning(
+                f"Batch chunk selection failed: {e}, falling back to sequential selection"
+            )
+            # Fallback: sequential chunk selection
+            for heading in headings:
+                try:
+                    select_prompt = select_section_chunks_prompt(
+                        heading,
+                        topic,
+                        chunk_summaries_str,
+                        self.retrieval_config.final_passages,
+                    )
+                    sel = selection_client.call_structured_api(
+                        prompt=select_prompt,
+                        output_schema=ChunkSelectionValidationModel,
+                    )
+                    section_chunks_map[heading] = getattr(sel, "chunk_ids", [])
+                except Exception:
+                    section_chunks_map[heading] = []
+
+        if BATCH_SIZE > 1:
+
+            # Step 2: Write sections in small batches (size 2)
+            for batch_start in range(0, len(headings), BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, len(headings))
+                batch_headings = headings[batch_start:batch_end]
+
+                logger.info(
+                    f"Writing batch {batch_start//BATCH_SIZE + 1}: "
+                    f"sections {batch_start+1}-{batch_end} of {len(headings)}"
+                )
+
+                # Prepare section-specific chunk data
+                sections_with_chunks = []
+                for heading in batch_headings:
+                    chunk_ids = section_chunks_map.get(heading, [])
+
+                    if not chunk_ids:
+                        sections_with_chunks.append(
+                            {"section_heading": heading, "relevant_info": ""}
+                        )
+                        continue
+
+                    # Get chunk content for this section
+                    chunk_models = self.shared_memory.get_chunks_by_ids(chunk_ids)
+                    if chunk_models:
+                        chunks_str = ", ".join(
+                            f"{cid} {{content: {m.content}, score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
+                            for cid, m in chunk_models.items()
+                        )
+                        sections_with_chunks.append(
+                            {"section_heading": heading, "relevant_info": chunks_str}
+                        )
+                    else:
+                        sections_with_chunks.append(
+                            {"section_heading": heading, "relevant_info": ""}
+                        )
+
+                # Batch section writing
+                if not sections_with_chunks:
+                    continue
+
+                write_prompt = write_sections_batch_prompt(sections_with_chunks, topic)
+                final_prompt = enhance_prompt_with_tom(write_prompt, tom_context)
+
+                writer_client = self.get_task_client("writer")
+                try:
+                    batch_result = writer_client.call_structured_api(
+                        prompt=final_prompt, output_schema=BatchSectionWritingModel
+                    )
+
+                    # Extract section content
+                    for section_model in batch_result.sections:
+                        section_heading = section_model.section_heading
+                        content = section_model.content
+                        if content and content.strip():
+                            sections_out[section_heading] = content.strip()
+
+                except Exception as e:
+                    logger.warning(
+                        f"Batch section writing failed: {e}, falling back to sequential"
+                    )
+                    # Fallback to sequential writing for this batch
+                    for item in sections_with_chunks:
+                        heading = item["section_heading"]
+                        relevant_info = item["relevant_info"]
+                        write_prompt = write_section_content_prompt(
+                            heading, topic, relevant_info
+                        )
+                        final_prompt = enhance_prompt_with_tom(
+                            write_prompt, tom_context
+                        )
+
+                        try:
+                            text = (
+                                writer_client.call_api(prompt=final_prompt) or ""
+                            ).strip()
+                            if text:
+                                sections_out[heading] = text
+                        except Exception:
+                            continue
+            else:
+                # Step 2: Sequential section writing
+                for heading in headings:
+                    logger.info(f"Writing section: {heading}")
+                    chunk_ids = section_chunks_map.get(heading, [])
+                    chunks_str = ""
+                    if not chunk_ids:
+                        chunks_str = ""
+
+                    chunk_models = self.shared_memory.get_chunks_by_ids(chunk_ids)
+                    if not chunk_models:
+                        continue
+
+                    chunks_str = ", ".join(
+                        f"{cid} {{content: {m.content}, score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
+                        for cid, m in chunk_models.items()
+                    )
+
+                    text = self._write_single_section(
+                        section=heading,
+                        topic=topic,
+                        chunks_str=chunks_str,
+                        tom_context=tom_context,
+                    )
+                    if text:
+                        sections_out[heading] = text
 
         article = Article(
             title=topic,
@@ -938,7 +1082,8 @@ class WriterV3(BaseAgent):
             metadata={
                 "iteration": self.shared_memory.state.get("iteration", 0),
                 "sections_count": len(sections_out),
-                "writing_mode": "section",
+                "writing_mode": "section_batch",
+                "batch_size": BATCH_SIZE,
             },
         )
         return article
@@ -977,33 +1122,11 @@ class WriterV3(BaseAgent):
         self,
         section: str,
         topic: str,
-        chunk_summaries_str: str,
+        chunks_str: str,
         tom_context: Optional[str] = None,
     ) -> Optional[str]:
         """Single section writer (structured selection + write)."""
         try:
-            select_prompt = select_section_chunks_prompt(
-                section,
-                topic,
-                chunk_summaries_str,
-                self.retrieval_config.final_passages,
-            )
-            selection_client = self.get_task_client("section_selection")
-            sel = selection_client.call_structured_api(
-                prompt=select_prompt, output_schema=ChunkSelectionValidationModel
-            )
-            chunk_ids = getattr(sel, "chunk_ids", None) or []
-            if not chunk_ids:
-                return None
-
-            chunk_models = self.shared_memory.get_chunks_by_ids(chunk_ids)
-            if not chunk_models:
-                return None
-
-            chunks_str = ", ".join(
-                f"{cid} {{content: {m.content}, score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
-                for cid, m in chunk_models.items()
-            )
 
             write_prompt = write_section_content_prompt(section, topic, chunks_str)
             final_prompt = enhance_prompt_with_tom(write_prompt, tom_context)

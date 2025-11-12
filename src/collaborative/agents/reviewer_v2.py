@@ -3,7 +3,7 @@
 import logging
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
-from typing import Dict, List, Literal, Optional, TypedDict
+from typing import Dict, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
@@ -81,7 +81,6 @@ class ReviewerV2(BaseAgent):
         self.review_strategy: str = "holistic"
         self.tom_context: Optional[str] = None
         self.verification_results: Optional[VerificationValidationModel] = None
-        self.strategy_rationale: Optional[str] = None
 
     def process(self) -> None:
         """Main entry point - initializes state and runs graph."""
@@ -222,9 +221,6 @@ class ReviewerV2(BaseAgent):
                     prompt=prompt, output_schema=VerificationValidationModel
                 )
             )
-
-            # Persist short summary
-            self.verification_summary = verification.summary
 
             # Apply status flips
             for u in verification.updates:
@@ -401,11 +397,7 @@ class ReviewerV2(BaseAgent):
             decision: StrategyDecision = planner_client.call_structured_api(
                 prompt=prompt,
                 output_schema=StrategyDecision,
-                # Optionally: model/temperature if your helper supports it
             )
-
-            # Optionally keep these around for later prompt-conditioning
-            self.strategy_rationale = decision.rationale
 
             return decision.strategy
 
@@ -414,8 +406,6 @@ class ReviewerV2(BaseAgent):
 
         logger.info("Strategy: holistic (fallback)")
         return "holistic"
-
-    def _analyze_previous_feedback(self, items: List[dict]) -> Dict:
         """
         Analyze previous feedback items to inform strategy.
 
@@ -535,7 +525,7 @@ IMPORTANT - Quote Field Guidelines:
 - You can mix: Some items with quotes, some without, based on what makes sense
 """
 
-            review_client = self.get_task_client("review")
+            review_client = self.get_task_client("reviewer")
             llm_output: ReviewerTaskValidationModel = review_client.call_structured_api(
                 prompt=prompt, output_schema=ReviewerTaskValidationModel
             )

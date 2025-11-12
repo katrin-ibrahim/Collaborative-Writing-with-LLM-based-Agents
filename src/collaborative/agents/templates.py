@@ -270,26 +270,8 @@ GUIDELINES:
 - Include an update for EVERY item that shows an id=...
 - Base decisions ONLY on the current article content and the item description
 - Keep the summary concise and factual
-"""
 
-
-def format_metrics(metrics: Dict) -> str:
-    """Format metrics for display."""
-    return f"""
-- Word count: {metrics.get('word_count', 0)}
-- Section count: {metrics.get('section_count', 0)}
-- Avg section length: {metrics.get('avg_section_length', 0)}
-"""
-
-
-def format_validation(validation_results: Dict) -> str:
-    """Format validation results for display."""
-    missing = len(validation_results.get("missing_chunks", []))
-    return f"""
-- Total citations: {validation_results.get('total_citations', 0)}
-- Valid: {validation_results.get('valid_citations', 0)}
-- Missing chunks: {missing}
-- Needs source: {validation_results.get('needs_source_count', 0)}
+CRITICAL: USE ONLY THE KEY 'updates' IN YOUR OUTPUT JSON, WHICH MUST BE A LIST OF OBJECTS WITH 'id' AND 'status' KEYS.
 """
 
 
@@ -297,7 +279,7 @@ def format_validation(validation_results: Dict) -> str:
 
 # ---------------------------------------- Writer Templates ----------------------------------------
 # region Writer Prompt Templates
-HEADING_COUNT = 6  # Must match MAX_HEADING_COUNT in models.py
+HEADING_COUNT = 15  # Must match MAX_HEADING_COUNT in models.py
 
 
 def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
@@ -449,6 +431,63 @@ DO NOT return an empty list. Always select at least the best available option(s)
     return f"{task_description}\n{research_context}"
 
 
+def select_sections_chunks_batch_prompt(
+    section_headings: List[str], topic: str, chunk_summaries: str, num_chunks: int
+) -> str:
+    """Generate prompt for batch selecting relevant research chunks for multiple sections."""
+    import re
+
+    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
+    topic_year = year_match.group(0) if year_match else None
+
+    year_awareness = ""
+    if topic_year:
+        year_awareness = f"""
+TEMPORAL AWARENESS:
+The topic is about {topic_year}. When selecting chunks:
+- STRONGLY PREFER chunks that mention {topic_year} or events from {topic_year}
+- PENALIZE chunks about different years unless they provide essential background
+- General background without year mentions is acceptable
+"""
+
+    sections_list = "\n".join(f"- {h}" for h in section_headings)
+
+    research_context = f"""
+Research Context (Chunk Summaries):
+---
+{chunk_summaries}
+---
+"""
+
+    task_description = f"""
+You are acting as a Research Editor. Your task is to select research chunks for MULTIPLE sections
+of an article on "{topic}".
+
+Sections to process:
+{sections_list}
+
+{year_awareness}
+
+For EACH section listed above, select the most relevant chunk IDs from the research context.
+
+Strict Selection Rules:
+1. **Relevance is Key:** For each section, select only chunk IDs that are most relevant to that specific section heading.
+2. **Temporal Relevance:** If the topic has a specific year, prioritize chunks from that year.
+3. **Minimum Requirement:** You MUST select AT LEAST ONE chunk per section.
+4. **Limit:** Select no more than {num_chunks} chunk IDs per section.
+5. **Format:** Return a JSON object with a "selections" array, where each object has:
+   - "section_heading": the exact section heading from the list
+   - "chunk_ids": array of selected chunk ID strings for that section
+6. **ID Integrity:** Use only the literal chunk IDs from the Research Context.
+7. **No Chatter:** Return only the JSON object.
+
+CRITICAL: If no perfect matches exist for a section, select the most indirectly relevant chunks.
+DO NOT return empty chunk_ids arrays.
+"""
+
+    return f"{task_description}\n{research_context}"
+
+
 def write_section_content_prompt(
     section_heading: str, topic: str, relevant_info: str
 ) -> str:
@@ -488,6 +527,63 @@ CITATION INSTRUCTIONS - CRITICAL:
 - Multiple citations: "The incident occurred on July 8th <c cite="search_supabase_faiss_2_abc123"/> and caused damage <c cite="search_hybrid_0_def456"/>."
 - If no research chunk IDs are provided, do NOT include any citations - write content without citation tags
 - VERIFICATION: Before writing each citation, confirm the exact chunk ID exists in the research information above
+"""
+
+
+def write_sections_batch_prompt(sections_with_chunks: List[dict], topic: str) -> str:
+    """
+    Generate prompt for batch writing multiple sections at once.
+
+    Args:
+        sections_with_chunks: List of dicts with 'section_heading' and 'relevant_info' keys
+        topic: The article topic
+    """
+    sections_info = []
+    for i, item in enumerate(sections_with_chunks, 1):
+        section_heading = item["section_heading"]
+        relevant_info = item.get("relevant_info", "")
+        sections_info.append(
+            f"""
+=== Section {i}: {section_heading} ===
+Research chunks for this section:
+{relevant_info if relevant_info else "No specific research chunks assigned."}
+"""
+        )
+
+    sections_text = "\n".join(sections_info)
+
+    return f"""
+Write encyclopedia-style content for {len(sections_with_chunks)} sections of an article about "{topic}".
+
+{sections_text}
+
+WRITING REQUIREMENTS:
+1. For EACH section above, write 2-3 well-structured paragraphs
+2. Use ONLY the research chunks provided for that specific section
+3. Write in an informative, objective, encyclopedia tone
+4. Start directly with content - NO conversational text, questions, or meta-commentary
+5. Avoid repetition between sections
+
+CITATION RULES - CRITICAL:
+• Research chunks start with their ID (e.g., "abc123 {{content: ...}}")
+• Cite using EXACT chunk ID in tags: <c cite="abc123"/>
+• For claims needing sources: <needs_source/>
+• NEVER invent chunk IDs not in the research above
+• NEVER use placeholders like [1], chunk_id_1, source_1, etc.
+• If no research provided for a section, write WITHOUT citations
+• Example: "The event occurred in 2022 <c cite="947265bb2a2267de817bdef27b97a6dd"/>."
+
+OUTPUT FORMAT (JSON):
+{{
+  "sections": [
+    {{
+      "section_heading": "exact heading from above",
+      "content": "2-3 paragraphs of content here"
+    }}
+  ]
+}}
+
+Write content for ALL {len(sections_with_chunks)} sections listed above.
 """
 
 
@@ -748,9 +844,6 @@ def build_revision_batch_prompt(
 
 
 def build_self_refine_prompt(title: str, current_text: str) -> str:
-    """
-    Ultra-light full-article polish: clarity/grammar/flow only.
-    """
     return (
         "ROLE: Lightly polish an encyclopedia article for clarity, grammar, and flow.\n"
         "RULES:\n"

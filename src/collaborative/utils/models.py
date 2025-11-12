@@ -1,11 +1,18 @@
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+import logging
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 from typing import Any, List, Literal, Optional
 
 # --- Configuration Values ---
 
-MAX_HEADING_COUNT = 6
+MAX_HEADING_COUNT = 20  # Must match HEADING_COUNT in templates.py
 # ----------------------------
 
 
@@ -116,6 +123,18 @@ class ArticleOutlineValidationModel(BaseModel):
 
         return normalized
 
+    @field_validator("headings", mode="after")
+    @classmethod
+    def truncate_excess_headings(cls, v: List[str]) -> List[str]:
+        """Truncate to MAX_HEADING_COUNT if LLM returns too many headings."""
+        if len(v) > MAX_HEADING_COUNT:
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"LLM returned {len(v)} headings, truncating to {MAX_HEADING_COUNT}"
+            )
+            return v[:MAX_HEADING_COUNT]
+        return v
+
 
 # endregion Writer Validation Models
 
@@ -161,7 +180,10 @@ class FeedbackValidationModel(BaseModel):
     section: str = Field(description="Target section or '_overall'.")
     type: FeedbackType = Field(description="Feedback category.")
     issue: str = Field(description="What is wrong?")
-    suggestion: str = Field(description="How to fix it.")
+    suggestion: str = Field(
+        default="Review and address the issue described above.",
+        description="How to fix it.",
+    )
     priority: str = Field(
         pattern="^(high|medium|low)$", description="Importance: high|medium|low"
     )
@@ -221,7 +243,10 @@ class FeedbackStoredModel(BaseModel):
     section: str = Field(description="Target section or '_overall'.")
     type: FeedbackType = Field(description="Feedback category.")
     issue: str = Field(description="What is wrong?")
-    suggestion: str = Field(description="How to fix it.")
+    suggestion: str = Field(
+        default="Review and address the issue described above.",
+        description="How to fix it.",
+    )
     priority: str = Field(
         pattern="^(high|medium|low)$", description="Importance: high|medium|low"
     )
@@ -302,7 +327,23 @@ class VerificationValidationModel(BaseModel):
     updates: List[VerifierStatusUpdate] = Field(
         description="Per-item verification decisions."
     )
-    summary: Any = Field(description="4–6 sentence summary of verification findings.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def wrap_llm_shortcut(cls, data: Any) -> Any:
+        """
+        Catches LLM outputs that are just the dict of updates,
+        not the full object. Also handles LLM returning "items" instead of "updates".
+        """
+        if isinstance(data, dict):
+            # LLM might return {"items": [...]} instead of {"updates": [...]}
+            if "items" in data and "updates" not in data:
+                data = {"updates": data["items"]}
+            elif "updates" not in data:
+                # The LLM returned the raw dictionary, e.g., {"id-1": "pending", ...}
+                # Wrap it in the expected structure so validation can proceed.
+                return {"updates": data}
+        return data
 
     @field_validator("updates", mode="before")
     @classmethod
@@ -311,8 +352,50 @@ class VerificationValidationModel(BaseModel):
         Normalize updates to list of dicts.
         Handles cases where LLM returns {"id=...": "status", ...} instead of [{"id": "...", "status": "..."}, ...].
         """
+        # Handle extra list wrapping: [[{...}]] -> [{...}]
+        if isinstance(v, list) and len(v) == 1 and isinstance(v[0], list):
+            v = v[0]
+
         if isinstance(v, list):
-            return v
+            # Already in the correct list format, e.g., [{"id": "...", "status": "..."}]
+            # But check if any items are incorrectly wrapped
+            normalized = []
+            for item in v:
+                if isinstance(item, dict):
+                    # Check if status field is incorrectly a list
+                    if "status" in item and isinstance(item["status"], list):
+                        # If it's an empty list, skip this item entirely
+                        if len(item["status"]) == 0:
+                            continue
+                        # If it's a list with one element, unwrap it
+                        elif len(item["status"]) == 1:
+                            item["status"] = item["status"][0]
+                        else:
+                            # Multiple elements - take the first one
+                            item["status"] = item["status"][0]
+                    normalized.append(item)
+                elif (
+                    isinstance(item, list)
+                    and len(item) == 1
+                    and isinstance(item[0], dict)
+                ):
+                    # Unwrap single-item list
+                    unwrapped = item[0]
+                    # Check status field in unwrapped item too
+                    if "status" in unwrapped and isinstance(unwrapped["status"], list):
+                        if len(unwrapped["status"]) == 0:
+                            continue
+                        elif len(unwrapped["status"]) == 1:
+                            unwrapped["status"] = unwrapped["status"][0]
+                        else:
+                            unwrapped["status"] = unwrapped["status"][0]
+                    normalized.append(unwrapped)
+                elif isinstance(item, list):
+                    # Skip empty lists or malformed items
+                    continue
+                else:
+                    normalized.append(item)
+            return normalized
         elif isinstance(v, dict):
             # LLM returned a dict mapping id→status (e.g., {"id=xyz": "pending"})
             # Convert to list of VerifierStatusUpdate-compatible dicts
@@ -324,7 +407,67 @@ class VerificationValidationModel(BaseModel):
             return normalized
         else:
             raise ValueError("updates must be a list or dict")
-        return v
+
+
+class SectionChunkSelection(BaseModel):
+    """Model for chunk selection for a single section."""
+
+    section_heading: str = Field(description="The section heading.")
+    chunk_ids: List[str] = Field(
+        description="List of selected chunk IDs for this section."
+    )
+
+    @field_validator("chunk_ids", mode="before")
+    @classmethod
+    def coerce_chunk_ids_to_strings(cls, v: Any) -> List[str]:
+        """Coerce chunk IDs to strings."""
+        if not isinstance(v, list):
+            return v
+        return [str(item) for item in v]
+
+
+class BatchChunkSelectionModel(BaseModel):
+    """Model for batch chunk selection across multiple sections."""
+
+    selections: List[SectionChunkSelection] = Field(
+        description="List of chunk selections, one per section."
+    )
+
+
+class SectionContentModel(BaseModel):
+    """Model for a single section's content."""
+
+    section_heading: str = Field(description="The section heading being written.")
+    content: str = Field(description="The written content for this section.")
+
+
+class BatchSectionWritingModel(BaseModel):
+    """Model for batch writing multiple sections at once."""
+
+    sections: List[SectionContentModel] = Field(
+        description="List of section content models for batch writing."
+    )
+
+    @field_validator("sections", mode="before")
+    @classmethod
+    def filter_malformed_sections(cls, v: Any) -> List[dict]:
+        """
+        Filter out malformed section items that are strings or incomplete objects.
+        """
+        if not isinstance(v, list):
+            return v
+
+        cleaned = []
+        for item in v:
+            # Skip non-dict items (malformed JSON fragments like '{' or incomplete strings)
+            if not isinstance(item, dict):
+                continue
+            # Skip items missing required fields
+            if "section_heading" not in item or "content" not in item:
+                continue
+            cleaned.append(item)
+
+        return cleaned
 
 
 # endregion Reviewer Feedback Models
