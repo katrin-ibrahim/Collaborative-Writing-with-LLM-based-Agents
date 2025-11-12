@@ -79,30 +79,29 @@ class Runner:
 
             logger.info(f"Running {method} on {len(method_topics)} topics")
 
-            # Mark topics as in-progress before running
-            if self.state_manager:
-                for topic in method_topics:
+            # Run topics sequentially, marking in-progress right before each
+            method_results = []
+            for topic in method_topics:
+                # Mark as in-progress right before running
+                if self.state_manager:
                     self.state_manager.mark_topic_in_progress(topic, method)
 
-            # Run method on all topics (filtered for completed)
-            method_results = [
-                self.run_single_topic(topic, method) for topic in method_topics
-            ]
+                # Run the topic
+                article = self.run_single_topic(topic, method)
+                method_results.append(article)
 
-            results.extend(method_results)
-
-            # Save articles and mark progress
-            for topic, article in zip(method_topics, method_results):
+                # Save and mark complete immediately after each topic
                 if self.output_manager:
                     self.output_manager.save_article(article, method)
 
                 # Mark complete only if successful (not an error article)
                 if self.state_manager:
-                    # Check if article generation was successful
                     is_error = article.metadata.get("error", False)
                     if not is_error:
                         self.state_manager.mark_topic_completed(topic, method)
                     else:
                         logger.warning(f"Not marking {topic} as completed due to error")
+
+            results.extend(method_results)
 
         return results

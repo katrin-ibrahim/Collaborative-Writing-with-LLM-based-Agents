@@ -22,6 +22,13 @@ from src.utils.data import FreshWikiLoader
 from src.utils.experiment import save_final_results, setup_output_directory
 from src.utils.io import OutputManager
 
+# Configure global logging with timestamps (ISO-like)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s:%(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +67,6 @@ def load_configurations(args):
             writing_mode=args.writing_mode,
             revise_mode=args.revise_mode,
             should_self_refine=not args.no_self_refine,
-            two_phase_research=args.two_phase_research,
             ground_reviewer_with_research=not args.no_reviewer_grounding,
         )
         logger.info(f"Loaded collaboration config: {args.collaboration_config}")
@@ -70,7 +76,6 @@ def load_configurations(args):
             f"Failed to load collaboration config '{args.collaboration_config}': {e}, Falling back to default configuration"
         )
         collaboration_config = CollaborationConfig.get_default()
-        collaboration_config.two_phase_research = args.two_phase_research
 
     # Model configuration - may be None
     try:

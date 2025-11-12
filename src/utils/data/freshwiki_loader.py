@@ -49,7 +49,6 @@ class FreshWikiLoader:
 
         entries = []
         for json_file in json_files:
-            # Load only what we need
             txt_file = self.data_path / "txt" / f"{json_file.stem}.txt"
 
             try:
@@ -66,6 +65,47 @@ class FreshWikiLoader:
                         metadata=json_data,
                     )
                 )
+            except Exception as e:
+                logger.warning(f"Failed to load {json_file}: {e}")
+
+        return entries
+
+    def load_topics_by_name(self, topic_names: List[str]) -> List[FreshWikiEntry]:
+        """Load specific topics by name, only reading necessary files."""
+        if not self.data_path.exists():
+            logger.error(f"FreshWiki data not found at: {self.data_path}")
+            return []
+
+        normalized_names = {
+            name.replace("_", " ").lower(): name for name in topic_names
+        }
+        entries = []
+
+        for json_file in (self.data_path / "json").glob("*.json"):
+            try:
+                with open(json_file) as f:
+                    json_data = json.load(f)
+
+                topic_title = json_data.get("title", "")
+                normalized_title = topic_title.replace("_", " ").lower()
+
+                if normalized_title in normalized_names:
+                    txt_file = self.data_path / "txt" / f"{json_file.stem}.txt"
+                    with open(txt_file) as f:
+                        content = f.read()
+
+                    entries.append(
+                        FreshWikiEntry(
+                            topic=topic_title,
+                            reference_outline=json_data["sections"],
+                            reference_content=content,
+                            metadata=json_data,
+                        )
+                    )
+
+                    if len(entries) == len(topic_names):
+                        break
+
             except Exception as e:
                 logger.warning(f"Failed to load {json_file}: {e}")
 

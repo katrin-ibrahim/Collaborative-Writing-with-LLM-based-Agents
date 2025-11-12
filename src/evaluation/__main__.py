@@ -268,17 +268,6 @@ Examples:
         help="Logging level",
     )
     parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Force re-evaluation even if evaluation results already exist",
-    )
-    parser.add_argument(
-        "--llm_judge",
-        action="store_true",
-        help="[DEPRECATED] LLM judge now runs unconditionally. This flag is ignored.",
-    )
-    parser.add_argument(
         "--llm_judge_model",
         default="qwen2.5:32b",
         help="Ollama model for LLM judge (default: qwen2.5:32b). Recommended: qwen2.5:32b, deepseek-r1:14b, or gemma3:27b",
@@ -440,21 +429,42 @@ def main():
         logger.info("Loading existing results...")
         data = load_results(results_dir)
 
-        # Resume mode: if some evaluations already exist and --force is not set,
-        # continue evaluating only the missing pairs (no early exit).
-        if not args.force:
-            logger.info("Resume mode: will skip already-evaluated pairs.")
+        # Extract unique topics from results.json to load only what we need
+        results = data.get("results", {})
+        topic_names = list(results.keys())
 
-        # Load FreshWiki dataset for evaluation
-        logger.info("Loading FreshWiki dataset...")
-        freshwiki = FreshWikiLoader()
-        entries = freshwiki.load_topics(1000)  # Load all available entries
-
-        if not entries:
-            logger.error("No FreshWiki entries loaded")
+        if not topic_names:
+            logger.error("No topics found in results.json")
             return 1
 
-        logger.info(f"Loaded {len(entries)} FreshWiki entries")
+        logger.info(f"Found {len(topic_names)} topics in results")
+
+        # Count how many need evaluation (resume mode always on)
+        total_pairs = 0
+        already_evaluated = 0
+        for topic_data in results.values():
+            for method, method_data in topic_data.items():
+                if not isinstance(method_data, dict):
+                    continue
+                total_pairs += 1
+                if "evaluation" in method_data or "metrics" in method_data:
+                    already_evaluated += 1
+
+        logger.info(
+            f"Resume mode: {already_evaluated}/{total_pairs} topic-method pairs already evaluated"
+        )
+        logger.info(f"Will evaluate {total_pairs - already_evaluated} remaining pairs")
+
+        # Load only the specific FreshWiki topics we need
+        logger.info("Loading FreshWiki dataset...")
+        freshwiki = FreshWikiLoader()
+        entries = freshwiki.load_topics_by_name(topic_names)
+
+        if not entries:
+            logger.error("No matching FreshWiki entries loaded")
+            return 1
+
+        logger.info(f"Loaded {len(entries)} matching FreshWiki entries")
 
         # Create evaluator
         evaluator = ArticleEvaluator()
@@ -472,9 +482,7 @@ def main():
             for _method, _method_data in _topic_data.items():
                 if not isinstance(_method_data, dict):
                     continue
-                if not args.force and (
-                    "evaluation" in _method_data or "metrics" in _method_data
-                ):
+                if "evaluation" in _method_data or "metrics" in _method_data:
                     continue
                 planned_evaluations += 1
 
@@ -536,10 +544,8 @@ def main():
 
                 logger.debug(f"Evaluating {method} for {topic}")
 
-                # Skip if already evaluated and not forcing
-                if not args.force and (
-                    "evaluation" in method_data or "metrics" in method_data
-                ):
+                # Skip if already evaluated (resume mode - always on)
+                if "evaluation" in method_data or "metrics" in method_data:
                     logger.debug(f"Skipping {method}/{topic} - already evaluated")
                     skipped_existing += 1
                     continue

@@ -29,8 +29,10 @@ class RetrievalConfig(BaseConfig):
 
     # Content Processing
     embedding_model: str = "thenlper/gte-small"
-    chunk_size: int = 512
-    chunk_overlap: int = 50
+    chunk_size: int = (
+        2048  # chunk size in chars approx. 512 tokens, optimized for gte-small
+    )
+    chunk_overlap: int = 200  # overlap in chars approx. 50 tokens
 
     # Semantic Filtering Configuration
     semantic_filtering_enabled: bool = True

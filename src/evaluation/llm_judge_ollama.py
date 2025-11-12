@@ -12,7 +12,7 @@ import re
 import requests
 from typing import Dict, List, Union
 
-logging.basicConfig(level=logging.INFO)
+# Removed logging.basicConfig() - logging should be configured at application level
 
 RUBRIC_STRING = dedent(
     """
@@ -116,7 +116,7 @@ def extract_json_from_text(text: str) -> Dict:
 def call_ollama(
     prompt: str,
     model: str = "qwen2.5:14b",
-    host: str = "http://localhost:11434",
+    host: str = "http://10.167.31.201:11434/",
     temperature: float = 0.0,
     max_tokens: int = 1024,
 ) -> str:
@@ -156,7 +156,7 @@ def call_ollama(
 def score_articles(
     article_texts: Union[str, List[str]],
     model: str = "qwen2.5:14b",
-    host: str = "http://localhost:11434",
+    host: str = "http://10.167.31.201:11434/",
     temperature: float = 0.0,
     max_tokens: int = 1024,
 ) -> List[Dict]:
@@ -228,8 +228,8 @@ def main():
     )
     parser.add_argument(
         "--host",
-        default="http://localhost:11434",
-        help="Ollama server URL (default: http://localhost:11434)",
+        default="http://10.167.31.201:11434/",
+        help="Ollama server URL (default: http://10.167.31.201:11434/)",
     )
     parser.add_argument(
         "--temperature",

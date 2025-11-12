@@ -48,7 +48,9 @@ from src.utils.data.freshwiki_loader import FreshWikiLoader
 
 # ------------------------- setup -------------------------
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s | %(message)s", datefmt="%H:%M:%S"
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s:%(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
 )
 log = logging.getLogger("eval_rms_v4")
 

@@ -16,11 +16,11 @@ def _get_available_model_configs() -> list[str]:
     """
     config_dir = Path(__file__).parent.parent / "config" / "configs"
     if not config_dir.exists():
-        return ["ollama_localhost"]
+        return ["balanced_writer"]
 
     config_files = list(config_dir.glob("model_*.yaml"))
     config_names = [f.stem.replace("model_", "") for f in config_files]
-    return sorted(config_names) if config_names else ["ollama_localhost"]
+    return sorted(config_names) if config_names else ["balanced_writer"]
 
 
 def _get_available_collaboration_configs() -> list[str]:
@@ -237,8 +237,8 @@ def parse_arguments() -> argparse.Namespace:
         "--revise_mode",
         "-revm",
         choices=["single_section", "pending_sections"],
-        default="pending_sections",
-        help="Set the revise mode (default: pending_sections - optimal from sequential ablation)",
+        default="single_section",
+        help="Set the revise mode (default: single_section - optimal from sequential ablation)",
     )
     parser.add_argument(
         "--no_self_refine",
@@ -246,14 +246,6 @@ def parse_arguments() -> argparse.Namespace:
         action="store_false",
         dest="no_self_refine",
         help="Disable self-refinement by writers (default: self-refine enabled)",
-    )
-
-    parser.add_argument(
-        "--two_phase_research",
-        "-tpr",
-        action="store_true",
-        default=False,
-        help="Enable two-phase research (direct topic search + generated queries). Default: disabled (only use generated queries)",
     )
 
     parser.add_argument(

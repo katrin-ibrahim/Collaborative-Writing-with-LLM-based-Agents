@@ -3,7 +3,6 @@ Simplified Ollama engine that focuses purely on Ollama API interaction.
 Configuration is handled by ConfigContext.
 """
 
-import json
 import logging
 import re
 from ollama import Client
@@ -12,6 +11,7 @@ from pydantic_core import ValidationError
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
 from src.engines.base_engine import BaseEngine
+from src.utils.json_normalizer import normalize_llm_json
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
@@ -28,7 +28,7 @@ class OllamaEngine(BaseEngine):
         model: str,
         temperature: float = 0.7,
         max_tokens: int = 1000,
-        host: str = "http://localhost:11434/",
+        host: str = "http://10.167.31.201:11434/",
         **kwargs,
     ):
         """
@@ -129,11 +129,14 @@ class OllamaEngine(BaseEngine):
             if hasattr(response, "prompt_eval_count") or hasattr(
                 response, "eval_count"
             ):
+                # FIX: Default to 0 if attributes are None to prevent TypeError
+                prompt_tokens = getattr(response, "prompt_eval_count") or 0
+                completion_tokens = getattr(response, "eval_count") or 0
+
                 self.last_usage = {
-                    "prompt_tokens": getattr(response, "prompt_eval_count", 0),
-                    "completion_tokens": getattr(response, "eval_count", 0),
-                    "total_tokens": getattr(response, "prompt_eval_count", 0)
-                    + getattr(response, "eval_count", 0),
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
                 }
                 # Update total usage stats
                 self._update_total_usage(self.last_usage)
@@ -233,11 +236,14 @@ class OllamaEngine(BaseEngine):
             if hasattr(response, "prompt_eval_count") or hasattr(
                 response, "eval_count"
             ):
+                # FIX: Default to 0 if attributes are None to prevent TypeError
+                prompt_tokens = getattr(response, "prompt_eval_count") or 0
+                completion_tokens = getattr(response, "eval_count") or 0
+
                 self.last_usage = {
-                    "prompt_tokens": getattr(response, "prompt_eval_count", 0),
-                    "completion_tokens": getattr(response, "eval_count", 0),
-                    "total_tokens": getattr(response, "prompt_eval_count", 0)
-                    + getattr(response, "eval_count", 0),
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
                 }
                 # Update total usage stats
                 self._update_total_usage(self.last_usage)
@@ -248,25 +254,38 @@ class OllamaEngine(BaseEngine):
                 else ""
             )
 
-            # 5. Validate the JSON against the Pydantic model
+            # 5. Normalize and validate the JSON against the Pydantic model
+            # First try direct validation (fast path)
             try:
-                # Use the Pydantic model to parse and validate the raw JSON string
                 validated_model = output_schema.model_validate_json(raw_json_string)
                 return validated_model
+            except ValidationError as direct_error:
+                # Direct validation failed - try normalization
+                logger.debug("Direct validation failed, attempting normalization")
 
-            except ValidationError as ve:
-                logger.error(f"failed to validate JSON: {raw_json_string}, error: {ve}")
-                # Fallback: attempt to extract JSON if LLM added preamble/markdown
-                try:
-                    extracted_data = self.extract_json(raw_json_string)
-                    if extracted_data:
-                        return output_schema.model_validate(extracted_data)
+                normalized_data = normalize_llm_json(raw_json_string)
 
-                    raise RuntimeError(
-                        "Failed to extract and validate JSON from LLM response."
+                if normalized_data is None:
+                    # JSON extraction completely failed (likely truncated)
+                    logger.error(
+                        f"Failed to extract valid JSON from LLM response. "
+                        f"Response length: {len(raw_json_string)} chars. "
+                        f"Error: {direct_error}"
                     )
-                except Exception:
-                    raise ve  # Re-raise the validation error if fallback fails
+                    raise direct_error
+
+                # Try validating the normalized data
+                try:
+                    validated_model = output_schema.model_validate(normalized_data)
+                    logger.debug("Validation succeeded after normalization")
+                    return validated_model
+                except ValidationError as norm_error:
+                    logger.error(
+                        f"Validation failed even after normalization. "
+                        f"Normalized data: {normalized_data}. "
+                        f"Error: {norm_error}"
+                    )
+                    raise norm_error
 
         except Exception as e:
             logger.error(f"Ollama Structured API call failed: {e}", exc_info=True)
@@ -296,19 +315,6 @@ class OllamaEngine(BaseEngine):
             return len(self._available_models) > 0
         except Exception:
             return False
-
-    def extract_json(self, text: str) -> Optional[Dict]:
-        """Extract JSON from text (utility method)."""
-        if not isinstance(text, str) or not text:
-            return None
-        json_pattern = r"({[\s\S]*})"
-        match = re.search(json_pattern, text)
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                pass
-        return None
 
     def _allowed_keys_from_schema(self, schema: Type[BaseModel]) -> List[str]:
         # Pydantic v2: model_fields; v1: __fields__
