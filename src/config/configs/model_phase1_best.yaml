@@ -1,0 +1,49 @@
+mode: 'ollama'
+override_model: null
+ollama_host: 'http://10.167.31.201:11434/'
+
+# Legacy naming (deprecated but kept for compatibility)
+outline_model: 'qwen2.5:7b'
+writing_model: 'qwen2.5:32b'
+critique_model: 'qwen2.5:32b'
+polish_model: 'qwen2.5:32b'
+default_model: 'qwen2.5:32b'
+
+# Optimized task-specific models (based on multi-metric composite scoring)
+query_generation_model: 'qwen2.5:14b' # +3.74 composite (best overall), 237.2s (+2.9%)
+create_outline_model: 'qwen2.5:14b' # +0.68 composite, 226.8s (-1.6%) [14b invalid data]
+section_selection_model: 'qwen2.5:14b' # +2.15 composite, 228.2s (-1.0%)
+writer_model: 'qwen2.5:32b' # Keep at 32b (no ablation)
+revision_model: 'qwen2.5:32b' # +0.64 composite, 216.1s (-6.2%)
+revision_batch_model: 'qwen2.5:32b' # Keep at 32b (14b = -12.37, harmful)
+self_refine_model: 'qwen2.5:32b' # Keep at 32b (14b = -13.20, harmful)
+reviewer_model: 'qwen2.5:32b' # Keep at 32b (no ablation)
+
+# Temperature settings (optimized for each task)
+temperatures:
+  fast: 0.2
+  outline: 0.2
+  writing: 0.28
+  critique: 0.15
+  polish: 0.22
+  query_generation: 0.45 # Higher temp for diversity in query generation
+  section_selection: 0.0 # Deterministic section selection
+  writer: 0.28 # Balanced creativity for writing
+  revision: 0.18 # Lower temp for focused revisions
+  revision_batch: 0.18 # Lower temp for batch revisions
+  self_refine: 0.2 # Low temp for refinement
+  reviewer: 0.15 # Low temp for critical review
+
+# Token limits per task
+token_limits:
+  fast: 2000
+  outline: 1500 # Increased for 20 section headings
+  writing: 4000 # Increased for longer sections
+  critique: 2500
+  polish: 2500
+  query_generation: 500 # Short queries
+  section_selection: 2500 # Increased for batch chunk selection (20 sections)
+  writer: 4000 # Increased for batch section writing
+  revision: 4000 # Full revision capacity
+  revision_batch: 4000 # Batch processing capacity
+  reviewer: 6000 # Increased for detailed review with multiple feedback items

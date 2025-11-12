@@ -27,3 +27,5 @@ src/tests/integration/results
 *.index
 *.db
 *.log
+
+src/config/configs/ablation/*
