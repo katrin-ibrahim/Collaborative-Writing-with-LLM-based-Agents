@@ -24,7 +24,7 @@ class BaseMethod(ABC):
 
     def __init__(self):
         """Initialize base method with token tracking."""
-        self._token_usage_tracker = {}
+        super().__init__()
 
     @abstractmethod
     def run(self, topic: str) -> Article:

@@ -300,9 +300,9 @@ def get_embedding_dim_from_file(npy_path: Path) -> int:
     with open(npy_path, "rb") as f:
         version = np.lib.format.read_magic(f)
         if version == (1, 0):
-            shape, fortran, dtype = np.lib.format.read_array_header_1_0(f)
+            shape, _, _ = np.lib.format.read_array_header_1_0(f)
         elif version == (2, 0):
-            shape, fortran, dtype = np.lib.format.read_array_header_2_0(f)
+            shape, _, _ = np.lib.format.read_array_header_2_0(f)
         else:
             raise ValueError(f"Unsupported .npy version: {version}")
         return shape[1]

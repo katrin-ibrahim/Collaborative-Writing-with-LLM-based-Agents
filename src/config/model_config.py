@@ -143,28 +143,6 @@ class ModelConfig(BaseConfig):
         limits = self.token_limits or {}
         return limits.get(task, 1000)
 
-    def get_model_path(self, task: str) -> str:
-        """Get full model path based on mode and task."""
-        model_name = self.get_model_for_task(task)
-
-        if self.mode == "local":
-            # For local mode, convert the model name to a local path
-            local_map = self.local_model_mapping or {}
-            local_path = local_map.get(model_name)
-            if local_path:
-                # Ensure path is properly formatted
-                return local_path
-            # Fallback to a default model directory
-            return f"models/{model_name.replace(':', '-')}"
-        elif self.mode == "ollama":
-            # For ollama mode, convert to appropriate ollama model name
-            ollama_map = self.ollama_model_mapping or {}
-            ollama_name = ollama_map.get(model_name, model_name)
-            return ollama_name
-        else:
-            # For any other mode, just return the model name as is
-            return model_name
-
     @classmethod
     def get_default(cls) -> "ModelConfig":
         """Get default configuration."""

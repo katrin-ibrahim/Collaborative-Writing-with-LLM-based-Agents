@@ -9,7 +9,7 @@ for informing retrieval queries (not data leakage of FreshWiki content).
 
 import logging
 import wikipediaapi
-from typing import List, Optional
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +59,6 @@ class WikipediaCategoryFetcher:
 
         logger.info(f"Found {len(categories)} categories for '{topic}'")
         return categories
-
-    def get_category_summary(self, topic: str) -> Optional[str]:
-        cats = self.get_categories(topic)
-        return ", ".join(cats) if cats else None
 
 
 def _is_maintenance_category(name: str) -> bool:

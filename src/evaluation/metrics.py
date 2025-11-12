@@ -44,14 +44,6 @@ STORM_METRICS = [
     "article_entity_recall",
 ]
 
-METRIC_DESCRIPTIONS = {
-    "rouge_1": "STORM: Unigram overlap between generated and reference content (0-100%)",
-    "rouge_l": "STORM: Longest common subsequence overlap (0-100%)",
-    "heading_soft_recall": "STORM HSR: Semantic topic coverage in headings (0-100%)",
-    "heading_entity_recall": "STORM HER: Entity coverage in headings only (0-100%)",
-    "article_entity_recall": "STORM AER: Overall factual content coverage (0-100%)",
-}
-
 
 # ============================================================================
 # Model Loading Functions
@@ -157,12 +149,6 @@ def _ensure_torch_device():
             _TORCH_DEVICE_STR = "cpu"
     except Exception:
         _TORCH_DEVICE_STR = "cpu"
-
-
-def _get_torch_device():
-    if torch is None:
-        return "cpu"
-    return torch.device(_TORCH_DEVICE_STR)
 
 
 # ============================================================================
@@ -427,7 +413,7 @@ def calculate_heading_soft_recall(
         def _normalize_rows(x: np.ndarray) -> np.ndarray:
             norms = np.linalg.norm(x, axis=1, keepdims=True)
             # Prevent division by tiny numbers which can produce extremely large values
-            tiny = 1e-8
+            tiny = 1e-12
             zero_mask = norms < tiny
             # Replace tiny norms with 1.0 so zero rows remain zero after division
             norms[zero_mask] = 1.0

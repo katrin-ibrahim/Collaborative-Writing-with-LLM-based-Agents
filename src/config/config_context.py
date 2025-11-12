@@ -147,11 +147,6 @@ class ConfigContext:
         return cls._backend
 
     @classmethod
-    def get_backend_kwargs(cls) -> dict:
-        """Get backend parameters."""
-        return cls._backend_kwargs
-
-    @classmethod
     def set_memory_instance(cls, memory):
         """Set the global memory instance for tools and agents."""
         cls._memory_instance = memory

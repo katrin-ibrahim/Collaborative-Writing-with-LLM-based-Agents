@@ -68,23 +68,3 @@ def create_method(method_name: str) -> BaseMethod:
             f"Unknown method: '{method_name}'. "
             f"Supported methods: {supported_methods}"
         )
-
-
-def get_supported_methods() -> list[str]:
-    """
-    Get list of supported method names.
-
-    Returns:
-        List of supported method names
-    """
-    return [
-        "writer_only",
-        "writer_only_v2",
-        "writer_reviewer",
-        "writer_reviewer_tom",
-        "writer_reviewer_v2",
-        "writer_reviewer_v2_tom",
-        "direct",
-        "rag",
-        "storm",
-    ]

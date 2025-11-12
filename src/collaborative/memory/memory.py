@@ -407,7 +407,7 @@ class SharedMemory:
 
         # Purge from search_summaries results lists
         summaries = self.state.setdefault("search_summaries", {})
-        for sid, summary in summaries.items():
+        for _, summary in summaries.items():
             try:
                 results = (
                     summary.get("results", []) if isinstance(summary, dict) else []
@@ -461,12 +461,6 @@ class SharedMemory:
             ):
                 out.setdefault(item.section, []).append(item)
         return out
-
-    def get_feedback_item_by_id(self, item_id: str) -> Optional[FeedbackStoredModel]:
-        it = self.state["item_index"].get(item_id)
-        if it is None:
-            return None
-        return self.state["feedback_by_iteration"].get(it, {}).get(item_id)
 
     def update_feedback_item_status(self, item_id: str, status: str) -> bool:
         it = self.state["item_index"].get(item_id)
@@ -644,17 +638,5 @@ class SharedMemory:
             List of query strings, empty list if none exist
         """
         return self.state["suggested_queries_by_iteration"].get(iteration, [])
-
-    def clear_suggested_queries(self, iteration: int) -> None:
-        """
-        Clear suggested queries for a specific iteration after they've been processed.
-
-        Args:
-            iteration: Iteration number to clear queries for
-        """
-        if iteration in self.state["suggested_queries_by_iteration"]:
-            del self.state["suggested_queries_by_iteration"][iteration]
-            self._persist()
-            logger.info(f"Cleared suggested queries for iteration {iteration}")
 
     # endregion Suggested Queries Management

@@ -83,7 +83,7 @@ def extract_sections(content: str) -> list:
     return sections
 
 
-def copy_file_content(src_path: Path, content: str, dst_path: Path):
+def copy_file_content(content: str, dst_path: Path):
     """Copy content to destination, ensuring it's a real file."""
     try:
         dst_path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,7 +254,7 @@ def extract_quality_topics(source_dir: str, target_dir: str, max_topics: int = 3
                 json.dump(json_content, f, indent=2, ensure_ascii=False)
 
             # Save content
-            copy_file_content(Path(topic["source_file"]), topic["content"], txt_file)
+            copy_file_content(topic["content"], txt_file)
 
             copied_count += 1
             logger.info(f"Copied: {topic['title']}")
@@ -295,11 +295,11 @@ if __name__ == "__main__":
     success = extract_quality_topics(args.source_dir, args.target_dir, args.max_topics)
 
     if success:
-        print(f"\n✅ Successfully extracted quality topics!")
-        print(f"📁 Location: {args.target_dir}")
-        print(f"🎯 Ready for evaluation")
+        print("\n✅ Successully extracted quality topics!")
+        print("📁 Location: {args.target_dir}")
+        print("🎯 Ready or evaluation")
     else:
-        print(f"\n❌ Extraction failed. Check the logs above.")
+        print("\n❌ Extraction failed. Check the logs above.")
 
     # Example usage:
     # python src/utils/extract_quality_freshwiki.py /path/to/cloned/FreshWiki

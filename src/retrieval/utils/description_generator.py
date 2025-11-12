@@ -196,24 +196,3 @@ class DescriptionGenerator:
             description += f": {preview}"
 
         return description
-
-
-# Convenience function for backward compatibility
-def generate_chunk_description(
-    content: str, title: str = "", source_type: str = "Document", **kwargs
-) -> str:
-    """
-    Convenience wrapper for creating chunk descriptions.
-
-    Args:
-        content: The chunk content
-        title: Document title
-        source_type: Type of source
-        **kwargs: Additional arguments passed to create_description
-
-    Returns:
-        Generated description
-    """
-    return DescriptionGenerator.create_description(
-        content=content, source_type=source_type, title=title, **kwargs
-    )

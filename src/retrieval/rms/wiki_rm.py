@@ -60,8 +60,6 @@ class WikiRM(BaseRetriever):
         self.chunker = ContentChunker()
         self.description_generator = DescriptionGenerator()
 
-        self._extracted_pages = set()
-
         # Setup Wikipedia client
         wikipedia.set_rate_limiting(True)
         wikipedia.set_lang("en")

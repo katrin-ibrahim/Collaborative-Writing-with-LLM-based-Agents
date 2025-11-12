@@ -38,7 +38,6 @@ class RetrievalConfig(BaseConfig):
     semantic_filtering_enabled: bool = True
     # gte-small for better embeddings, gte-base for better quality (slower)
     similarity_threshold: float = 0.4
-    semantic_cache_size: int = 1000
 
     # Storm
     queries_per_turn: int = 3  # How many queries per conversation turn

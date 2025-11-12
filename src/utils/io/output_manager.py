@@ -1,9 +1,9 @@
-import shutil
 from datetime import datetime
 from pathlib import Path
 
 import json
 import logging
+from typing import Optional
 
 from src.utils.data import Article
 
@@ -18,8 +18,8 @@ class OutputManager:
         backend: str,
         methods: list,
         num_topics: int,
-        timestamp: str = None,
-        custom_name: str = None,
+        timestamp: Optional[str] = None,
+        custom_name: Optional[str] = None,
     ) -> str:
         """
         Create standardized output directory path following the convention:
@@ -133,54 +133,3 @@ class OutputManager:
         except Exception as e:
             logger.error(f"Failed to save article {content_filepath}: {e}")
             raise
-
-    def setup_storm_output_dir(self, topic) -> str:
-        """
-        Setup STORM output directory based on debug mode.
-
-        Args:
-            topic: Topic string or FreshWikiEntry object
-
-        Returns:
-            String path to the output directory
-        """
-        # Extract topic string if it's a FreshWikiEntry object
-        topic_str = topic.topic if hasattr(topic, "topic") else str(topic)
-
-        if self.debug_mode:
-            # Use debug directory for STORM intermediate files
-            storm_dir = (
-                self.debug_dir / "storm" / topic_str.replace(" ", "_").replace("/", "_")
-            )
-            storm_dir.mkdir(parents=True, exist_ok=True)
-            return str(storm_dir)
-        else:
-            # Use temporary directory that gets cleaned up
-            temp_dir = (
-                self.base_dir
-                / "temp_storm"
-                / topic_str.replace(" ", "_").replace("/", "_")
-            )
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            return str(temp_dir)
-
-    def cleanup_storm_temp(self, topic):
-        """
-        Clean up temporary STORM files if not in debug mode.
-
-        Args:
-            topic: Topic string or FreshWikiEntry object
-        """
-        # Extract topic string if it's a FreshWikiEntry object
-        topic_str = topic.topic if hasattr(topic, "topic") else str(topic)
-
-        if not self.debug_mode:
-            temp_dir = (
-                self.base_dir
-                / "temp_storm"
-                / topic_str.replace(" ", "_").replace("/", "_")
-            )
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-                logger.debug(f"Cleaned up temporary STORM files for {topic_str}")
-                logger.debug(f"Cleaned up temporary STORM files for {topic}")

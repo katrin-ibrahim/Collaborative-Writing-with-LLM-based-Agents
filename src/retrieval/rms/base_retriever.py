@@ -49,8 +49,6 @@ class BaseRetriever(ABC):
         project_root = find_project_root()
         self.content_filter = ContentFilter(project_root)
         self.relevance_scorer = RelevanceScorer()
-
-        self.semantic_enabled = self.config.semantic_filtering_enabled
         self.format_type = format_type
 
     def __call__(self, k: Optional[int] = None, **kwargs) -> List[Dict[str, Any]]:
