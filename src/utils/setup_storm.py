@@ -62,14 +62,3 @@ def setup_storm_retrieval():
 
     logger.info(f"STORM retrieval manager set up: {type(retrieval_manager).__name__}")
     return retrieval_manager
-
-
-def get_storm_config_params() -> dict:
-    """
-    Get STORM configuration parameters from ConfigContext.
-
-    Returns:
-        Dictionary with STORM configuration parameters
-    """
-    storm_config = ConfigContext.get_storm_config()
-    return vars(storm_config)

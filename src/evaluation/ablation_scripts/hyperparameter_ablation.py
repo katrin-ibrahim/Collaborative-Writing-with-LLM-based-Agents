@@ -298,8 +298,8 @@ class SequentialAblationPipeline:
         logger.info("=" * 80)
 
         experiments = {
-            "single_section": "hyperparameter_revm_single_section",
-            "pending_sections": "hyperparameter_revm_pending_sections",
+            "section": "hyperparameter_revm_section",
+            "pending": "hyperparameter_revm_pending",
         }
 
         scores = {}

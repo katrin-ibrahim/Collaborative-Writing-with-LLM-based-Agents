@@ -13,7 +13,6 @@ from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
 from src.utils.data import Article
 from src.utils.setup_storm import (
-    get_storm_config_params,
     setup_storm_config,
     setup_storm_retrieval,
 )
@@ -53,7 +52,6 @@ class StormMethod(BaseMethod):
             # Setup STORM configuration using ConfigContext
             lm_config = setup_storm_config()
             retrieval_manager = setup_storm_retrieval()
-            storm_params = get_storm_config_params()
 
             # Create temporary output directory
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -61,13 +59,7 @@ class StormMethod(BaseMethod):
                 storm_output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Setup STORM runner arguments
-                engine_args = STORMWikiRunnerArguments(
-                    output_dir=str(storm_output_dir),
-                    max_conv_turn=storm_params["max_conv_turn"],
-                    max_perspective=storm_params["max_perspective"],
-                    search_top_k=storm_params["search_top_k"],
-                    max_thread_num=storm_params["max_thread_num"],
-                )
+                engine_args = STORMWikiRunnerArguments(output_dir=str(storm_output_dir))
 
                 # Create STORM runner
                 storm_runner = STORMWikiRunner(
@@ -75,13 +67,7 @@ class StormMethod(BaseMethod):
                 )
 
                 # Run STORM
-                storm_runner.run(
-                    topic=topic,
-                    do_research=True,
-                    do_generate_outline=True,
-                    do_generate_article=True,
-                    do_polish_article=True,
-                )
+                storm_runner.run(topic=topic)
 
                 # Extract STORM output
                 from src.utils.article import extract_storm_output
@@ -105,7 +91,6 @@ class StormMethod(BaseMethod):
                     "method": "storm",
                     "generation_time": generation_time,
                     "word_count": content_words,
-                    "storm_config": storm_params,
                     "model": writing_engine.model,
                     "temperature": writing_engine.temperature,
                     "token_usage": token_usage,

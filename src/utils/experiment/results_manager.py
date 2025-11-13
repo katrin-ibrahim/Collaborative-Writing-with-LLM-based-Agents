@@ -116,27 +116,49 @@ def save_final_results(
     Generate and save final results.json file from completed experiment.
 
     Scans the articles directory to create a complete results structure.
+    Merges with existing results.json if it exists to allow incremental runs.
     """
     results_file = output_dir / "results.json"
     articles_dir = output_dir / "articles"
 
     logger.info(f"Saving final results to: {results_file}")
 
-    # Build results structure
-    data = {
-        "summary": {
-            "timestamp": datetime.now().isoformat(),
-            "backend": backend,
-            "methods": {},
-            "total_time": total_time,
-            "topics_processed": len(topics),
-        },
-        "results": {},
-    }
+    # Load existing results if they exist
+    existing_data = {}
+    if results_file.exists():
+        try:
+            with open(results_file, "r") as f:
+                existing_data = json.load(f)
+            logger.info("Loaded existing results.json for merging")
+        except Exception as e:
+            logger.warning(f"Could not load existing results.json: {e}")
+            existing_data = {}
+
+    # Build results structure (start with existing or new)
+    data = (
+        existing_data
+        if existing_data
+        else {
+            "summary": {
+                "timestamp": datetime.now().isoformat(),
+                "backend": backend,
+                "methods": {},
+                "total_time": 0.0,
+                "topics_processed": 0,
+            },
+            "results": {},
+        }
+    )
+
+    # Update timestamp and add to total time
+    data["summary"]["timestamp"] = datetime.now().isoformat()
+    data["summary"]["total_time"] = data["summary"].get("total_time", 0.0) + total_time
+    data["summary"]["backend"] = backend
 
     # Initialize all topics
     for topic in topics:
-        data["results"][topic] = {}
+        if topic not in data["results"]:
+            data["results"][topic] = {}
 
     # Scan articles directory for actual results
     if articles_dir.exists():
@@ -148,17 +170,18 @@ def save_final_results(
                 topic_part = article_file.stem[len(method) + 1 :]
 
                 # Keep topic with underscores to match the topics list format
-                # Only handle special case of and/or slashes
                 if "and_or" in topic_part:
                     topic = topic_part.replace("and_or", "and/or")
                 else:
-                    topic = topic_part  # Keep underscores as-is
+                    topic = topic_part
 
                 # Load metadata if available
                 metadata_file = articles_dir / f"{article_file.stem}_metadata.json"
                 generation_time = 0.0
                 word_count = 0
                 token_usage = None
+                collaboration_metrics = None
+                theory_of_mind = None
 
                 if metadata_file.exists():
                     try:
@@ -167,6 +190,10 @@ def save_final_results(
                             generation_time = metadata.get("generation_time", 0.0)
                             word_count = metadata.get("word_count", 0)
                             token_usage = metadata.get("token_usage")
+                            collaboration_metrics = metadata.get(
+                                "collaboration_metrics"
+                            )
+                            theory_of_mind = metadata.get("theory_of_mind")
                     except Exception as e:
                         logger.warning(
                             f"Failed to load metadata for {article_file}: {e}"
@@ -192,9 +219,34 @@ def save_final_results(
                     "article_path": str(article_file.relative_to(output_dir)),
                 }
 
+                # Add metadata path for easy access by analysis scripts
+                if metadata_file.exists():
+                    method_data["metadata_path"] = str(
+                        metadata_file.relative_to(output_dir)
+                    )
+
                 # Add token usage if available
                 if token_usage:
                     method_data["token_usage"] = token_usage
+
+                # Add collaboration metrics summary if available
+                if collaboration_metrics:
+                    method_data["collaboration_metrics"] = {
+                        "total_feedback_items": collaboration_metrics.get(
+                            "total_feedback_items", 0
+                        ),
+                        "feedback_resolution_rate": collaboration_metrics.get(
+                            "feedback_resolution_rate", 0.0
+                        ),
+                        "convergence": collaboration_metrics.get("convergence", {}),
+                    }
+
+                # Add ToM metrics summary if available
+                if theory_of_mind:
+                    method_data["theory_of_mind"] = {
+                        "total_predictions": theory_of_mind.get("total_predictions", 0),
+                        "accuracy_rate": theory_of_mind.get("accuracy_rate", 0.0),
+                    }
 
                 data["results"][topic][method] = method_data
                 method_articles += 1
@@ -203,7 +255,6 @@ def save_final_results(
             method_dir = articles_dir / method
             if method_dir.exists() and method_dir.is_dir():
                 for article_file in method_dir.glob("*.md"):
-                    # Keep topic with underscores to match the topics list format
                     topic = article_file.stem
 
                     if topic not in data["results"]:
@@ -215,12 +266,23 @@ def save_final_results(
                     }
                     method_articles += 1
 
-            # Update method summary
+            # Update method summary (merge with existing counts)
+            existing_count = (
+                data["summary"]["methods"].get(method, {}).get("article_count", 0)
+            )
             data["summary"]["methods"][method] = {
-                "article_count": method_articles,
+                "article_count": max(method_articles, existing_count),
             }
 
-    # Mark missing results as failed
+    # Update topics_processed to count unique topics across all methods
+    unique_topics = set()
+    for topic, topic_data in data["results"].items():
+        for method, method_data in topic_data.items():
+            if method_data.get("success", False):
+                unique_topics.add(topic)
+    data["summary"]["topics_processed"] = len(unique_topics)
+
+    # Mark missing results as failed (but don't overwrite existing success)
     for topic in topics:
         for method in methods:
             if method not in data["results"][topic]:

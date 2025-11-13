@@ -17,5 +17,7 @@
     "git.allowNoVerifyCommit": false,
     "terminal.integrated.inheritEnv": true,
     "git.terminalGitEditor": true,
-    "kiroAgent.configureMCP": "Disabled"
+    "kiroAgent.configureMCP": "Disabled",
+    "search.useGlobalIgnoreFiles": true,
+    "search.useParentIgnoreFiles": true
 }
