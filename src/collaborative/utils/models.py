@@ -433,6 +433,26 @@ class BatchChunkSelectionModel(BaseModel):
         description="List of chunk selections, one per section."
     )
 
+    @field_validator("selections", mode="before")
+    @classmethod
+    def filter_malformed_selections(cls, v: Any) -> List[dict]:
+        """
+        Filter out malformed selection items that are strings or incomplete objects.
+        This handles cases where the LLM response gets truncated.
+        """
+        if not isinstance(v, list):
+            return v
+
+        filtered = []
+        for item in v:
+            if isinstance(item, dict):
+                if "section_heading" in item and "chunk_ids" in item:
+                    filtered.append(item)
+            elif hasattr(item, "section_heading") and hasattr(item, "chunk_ids"):
+                filtered.append(item)
+
+        return filtered
+
 
 class SectionContentModel(BaseModel):
     """Model for a single section's content."""

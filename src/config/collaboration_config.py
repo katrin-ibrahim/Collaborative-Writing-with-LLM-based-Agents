@@ -18,9 +18,9 @@ class CollaborationConfig(BaseConfig):
     resolution_rate_threshold: float = 0.9
     stall_tolerance: int = 2  # consecutive low-improvement iters allowed
     min_improvement: float = 0.02  # required progress per iter (2%)
-    small_tail_max: int = 5  # e.g., 5 remaining low/medium items
-    writing_mode: str = "section"  # "section" or "full_article"
-    revise_mode: str = "pending_sections"  # "single_section" or "pending_section"
+    small_tail_max: int = 2  # e.g., 5 remaining low/medium items
+    writing_mode: str = "section"  # "section" or "article"
+    revise_mode: str = "pending"  # "section" or "pending"
     should_self_refine: bool = False  # whether writers self-refine
 
     # Reviewer enhancement parameters

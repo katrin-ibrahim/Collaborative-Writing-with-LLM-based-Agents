@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Aggregate model-sweep results into a single README table.
 
@@ -6,7 +5,7 @@ Assumes folders named like: writer_sweep_<modelname>[_...]
 Each folder must contain a results.json with an 'evaluation_aggregate' dict.
 
 Usage:
-    python analyze_model_sweep.py ./results_root
+    python -m src.utils.experiment.collect_results ./results_root
 """
 
 import argparse
@@ -19,8 +18,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-from src.evaluation.metrics import calculate_composite_score
-from src.utils.experiment.analysis_utils import extract_metrics_from_results
+from src.utils.experiment.analysis_utils import (
+    calculate_composite_score,
+    extract_metrics_from_results,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -173,6 +174,7 @@ def main():
     parser.add_argument(
         "root_directory",
         type=Path,
+        default=Path("results/ollama"),
         help="Root results directory containing experiment folders.",
     )
     parser.add_argument(

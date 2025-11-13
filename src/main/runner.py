@@ -25,6 +25,16 @@ class Runner:
         if not self.state_manager:
             return topics
 
+        # First, validate and cleanup any topics that are in inconsistent state
+        for topic in topics:
+            state = self.state_manager.validate_topic_state(topic, method)
+            if state == "in_progress":
+                # Clean up incomplete files from previous failed runs
+                logger.info(
+                    f"Cleaning up incomplete files for {topic} ({method}) from previous run"
+                )
+                self.state_manager.cleanup_in_progress_topic(topic, method)
+
         return [
             topic
             for topic in topics

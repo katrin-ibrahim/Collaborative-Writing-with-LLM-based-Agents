@@ -90,26 +90,6 @@ class BaseEngine(ABC):
             List of available model names
         """
 
-    def extract_content(self, response) -> str:
-        """
-        Extract string content from a response object.
-        Handles various response formats from different backends.
-
-        Args:
-            response: Response object from complete() method
-
-        Returns:
-            Extracted string content
-        """
-        if isinstance(response, str):
-            return response
-        elif hasattr(response, "content"):
-            return response.content
-        elif hasattr(response, "choices") and response.choices:
-            return response.choices[0].message.content
-        else:
-            return str(response)
-
     def _create_response(self, content: str, prompt: str) -> Any:
         """
         Create LiteLLM-compatible response object.

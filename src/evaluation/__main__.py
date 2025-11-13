@@ -188,7 +188,7 @@ def _generate_aggregation_summary(data):
                     f"     Broad Coverage: {llm_judge_data.get('broad_coverage', 0):.2f}/5"
                 )
 
-                # Calculate overall average
+                # Calculate overall average (4 metrics from STORM rubric)
                 llm_avg = (
                     sum(
                         [
@@ -672,100 +672,90 @@ def main():
         }
 
         # Compute and persist aggregation by method
-        try:
-            methods_data = {}
-            methods_token_data = {}
-            methods_timing_data = {}
-            methods_llm_judge_data = {}
+        methods_data = {}
+        methods_token_data = {}
+        methods_timing_data = {}
+        methods_llm_judge_data = {}
 
-            for topic, topic_data in data.get("results", {}).items():
-                for method, method_data in topic_data.items():
-                    if not isinstance(method_data, dict):
-                        continue
-                    eval_results = method_data.get("evaluation")
-                    if (
-                        method_data.get("success") is True
-                        and eval_results
-                        and isinstance(eval_results, dict)
-                    ):
-                        methods_data.setdefault(method, []).append(eval_results)
+        for topic, topic_data in data.get("results", {}).items():
+            for method, method_data in topic_data.items():
+                if not isinstance(method_data, dict):
+                    continue
+                eval_results = method_data.get("evaluation")
+                if (
+                    method_data.get("success") is True
+                    and eval_results
+                    and isinstance(eval_results, dict)
+                ):
+                    methods_data.setdefault(method, []).append(eval_results)
 
-                        # Collect token usage data if available
-                        token_usage = method_data.get("token_usage")
-                        if token_usage:
-                            methods_token_data.setdefault(method, []).append(
-                                token_usage
-                            )
+                    # Collect token usage data if available
+                    token_usage = method_data.get("token_usage")
+                    if token_usage:
+                        methods_token_data.setdefault(method, []).append(token_usage)
 
-                        # Collect timing data
-                        gen_time = method_data.get("generation_time", 0.0)
-                        if gen_time:
-                            methods_timing_data.setdefault(method, []).append(gen_time)
+                    # Collect timing data
+                    gen_time = method_data.get("generation_time", 0.0)
+                    if gen_time:
+                        methods_timing_data.setdefault(method, []).append(gen_time)
 
-                        # Collect LLM judge data if available
-                        llm_judge_result = method_data.get("llm_judge")
-                        if llm_judge_result and isinstance(llm_judge_result, dict):
-                            methods_llm_judge_data.setdefault(method, []).append(
-                                llm_judge_result
-                            )
+                    # Collect LLM judge data if available
+                    llm_judge_result = method_data.get("llm_judge")
+                    if llm_judge_result and isinstance(llm_judge_result, dict):
+                        methods_llm_judge_data.setdefault(method, []).append(
+                            llm_judge_result
+                        )
 
-            metrics_list = [
-                "rouge_1",
-                "rouge_l",
-                "heading_soft_recall",
-                "heading_entity_recall",
-                "article_entity_recall",
-            ]
-            llm_judge_metrics = [
-                "interest_level",
-                "coherence_organization",
-                "relevance_focus",
-                "broad_coverage",
-            ]
+        metrics_list = [
+            "rouge_1",
+            "rouge_l",
+            "heading_soft_recall",
+            "heading_entity_recall",
+            "article_entity_recall",
+        ]
+        llm_judge_metrics = [
+            "interest_level",
+            "coherence_organization",
+            "relevance_focus",
+            "broad_coverage",
+        ]
+        aggregates = {}
+        for method, res_list in methods_data.items():
+            agg = {}
+            for metric in metrics_list:
+                vals = [r.get(metric, 0.0) for r in res_list if metric in r]
+                if vals:
+                    agg[metric] = sum(vals) / len(vals)
 
-            aggregates = {}
-            for method, res_list in methods_data.items():
-                agg = {}
-                for metric in metrics_list:
-                    vals = [r.get(metric, 0.0) for r in res_list if metric in r]
+            # Add LLM judge aggregation
+            if method in methods_llm_judge_data:
+                llm_judge_list = methods_llm_judge_data[method]
+                llm_judge_agg = {}
+                for metric in llm_judge_metrics:
+                    vals = [r.get(metric, 0) for r in llm_judge_list if metric in r]
                     if vals:
-                        agg[metric] = sum(vals) / len(vals)
+                        llm_judge_agg[metric] = sum(vals) / len(vals)
+                if llm_judge_agg:
+                    llm_judge_agg["num_articles"] = len(llm_judge_list)
+                    agg["llm_judge"] = llm_judge_agg
 
-                # Add LLM judge aggregation
-                if method in methods_llm_judge_data:
-                    llm_judge_list = methods_llm_judge_data[method]
-                    llm_judge_agg = {}
-                    for metric in llm_judge_metrics:
-                        vals = [r.get(metric, 0) for r in llm_judge_list if metric in r]
-                        if vals:
-                            llm_judge_agg[metric] = sum(vals) / len(vals)
-                    if llm_judge_agg:
-                        llm_judge_agg["num_articles"] = len(llm_judge_list)
-                        agg["llm_judge"] = llm_judge_agg
+            # Add token usage aggregation
+            if method in methods_token_data:
+                token_data_list = methods_token_data[method]
+                token_agg = _aggregate_token_usage_for_method(method, token_data_list)
+                if token_agg:
+                    agg["token_usage"] = token_agg
 
-                # Add token usage aggregation
-                if method in methods_token_data:
-                    token_data_list = methods_token_data[method]
-                    token_agg = _aggregate_token_usage_for_method(
-                        method, token_data_list
-                    )
-                    if token_agg:
-                        agg["token_usage"] = token_agg
+            # Add timing aggregation
+            if method in methods_timing_data:
+                timing_data = methods_timing_data[method]
+                agg["avg_generation_time"] = sum(timing_data) / len(timing_data)
+                agg["total_generation_time"] = sum(timing_data)
 
-                # Add timing aggregation
-                if method in methods_timing_data:
-                    timing_data = methods_timing_data[method]
-                    agg["avg_generation_time"] = sum(timing_data) / len(timing_data)
-                    agg["total_generation_time"] = sum(timing_data)
-
-                if agg:
-                    aggregates[method] = agg
-            if aggregates:
-                data["evaluation_aggregate"] = aggregates
-        except Exception as e:
-            logger.warning(f"Failed to compute aggregation: {e}")
-
-        # Save updated results
+            if agg:
+                aggregates[method] = agg
+        if aggregates:
+            data["evaluation_aggregate"] = aggregates  # Save updated results
         logger.info("Saving updated results...")
         save_results(results_dir, data)
 

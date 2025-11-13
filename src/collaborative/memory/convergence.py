@@ -115,12 +115,17 @@ class ConvergenceChecker:
             return True, f"High weighted verification rate: {rate:.1%} addressed"
 
         # Rule 4: Small tail (no high pending, few remain)
+        # Only apply this rule after min_iterations to prevent premature convergence
         high_pending = [
             it
             for it in pending_items
             if (self._get(it, "priority", "") or "").lower() == "high"
         ]
-        if len(high_pending) == 0 and pending_count <= self.small_tail_max:
+        if (
+            iteration >= self.min_iterations
+            and len(high_pending) == 0
+            and pending_count <= self.small_tail_max
+        ):
             return True, f"Only {pending_count} low/medium priority items remain"
 
         # Rule 5: Stall detection (tiny progress for N iters)

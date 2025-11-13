@@ -63,7 +63,12 @@ def load_configurations(args):
         collaboration_config = CollaborationConfig.from_yaml_with_overrides(
             args.collaboration_config,
             max_iterations=args.max_iterations,
+            min_iterations=getattr(args, "min_iterations", None),
             convergence_threshold=args.convergence_threshold,
+            resolution_rate_threshold=getattr(args, "resolution_rate_threshold", None),
+            stall_tolerance=getattr(args, "stall_tolerance", None),
+            min_improvement=getattr(args, "min_improvement", None),
+            small_tail_max=getattr(args, "small_tail_max", None),
             writing_mode=args.writing_mode,
             revise_mode=args.revise_mode,
             should_self_refine=not args.no_self_refine,

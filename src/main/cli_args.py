@@ -221,24 +221,54 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--min_iterations",
+        type=int,
+        help="Override min collaboration iterations (minimum before convergence check)",
+    )
+
+    parser.add_argument(
         "--convergence_threshold",
         "-ct",
         type=float,
-        help="Override convergence threshold",
+        help="Override convergence threshold (resolution_rate_threshold)",
+    )
+
+    parser.add_argument(
+        "--resolution_rate_threshold",
+        type=float,
+        help="Override resolution rate threshold for convergence",
+    )
+
+    parser.add_argument(
+        "--stall_tolerance",
+        type=int,
+        help="Override stall tolerance (consecutive low-improvement iterations allowed)",
+    )
+
+    parser.add_argument(
+        "--min_improvement",
+        type=float,
+        help="Override minimum improvement per iteration (e.g., 0.02 for 2%%)",
+    )
+
+    parser.add_argument(
+        "--small_tail_max",
+        type=int,
+        help="Override small tail max (max remaining low/medium items for convergence)",
     )
     parser.add_argument(
         "--writing_mode",
         "-wm",
-        choices=["section", "full_article"],
+        choices=["section", "article"],
         default="section",
         help="Set the writing mode (default: section)",
     )
     parser.add_argument(
         "--revise_mode",
         "-revm",
-        choices=["single_section", "pending_sections"],
-        default="single_section",
-        help="Set the revise mode (default: single_section - optimal from sequential ablation)",
+        choices=["section", "pending"],
+        default="section",
+        help="Set the revise mode (default: section - optimal from sequential ablation)",
     )
     parser.add_argument(
         "--no_self_refine",

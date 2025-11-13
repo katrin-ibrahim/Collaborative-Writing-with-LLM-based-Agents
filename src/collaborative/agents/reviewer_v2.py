@@ -3,7 +3,7 @@
 import logging
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
-from typing import Dict, Literal, Optional, TypedDict
+from typing import Dict, List, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
@@ -234,10 +234,10 @@ class ReviewerV2(BaseAgent):
     # ======================== FACT CHECK NODE ========================
     def _fact_check(self, state: MinimalState) -> MinimalState:
         """
-        Deterministic citation extraction and validation.
-        Reads from SharedMemory, stores validation results.
+        Citation extraction, validation, and claim verification.
+        Validates both citation existence and claim accuracy against chunk content.
         """
-        logger.info("Running fact check (citation validation)...")
+        logger.info("Running fact check (citation validation + claim verification)...")
 
         try:
             # Get article from SharedMemory
@@ -253,14 +253,25 @@ class ReviewerV2(BaseAgent):
             ref_map = build_ref_map(structured_claims)
             logger.info(f"Built reference map with {len(ref_map)} unique citations")
 
-            # Step 3: Validate citations
+            # Step 3: Validate citation existence
             validation_results = validate_citations(
                 structured_claims, ref_map, self.shared_memory
             )
             logger.info(
-                f"Validation: {validation_results['valid_citations']}/{validation_results['total_citations']} valid, "
+                f"Citation existence: {validation_results['valid_citations']}/{validation_results['total_citations']} valid, "
                 f"{len(validation_results['missing_chunks'])} missing"
             )
+
+            # Step 4: Verify claims against chunk content (if citations exist)
+            if validation_results["valid_citations"] > 0:
+                claim_verification = self._verify_claims_against_chunks(
+                    structured_claims, ref_map
+                )
+                validation_results["claim_verification"] = claim_verification
+                logger.info(
+                    f"Claim verification: checked {claim_verification['total_verified']} claims, "
+                    f"found {claim_verification['unsupported_count']} potentially unsupported"
+                )
 
             # Store validation results to SharedMemory
             self.validation_results = validation_results
@@ -275,6 +286,77 @@ class ReviewerV2(BaseAgent):
             }
 
         return state
+
+    def _verify_claims_against_chunks(
+        self, structured_claims: List, ref_map: Dict
+    ) -> Dict:
+        """
+        Verify claims against cited chunk content using LLM.
+        Returns verification results with potentially unsupported claims.
+        """
+        from src.collaborative.agents.templates import CLAIM_VERIFICATION_PROMPT
+
+        unsupported_claims = []
+        total_verified = 0
+
+        # Sample claims to verify (avoid token overflow - max 5 claims)
+        sample_size = min(5, len(structured_claims))
+        claims_to_verify = (
+            structured_claims[:sample_size]
+            if len(structured_claims) > sample_size
+            else structured_claims
+        )
+
+        for claim_obj in claims_to_verify:
+            claim_text = claim_obj.get("sentence", "")
+            chunk_ids = claim_obj.get("chunks", [])
+
+            if not claim_text or not chunk_ids:
+                continue
+
+            total_verified += 1
+
+            # Get chunk content
+            chunks = self.shared_memory.get_chunks_by_ids(chunk_ids)
+            chunk_contents = []
+            for chunk_id, chunk_model in chunks.items():
+                chunk_contents.append(
+                    f"[Chunk {chunk_id}]: {chunk_model.content[:300]}..."
+                )
+
+            if not chunk_contents:
+                continue
+
+            # Build verification prompt
+            verification_prompt = CLAIM_VERIFICATION_PROMPT.format(
+                claim=claim_text, chunks="\n\n".join(chunk_contents)
+            )
+
+            try:
+                review_client = self.get_task_client("reviewer")
+                result = review_client.call_api(prompt=verification_prompt)
+
+                # Check if LLM says claim is unsupported
+                if "not supported" in result.lower() or "unsupported" in result.lower():
+                    unsupported_claims.append(
+                        {
+                            "claim": claim_text[:200],
+                            "chunk_ids": chunk_ids,
+                            "reason": result[:200],
+                        }
+                    )
+                    logger.info(
+                        f"Claim verification: UNSUPPORTED claim found - {claim_text[:100]}"
+                    )
+            except Exception as e:
+                logger.warning(f"Claim verification failed for claim: {e}")
+                continue
+
+        return {
+            "total_verified": total_verified,
+            "unsupported_count": len(unsupported_claims),
+            "unsupported_claims": unsupported_claims,
+        }
 
     # ======================== ANALYZE STRATEGY NODE ========================
     def _analyze_strategy(self, state: MinimalState) -> MinimalState:
@@ -487,22 +569,38 @@ class ReviewerV2(BaseAgent):
             # Conditionally include research context
             research_context = None
             if ground_reviewer:
-                chunk_summaries = self.shared_memory.get_search_summaries()
-                from src.collaborative.utils.writer_utils import (
-                    build_formatted_chunk_summaries,
-                )
+                # Extract CITED chunks only (not all chunks) for fact-checking
+                article = self.shared_memory.get_current_draft_as_article()
+                if not article:
+                    raise RuntimeError("No current draft found")
 
-                retrieval_config = ConfigContext.get_retrieval_config()
-                research_context = build_formatted_chunk_summaries(
-                    chunk_summaries,
-                    max_content_pieces=(
-                        retrieval_config.final_passages if retrieval_config else 10
-                    ),
-                    fields=["description", "content"],
-                )
-                logger.info(
-                    "Reviewer grounding enabled: including research context in review"
-                )
+                structured_claims = extract_citations(article)
+                ref_map = build_ref_map(structured_claims)
+                cited_chunk_ids = list(ref_map.keys())
+
+                if cited_chunk_ids:
+                    # Get only the chunks that were actually cited
+                    cited_chunks = self.shared_memory.get_chunks_by_ids(cited_chunk_ids)
+
+                    # Format cited chunks with their content for verification
+                    chunk_items = []
+                    for chunk_id, chunk_model in cited_chunks.items():
+                        chunk_items.append(
+                            f"Chunk ID: {chunk_id}\n"
+                            f"Content: {chunk_model.content[:500]}...\n"  # Limit to avoid token overflow
+                            f"URL: {chunk_model.url or 'N/A'}"
+                        )
+
+                    research_context = (
+                        "CITED CHUNKS (for fact-checking):\n\n"
+                        + "\n\n---\n\n".join(chunk_items)
+                    )
+                    logger.info(
+                        f"Reviewer grounding enabled: providing {len(cited_chunks)} CITED chunks for fact-checking"
+                    )
+                else:
+                    research_context = "No citations found in the article. This is a red flag - the article should cite sources."
+                    logger.warning("No citations found - reviewer will flag this")
             else:
                 logger.info(
                     "Reviewer grounding disabled: metadata-only review (no research chunks)"

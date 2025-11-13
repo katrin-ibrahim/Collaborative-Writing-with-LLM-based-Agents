@@ -25,8 +25,11 @@ Decide the BEST strategy for the next review pass.
 Pick ONE:
 - "citation-focused"  (if citations missing/invalid, sources needed, or verifiability is weak)
 - "expansion-focused" (if article is short or lacks depth/coverage)
-- "accuracy-focused"  (if there are correctness, clarity, or contradiction issues)
+- "accuracy-focused"  (if there are correctness, clarity, contradiction, or OFF-TOPIC sections)
 - "holistic"          (if the article is maturing and needs broad polish)
+
+CRITICAL: If you see ANY sections that are off-topic or not directly relevant to the article title, use "accuracy-focused" strategy.
+Sections must directly relate to the main topic - no tangential or weakly related content allowed.
 
 Return JSON with:
 {{
@@ -69,13 +72,23 @@ Citation Validation:
     research_section = ""
     if research_context:
         research_section = f"""
-AVAILABLE RESEARCH CONTEXT:
-The following research chunks were used by the writer. Use this to identify factual gaps and missing information:
+CITED RESEARCH CHUNKS (for fact-checking):
+The following chunks were CITED by the writer in the article. Use these to verify factual accuracy:
 
 {research_context}
 
-NOTE: You can now perform true fact-checking by comparing article claims against this research context.
-Identify specific entities, facts, or claims that are missing or need additional sourcing.
+CRITICAL FACT-CHECKING INSTRUCTIONS:
+1. Compare article claims against the chunk content provided above
+2. Flag claims as "accuracy" issues if they are NOT supported by the cited chunks
+3. Use "citation_missing" if factual claims lack citations entirely
+4. Use "needs_source" if claims need additional supporting evidence
+5. This is your PRIMARY tool for catching incorrect or unverified claims
+
+Look for:
+- Claims that contradict the chunk content
+- Claims that go beyond what the chunks actually say
+- Missing context or nuance from the source material
+- Entities, facts, or details mentioned in chunks but missing from article
 """
 
     # Strategy-specific instructions
@@ -105,16 +118,37 @@ DO NOT create items with types like 'coverage_gaps' or 'suggested_sections'.
         "accuracy-focused": """
 FOCUS: Factual accuracy and claim verification.
 
-Your primary task is to ensure factual reliability using ONLY these feedback types:
-- "accuracy" - For claims that appear unverified or questionable
-- "needs_source" - For statements needing stronger evidence
-- "citation_missing" - For unsupported factual claims
+Your primary task is to ensure factual reliability by CHECKING CLAIMS AGAINST CITED CHUNKS:
+
+Use ONLY these feedback types:
+- "accuracy" - For claims that are UNSUPPORTED or CONTRADICTED by their cited chunks
+- "needs_source" - For statements that need stronger evidence or additional citations
+- "citation_missing" - For unsupported factual claims that lack any citation
+
+CRITICAL: When you see cited chunks provided above, verify each major claim in the article:
+1. Find the claim in the article
+2. Check if it matches what the cited chunk actually says
+3. Flag as "accuracy" if the chunk doesn't support the claim
+4. Flag as "citation_missing" if there's no citation at all
+5. Flag as "needs_source" if the citation is weak or insufficient
 
 Create individual feedback items (in the 'items' array) for each accuracy concern.
 DO NOT create items with types like 'accuracy_concerns' or 'factual_issues'.
+BE CRITICAL - catch exaggerations, unsupported claims, and contradictions.
 """,
-        "holistic": """
-FOCUS: Overall article quality and coherence.
+    }
+
+    # Build holistic strategy instruction with article title
+    holistic_instruction = f"""
+FOCUS: Overall article quality, coherence, and RELEVANCE to the topic.
+
+CRITICAL RELEVANCE CHECK:
+Before anything else, review EACH section title against the article title: "{article.title}".
+- Does EVERY section directly relate to the main topic?
+- Are there any tangential or weakly related sections?
+- Would a reader expect to find this section in an article about this topic?
+
+If you find OFF-TOPIC sections, create "relevance_focus" feedback items flagging them for removal or major revision.
 
 Your task is to provide balanced, comprehensive feedback using ANY of these feedback types:
 - "citation_missing", "citation_invalid", "needs_source" (for citations)
@@ -123,8 +157,12 @@ Your task is to provide balanced, comprehensive feedback using ANY of these feed
 
 Create individual feedback items (in the 'items' array) for each distinct issue.
 Balance all aspects of article quality without focusing too heavily on any single type.
-""",
-    }
+
+PRIORITY: Relevance and focus issues are CRITICAL - flag any off-topic content immediately.
+"""
+
+    # Add holistic to dictionary
+    strategy_instructions["holistic"] = holistic_instruction
 
     # Build section list for feedback
     section_list = "\n".join([f"- {name}" for name in article.sections.keys()])
@@ -282,7 +320,9 @@ CRITICAL: USE ONLY THE KEY 'updates' IN YOUR OUTPUT JSON, WHICH MUST BE A LIST O
 HEADING_COUNT = 15  # Must match MAX_HEADING_COUNT in models.py
 
 
-def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
+def outline_prompt(
+    topic: str, top_chunk: str, chunk_summaries: str, temporal_context: str = ""
+) -> str:
     """
     Generates the prompt for creating a structured article outline using LLM.
 
@@ -290,6 +330,7 @@ def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
         topic: The main subject of the article.
         top_chunk: The highest-ranked chunk from Phase 1 search for context.
         chunk_summaries: The formatted summaries of all stored research chunks.
+        temporal_context: Optional context from adjacent year for disambiguation.
 
     Returns:
         The prompt string instructing the LLM to output a structured JSON outline.
@@ -298,11 +339,31 @@ def outline_prompt(topic: str, top_chunk: str, chunk_summaries: str) -> str:
     # Consolidate research context
     research_context = consolidate_research(topic, top_chunk, chunk_summaries)
 
+    # Add temporal context if provided (for disambiguation only, not for writing)
+    temporal_disambiguation = ""
+    if temporal_context:
+        temporal_disambiguation = f"""
+TEMPORAL DISAMBIGUATION CONTEXT (FOR UNDERSTANDING ONLY - DO NOT WRITE ABOUT THIS):
+{temporal_context}
+
+The above is from an adjacent year and is provided ONLY to help you understand the structure and category of "{topic}".
+DO NOT create sections about the adjacent year. Use it only to understand what kind of event "{topic}" is.
+"""
+
     # NOTE: The instruction for JSON output will be added by the call_structured_api method.
     # We focus here on the core task.
 
     return f"""
     Generate a Wikipedia-style article outline for the topic: "{topic}".
+
+    CRITICAL TOPIC FOCUS:
+    - This article MUST be specifically about "{topic}" - not related topics, background events, or similar subjects.
+    - If the research context mentions related but different topics (e.g., different competitions, different years, different categories),
+      DO NOT create sections about those topics. Focus ONLY on "{topic}" itself.
+    - Every section heading must directly relate to "{topic}" - reject any tangential or background topics that distract from the main subject.
+    - When in doubt: "Is this section specifically about '{topic}'?" If no, exclude it.
+
+    {temporal_disambiguation}
 
     Use the research context to identify key entities such as people, organizations, events, locations, and outcomes.
     Headings should reflect these specific entities and capture factual, verifiable aspects of the topic.
@@ -339,6 +400,13 @@ def refine_outline_prompt(
     prompt = f"""
 You are refining an existing article outline for the topic: "{topic}", to be more entity-rich and Wikipedia-style.
 The outline should be informed by the research context provided below.
+
+CRITICAL TOPIC FOCUS:
+- This article MUST be specifically about "{topic}" - not related topics, background events, or similar subjects.
+- Review the existing outline and REMOVE any sections that are NOT directly about "{topic}".
+- Do not keep sections about related competitions, different years, background history, or tangential topics.
+- Every section must pass the test: "Is this specifically about '{topic}'?" If no, remove it.
+
 {research_context}
 
 Existing Outline:
@@ -450,7 +518,8 @@ The topic is about {topic_year}. When selecting chunks:
 - General background without year mentions is acceptable
 """
 
-    sections_list = "\n".join(f"- {h}" for h in section_headings)
+    sections_list = "\n".join(f"{i+1}. {h}" for i, h in enumerate(section_headings))
+    num_sections = len(section_headings)
 
     research_context = f"""
 Research Context (Chunk Summaries):
@@ -459,30 +528,71 @@ Research Context (Chunk Summaries):
 ---
 """
 
-    task_description = f"""
-You are acting as a Research Editor. Your task is to select research chunks for MULTIPLE sections
-of an article on "{topic}".
+    example_output = """
+Example Output Format (for 3 sections with num_chunks=5):
+{{
+  "selections": [
+    {{
+      "section_heading": "Early life",
+      "chunk_ids": ["chunk_1", "chunk_5", "chunk_12", "chunk_23", "chunk_45"]
+    }},
+    {{
+      "section_heading": "Career",
+      "chunk_ids": ["chunk_2", "chunk_8", "chunk_15", "chunk_28"]
+    }},
+    {{
+      "section_heading": "Legacy",
+      "chunk_ids": ["chunk_3", "chunk_9", "chunk_18", "chunk_31", "chunk_42"]
+    }}
+  ]
+}}
 
-Sections to process:
+NOTICE: Each section gets its OWN list of up to {num_chunks} chunks. This is PER SECTION, not total!
+"""
+
+    task_description = f"""
+You are acting as a Research Editor selecting research chunks for an article on "{topic}".
+
+TASK: Select research chunks for ALL {num_sections} sections listed below.
+
+Sections ({num_sections} total):
 {sections_list}
 
 {year_awareness}
 
-For EACH section listed above, select the most relevant chunk IDs from the research context.
+CRITICAL SELECTION RULES:
 
-Strict Selection Rules:
-1. **Relevance is Key:** For each section, select only chunk IDs that are most relevant to that specific section heading.
-2. **Temporal Relevance:** If the topic has a specific year, prioritize chunks from that year.
-3. **Minimum Requirement:** You MUST select AT LEAST ONE chunk per section.
-4. **Limit:** Select no more than {num_chunks} chunk IDs per section.
-5. **Format:** Return a JSON object with a "selections" array, where each object has:
-   - "section_heading": the exact section heading from the list
-   - "chunk_ids": array of selected chunk ID strings for that section
-6. **ID Integrity:** Use only the literal chunk IDs from the Research Context.
-7. **No Chatter:** Return only the JSON object.
+1. **PER SECTION ALLOCATION:** You must select UP TO {num_chunks} chunk IDs FOR EACH SECTION.
+   - This means a TOTAL of up to {num_chunks * num_sections} chunks across all sections
+   - Each section gets its own allocation of up to {num_chunks} chunks
+   - DO NOT limit the total across all sections to {num_chunks}!
 
-CRITICAL: If no perfect matches exist for a section, select the most indirectly relevant chunks.
-DO NOT return empty chunk_ids arrays.
+2. **Relevance:** For each section, select chunks most relevant to that specific section heading.
+
+3. **Minimum:** Select AT LEAST ONE chunk per section (never return empty chunk_ids arrays).
+
+4. **Maximum:** Select NO MORE than {num_chunks} chunks per section.
+
+5. **Temporal Relevance:** If the topic has a year, prioritize chunks from that year.
+
+6. **Output Format:** Return a JSON object with a "selections" array containing one object per section:
+   {{
+     "selections": [
+       {{
+         "section_heading": "exact heading from list",
+         "chunk_ids": ["id1", "id2", "id3", ...]  // up to {num_chunks} IDs
+       }},
+       ...
+     ]
+   }}
+
+7. **ID Integrity:** Use only the literal chunk IDs from the Research Context above.
+
+8. **No Chatter:** Return ONLY the JSON object, no explanations.
+
+{example_output}
+
+If no perfect matches exist for a section, select the most indirectly relevant chunks.
 """
 
     return f"{task_description}\n{research_context}"
@@ -499,6 +609,12 @@ def write_section_content_prompt(
     return f"""
 Write a comprehensive section titled "{section_heading}" for an article about "{topic}".
 
+CRITICAL TOPIC FOCUS:
+- This section MUST be about "{topic}" specifically - NOT related topics, background events, or similar subjects.
+- If the research information mentions related but different topics (e.g., different leagues, years, categories, or similarly-named events),
+  DO NOT write about those topics. Extract ONLY information that directly relates to "{topic}".
+- When in doubt: Does this fact apply to "{topic}" specifically? If no, exclude it.
+
 {research_context}
 
 CRITICAL: Write ONLY the article content. Do NOT include:
@@ -506,6 +622,15 @@ CRITICAL: Write ONLY the article content. Do NOT include:
 - Questions to the user ("What is the overall article's focus?")
 - Meta-commentary about the writing process
 - Placeholder text or requests for clarification
+
+WRITING STYLE - ENGAGING ENCYCLOPEDIA:
+- Lead with concrete, specific details rather than generic statements
+- Use precise numbers, dates, names, and facts from the research
+- Avoid clichés like "highly anticipated", "storied", "remarkable", "significant"
+- When describing events, focus on what actually happened rather than abstract qualities
+- Build narrative through factual progression (what happened first, then what, then what)
+- Let specific details create interest rather than relying on evaluative adjectives
+- Include context that helps readers understand why events matter
 
 Requirements:
 - Write 2-3 well-structured paragraphs of encyclopedia-style content
@@ -564,6 +689,15 @@ WRITING REQUIREMENTS:
 4. Start directly with content - NO conversational text, questions, or meta-commentary
 5. Avoid repetition between sections
 
+WRITING STYLE - ENGAGING ENCYCLOPEDIA:
+- Lead with concrete, specific details rather than generic statements
+- Use precise numbers, dates, names, and facts from the research
+- Avoid clichés like "highly anticipated", "storied", "remarkable", "significant"
+- When describing events, focus on what actually happened rather than abstract qualities
+- Build narrative through factual progression (what happened first, then what, then what)
+- Let specific details create interest rather than relying on evaluative adjectives
+- Include context that helps readers understand why events matter
+
 CITATION RULES - CRITICAL:
 • Research chunks start with their ID (e.g., "abc123 {{content: ...}}")
 • Cite using EXACT chunk ID in tags: <c cite="abc123"/>
@@ -591,21 +725,56 @@ def write_full_article_prompt(
     topic: str, headings: List[str], relevant_info: str
 ) -> str:
     """Generate prompt for full-article writing consistent with section prompt rules."""
-    headings_hint = "\n".join(f"- {h}" for h in headings) if headings else ""
+    headings_hint = (
+        "\n".join(f"{i+1}. {h}" for i, h in enumerate(headings)) if headings else ""
+    )
     research_context = ""
     if relevant_info:
         research_context = f"Use this possibly relevant information gathered during research: {relevant_info}"
 
+    example_format = f"""
+EXAMPLE OUTPUT FORMAT:
+## {headings[0] if headings else "First Section"}
+
+Paragraph 1 content here with proper encyclopedia-style writing...
+
+Paragraph 2 continues with more details and examples...
+
+Paragraph 3 wraps up this section with additional context...
+
+## {headings[1] if len(headings) > 1 else "Second Section"}
+
+Paragraph 1 of second section begins here...
+
+CRITICAL: Notice that EACH section must:
+1. Start with EXACTLY "## " followed by the heading text
+2. Have 2-4 paragraphs of content after the heading
+3. Use the EXACT heading text from the outline below
+"""
+
     return f"""
 Write a high-quality encyclopedia-style article about "{topic}".
 
-You MUST structure the article to exactly fill the provided outline and include each section heading as a Markdown H2 line in this exact order:
+You MUST structure the article with the following sections in this exact order:
 {headings_hint}
 
-Formatting rules:
-- Begin each section with its exact heading prefixed by '## ' (Markdown H2).
-- After each H2, write 2–4 coherent paragraphs for that section.
-- Do not add extra sections or change heading wording.
+{example_format}
+
+MANDATORY FORMATTING RULES (FAILURE TO FOLLOW WILL RESULT IN UNUSABLE OUTPUT):
+
+1. **Section Headers:** EVERY section MUST start with its exact heading prefixed by '## ' (Markdown H2).
+   - Correct: "## Early life and education"
+   - WRONG: "Early life and education" (missing ##)
+   - WRONG: "# Early life" (wrong number of #)
+   - WRONG: "## Early Life" (different capitalization)
+
+2. **Section Content:** After each ## heading, write 2–4 coherent paragraphs.
+
+3. **Complete Coverage:** Include ALL {len(headings)} sections from the outline above.
+
+4. **No Extras:** Do NOT add extra sections or change heading wording.
+
+5. **Start Immediately:** Begin directly with the first ## heading. NO title, NO preamble.
 
 {research_context}
 
@@ -613,6 +782,7 @@ CRITICAL: Write ONLY the article content. Do NOT include:
 - Conversational language or meta-commentary
 - Questions to the user
 - Placeholder text or requests for clarification
+- A separate title line (the first ## is the first section)
 
 Requirements:
 - Ground content in the provided research information where applicable
@@ -628,7 +798,13 @@ CITATION INSTRUCTIONS - CRITICAL:
 - ABSOLUTELY FORBIDDEN: Using generic citations like [1], [2], [source_1], [chunk_1]
 - ABSOLUTELY FORBIDDEN: Inventing fake URLs or fake chunk IDs like "chunk_42", "chunk_77"
 - If no research chunk IDs are provided, do NOT include any citations - write content without citation tags
-- VERIFICATION: Before writing each citation, confirm the exact chunk ID exists in the research information above
+
+OUTPUT CHECKLIST:
+✓ Every section starts with ## followed by exact heading
+✓ {len(headings)} sections total
+✓ 2-4 paragraphs per section
+✓ No title line before first section
+✓ Citations use <c cite="chunk_id"/> format only
 """
 
 
@@ -663,40 +839,52 @@ First, extract key entities from this context:
 Then use these entities to create specific, relationship-focused queries.
 """
 
-    return f""" You are generating wiki-style search queries for knowledge retrieval.
+    return f""" You are generating search queries for a Wikipedia knowledge base.
 
-TASK
-Generate exactly {num_queries} concise Wikipedia page titles related to the topic below.
-Titles must look like real Wikipedia article names — not questions.
+TASK: Generate exactly {num_queries} Wikipedia article titles that would be useful for writing about "{topic}".
 
-INPUT TOPIC: "{topic}"
+APPROACH:
+1. Identify the key entities involved in "{topic}" based on your knowledge
+2. For each entity, provide its Wikipedia article title
+3. Format titles as they would appear on Wikipedia (proper capitalization, disambiguation in parentheses if needed)
 
 {year_awareness_section}
 
 {context_section}
 
-INSTRUCTIONS
-- Prefer concrete, named entities (people, teams, venues, events, years).
-- Use Wikipedia disambiguation style when needed: e.g., "Chris Scott (Australian footballer)".
-- Avoid generic phrases like: result(s), history, finals series, overview, introduction, guide.
-- ≤ 8 words per title. No punctuation except parentheses or hyphens.
-- If topic contains a year, prioritize entities from that specific year.
-
-EXAMPLES
-Topic: "UEFA Euro 2016 Final"
-Good → ["Portugal national football team", "France national football team", "Stade de France", "Éder (footballer, born 1987)", "UEFA Euro 2016 knockout phase"]
-Bad  → ["Euro 2016 Final Result", "Euro 2016 History"]
-
-Topic: "2022 AFL Grand Final"
-Good → ["Geelong Football Club", "Sydney Swans", "Melbourne Cricket Ground", "2022 AFL season", "Joel Selwood"]
-Bad  → ["AFL Grand Final", "2023 AFL Grand Final", "Grand Final history"]
-
-Topic: "NASA Mars Perseverance"
-Good → ["Perseverance (rover)", "Mars 2020", "Ingenuity (helicopter)", "Jezero crater", "Mars Sample Return"]
+GUIDELINES:
+- Prefer specific named entities (people, teams, places, organizations, events) over generic topics
+- Use disambiguation when needed: e.g., "Chris Scott (Australian footballer)"
+- Keep titles concise (≤ 8 words)
+- If topic contains a year, focus on entities from that specific year
 
 You should return the titles under the key "queries" in a JSON object
+"""
 
 
+def extract_entities_from_context_prompt(topic: str, context: str) -> str:
+    """Extract key entities from index/season page context to generate targeted queries."""
+    return f"""You are extracting key entities from Wikipedia content to help write about "{topic}".
+
+CONTEXT FROM BROADER WIKIPEDIA PAGE:
+{context[:2000]}
+
+TASK:
+Based ONLY on the context above, identify the key entities (people, teams, organizations, locations, events) that are directly involved in "{topic}".
+
+INSTRUCTIONS:
+- Extract ONLY entities that are explicitly mentioned in the context
+- Focus on entities that are central to "{topic}" itself
+- Do NOT hallucinate or guess entities not in the context
+- Return specific Wikipedia page titles for each entity
+- Use proper capitalization and disambiguation (e.g., "Chris Scott (Australian footballer)")
+
+Return a JSON object with key "entities" containing a list of Wikipedia page titles (max 5).
+
+Example response format:
+{{
+  "entities": ["Entity Name 1", "Entity Name 2 (disambiguation)", "Entity Name 3"]
+}}
 """
 
 
@@ -844,17 +1032,53 @@ def build_revision_batch_prompt(
 
 
 def build_self_refine_prompt(title: str, current_text: str) -> str:
-    return (
-        "ROLE: Lightly polish an encyclopedia article for clarity, grammar, and flow.\n"
-        "RULES:\n"
-        "- Do NOT change meaning, facts, or add new information.\n"
-        "- Preserve any citation markers like [id].\n"
-        "- Keep structure and length roughly the same.\n"
-        "- Output ONLY the refined article text (no headers, no commentary).\n\n"
-        f"ARTICLE_TITLE: {title}\n"
-        "CURRENT_TEXT:\n"
-        f"{current_text}\n"
-    )
+    """
+    Generate prompt for self-refinement (internal polishing).
+    This represents the self-correction approach where the writer
+    internally improves their work without external critique.
+    """
+    return f"""You are refining an encyclopedia article through internal self-correction.
+
+ARTICLE TITLE: {title}
+
+CURRENT DRAFT:
+{current_text}
+
+SELF-REFINEMENT TASK:
+Perform internal quality improvement by:
+
+1. CONTENT QUALITY:
+   - Identify and fix factual inconsistencies or unclear statements
+   - Ensure all claims are well-supported by the existing content
+   - Remove redundant or repetitive information
+   - Add transitions where flow is choppy
+
+2. STRUCTURE & ORGANIZATION:
+   - Verify logical section ordering
+   - Ensure each paragraph has a clear purpose
+   - Check that the article tells a coherent story
+
+3. WRITING STYLE:
+   - Replace vague or generic language with specific details
+   - Eliminate clichés and overused phrases
+   - Improve sentence variety and readability
+   - Maintain encyclopedic tone (objective, informative)
+
+4. TECHNICAL CORRECTNESS:
+   - Fix grammar, spelling, and punctuation errors
+   - Ensure consistent terminology throughout
+   - Preserve all citation markers (e.g., <c cite="..."/>)
+   - Maintain article length (within 10% of original)
+
+CRITICAL CONSTRAINTS:
+- Do NOT add new facts or information not in the original
+- Do NOT remove factual content
+- Do NOT change the fundamental structure (section headings)
+- Do NOT include meta-commentary ("I have refined...", etc.)
+- Output ONLY the refined article text
+
+OUTPUT: The complete refined article with all improvements applied.
+"""
 
 
 def build_research_gate_prompt(
@@ -886,6 +1110,11 @@ def build_research_gate_prompt(
     return f"""
                 You are the research gate for the Writer. Topic: {topic}
 
+                CRITICAL TOPIC FOCUS:
+                - This article is ONLY about "{topic}" - not related topics, similar events, or background subjects.
+                - DELETE chunks that discuss different but related topics (e.g., different competitions, leagues, categories, or competitions with similar names).
+                - KEEP only chunks that directly discuss "{topic}" itself.
+
                 Article Outline:
                 {outline_str}
 
@@ -895,12 +1124,17 @@ def build_research_gate_prompt(
                 {year_filter_instruction}
 
                 Task:
-                - Identify chunks that do NOT support any section in the outline. List their ids in delete_chunk_ids.
-                - Identify outline sections lacking sufficient supporting chunks. Propose targeted new_queries to fill gaps.
+                - Identify chunks that do NOT support any section in the outline OR that are about different topics. List their ids in delete_chunk_ids.
+                - ONLY propose new_queries if there are CRITICAL missing entities that were mentioned in the initial query generation.
+                - DO NOT propose queries for new teams, people, or organizations that were not in the original research plan.
 
                 Rules:
-                - Be conservative with deletions — only remove chunks clearly irrelevant to ALL outline sections.
+                - Be AGGRESSIVE with deletions — remove chunks about related but different topics (different leagues, years, categories, matches, etc.).
                 - AGGRESSIVELY delete chunks about wrong years if the topic has a specific year.
+                - DELETE chunks about similarly-named but different events or competitions.
+                - DELETE chunks that mention other teams/competitors not relevant to this specific topic.
+                - VERY RARELY propose new queries - only if there's an obvious gap for a known entity (venue, organization, key person).
+                - DO NOT propose queries for teams/people found in retrieved chunks unless they were in the initial query plan.
                 - Limit new_queries to {max_queries} precise queries targeting specific outline sections.
                 - Each new_query must be formatted like a Wikipedia page title:
                     • Use Title Case (no underscores or all-caps).
@@ -908,7 +1142,7 @@ def build_research_gate_prompt(
                     • Add parenthetical disambiguation if needed (e.g., "(2021 season)" or "(organization)").
                     • Keep titles concise and natural — around 2–6 words.
                 - Keep reasoning short and actionable.
-                - Set action="retry" if you recommend any changes, otherwise "continue".
+                - Set action="retry" if you recommend any changes (deletions or new queries), otherwise "continue".
                 """
 
 
@@ -935,3 +1169,29 @@ def build_outline_gate_prompt(topic: str, outline_str: str, ctx: Optional[str]) 
 
 
 # endregion Writer Prompt Templates
+
+
+# ---------------------------------------- Claim Verification Template ---------------------------------------
+CLAIM_VERIFICATION_PROMPT = """You are verifying whether a claim is supported by the provided source chunks.
+
+CLAIM:
+{claim}
+
+SOURCE CHUNKS:
+{chunks}
+
+Task: Determine if the claim is SUPPORTED or NOT SUPPORTED by the source chunks.
+
+Rules:
+- The claim is SUPPORTED if the chunks provide direct evidence for it
+- The claim is NOT SUPPORTED if:
+  * The chunks don't contain information about the claim
+  * The chunks contradict the claim
+  * The chunks provide only tangential or unrelated information
+
+Respond with one of:
+- "SUPPORTED: The chunks provide evidence for this claim."
+- "NOT SUPPORTED: [brief reason why chunks don't support claim]"
+
+Keep your response concise (1-2 sentences).
+"""

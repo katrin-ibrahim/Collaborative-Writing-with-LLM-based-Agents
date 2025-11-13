@@ -70,6 +70,17 @@ class QueryListValidationModel(BaseModel):
     )
 
 
+class EntityListValidationModel(BaseModel):
+    """A list of entity names extracted from context."""
+
+    entities: List[str] = Field(
+        ...,
+        min_length=0,
+        max_length=10,
+        description="A list of entity names (Wikipedia page titles) extracted from context.",
+    )
+
+
 class ChunkSelectionValidationModel(BaseModel):
     """The list of chunk IDs that are most relevant for writing the current section."""
 
@@ -191,6 +202,9 @@ class WriterV3(BaseAgent):
         workflow.add_node("outline", self._outline)  # Initial Flow Only
         workflow.add_node("refine_outline", self._refine_outline)  # Initial Flow Only
         workflow.add_node("write", self._write_draft)  # Initial Flow Only
+        workflow.add_node(
+            "process_suggested_queries", self._process_suggested_queries
+        )  # Revision Flow Only
         workflow.add_node("revise", self._revise_draft)  # Revision Flow Only
         workflow.add_node("self_refine", self._self_refine)  # Both Flows (Optional)
 
@@ -202,14 +216,17 @@ class WriterV3(BaseAgent):
             lambda state: self.flow_type,
             {
                 "INITIAL_FLOW": "research",  # iter 0: research -> outline...
-                "REVISION_FLOW": "revise",  # iter 1+: revise
+                "REVISION_FLOW": "process_suggested_queries",  # iter 1+: process suggested queries -> revise
             },
         )
 
         # 2. Research -> Outline (no gate, just collect chunks)
         workflow.add_edge("research", "outline")
 
-        # 3. Outline -> Research Gate (with outline context)
+        # 3. Process suggested queries -> Revise (for revision flow)
+        workflow.add_edge("process_suggested_queries", "revise")
+
+        # 4. Outline -> Research Gate (with outline context)
         workflow.add_conditional_edges(
             "outline",
             self._should_refine_research,  # LLM gate with outline context
@@ -278,7 +295,7 @@ class WriterV3(BaseAgent):
             return "continue_write"
 
         outline_str = "\n".join(outline.headings)
-        research_client = self.get_task_client("chunk_selection")
+        research_client = self.get_task_client("research")
 
         batch_size = (
             self.retrieval_config.final_passages if self.retrieval_config else 10
@@ -468,6 +485,11 @@ class WriterV3(BaseAgent):
         topic = self.shared_memory.get_topic()
         top_chunk = self._get_best_chunk()
         top_chunk_text = top_chunk.content if top_chunk else ""
+
+        # Get temporal context for disambiguation (adjacent year's article)
+        # This is passed separately to the prompt, not mixed with actual research chunks
+        temporal_context = self._get_temporal_context_chunk(topic)
+
         chunk_summaries = self.shared_memory.get_search_summaries()
         formatted_chunk_summaries = build_formatted_chunk_summaries(
             chunk_summaries,
@@ -476,7 +498,10 @@ class WriterV3(BaseAgent):
         )
 
         outline_prompt_str = outline_prompt(
-            topic, top_chunk_text, formatted_chunk_summaries
+            topic,
+            top_chunk_text,
+            formatted_chunk_summaries,
+            temporal_context=temporal_context or "",
         )
 
         tom_context = self._get_tom_context(
@@ -642,6 +667,28 @@ class WriterV3(BaseAgent):
 
     # ======================== REVISION FLOW NODES ========================
     # region Revision Flow Nodes
+    def _process_suggested_queries(self, state: MinimalState) -> MinimalState:
+        """Process suggested queries from reviewer if available."""
+        iteration = self.shared_memory.get_iteration()
+        if iteration == 0:
+            # No suggested queries in first iteration
+            return state
+
+        # Get suggested queries from previous iteration
+        previous_iteration = iteration - 1
+        suggested_queries = self.shared_memory.get_suggested_queries(previous_iteration)
+
+        if suggested_queries:
+            logger.info(
+                f"Processing {len(suggested_queries)} suggested queries from reviewer (iteration {previous_iteration})"
+            )
+            # Execute search for suggested queries
+            self._execute_search_phase(queries=suggested_queries)
+        else:
+            logger.debug("No suggested queries from reviewer")
+
+        return state
+
     def _revise_draft(self, state: MinimalState) -> MinimalState:
         """
         Graph node: revision step.
@@ -662,7 +709,7 @@ class WriterV3(BaseAgent):
             return state  # nothing to do
 
         mode = getattr(getattr(self, "config", None), "revise_mode", "pending_sections")
-        if mode == "single_section":
+        if mode == "section":
             self._revise_sections_sequential(article, pending_by_section)
         else:  # default "pending_sections"
             self._revise_sections_batch(article, pending_by_section)
@@ -866,6 +913,135 @@ class WriterV3(BaseAgent):
         )
         return top_chunk
 
+    def _get_temporal_context_chunk(self, topic: str) -> Optional[str]:
+        """
+        Fetch top chunk from an adjacent year's article for temporal disambiguation.
+        For example, if topic is "2022 AFL Grand Final", fetch from "2021 AFL Grand Final".
+        This helps the model understand the structure and disambiguate (e.g., AFL vs AFLW).
+        """
+        import re
+
+        year_match = re.search(r"\b(19|20)\d{2}\b", topic)
+        if not year_match:
+            return None
+
+        topic_year = int(year_match.group(0))
+
+        # Try previous year first, then next year
+        for adjacent_year in [topic_year - 1, topic_year + 1]:
+            adjacent_topic = topic.replace(str(topic_year), str(adjacent_year))
+
+            try:
+                # Search for the adjacent year's article
+                search_results = self.retrieval_manager.search(
+                    query_list=[adjacent_topic], max_results=1
+                )
+
+                if search_results and len(search_results) > 0:
+                    top_result = search_results[0]
+                    logger.info(
+                        f"Fetched temporal context from '{adjacent_topic}' for disambiguation"
+                    )
+                    # Return just the content snippet, not the full chunk
+                    return f"TEMPORAL CONTEXT (from {adjacent_year}, for structure reference only):\n{top_result.content[:500]}"
+            except Exception as e:
+                logger.debug(
+                    f"Could not fetch temporal context for {adjacent_topic}: {e}"
+                )
+                continue
+
+        return None
+
+    def _extract_entities_from_index_page(
+        self, topic: str, categories: Optional[List[str]] = None
+    ) -> List[str]:
+        """
+        Use Wikipedia categories to find a broader 'index page' and extract key entities.
+
+        For example, "2022 AFL Grand Final" has category "2022 AFL season",
+        which we can query to find the actual teams that played.
+        """
+        from src.collaborative.agents.templates import (
+            extract_entities_from_context_prompt,
+        )
+
+        if not categories:
+            logger.debug("No categories provided for entity extraction")
+            return []
+
+        index_page = self._select_best_index_page(categories)
+        if not index_page:
+            logger.debug(f"No suitable index page found in categories: {categories}")
+            return []
+
+        logger.info(
+            f"Using index page '{index_page}' to extract entities for '{topic}'"
+        )
+
+        try:
+            search_results = self.retrieval_manager.search(
+                query_list=[index_page], max_results=3
+            )
+
+            if not search_results:
+                logger.debug(f"No results from index page query '{index_page}'")
+                return []
+
+            combined_context = "\n\n".join(
+                [chunk.content[:1000] for chunk in search_results[:3]]
+            )
+
+            prompt = extract_entities_from_context_prompt(topic, combined_context)
+
+            extraction_client = self.get_task_client("research")
+
+            response_model = extraction_client.call_structured_api(
+                prompt=prompt, output_schema=EntityListValidationModel
+            )
+
+            entities = response_model.entities
+            logger.info(
+                f"Extracted {len(entities)} entities from index page '{index_page}': {entities}"
+            )
+            return entities
+
+        except Exception as e:
+            logger.warning(f"Entity extraction from index page failed: {e}")
+            return []
+
+    def _select_best_index_page(self, categories: List[str]) -> Optional[str]:
+        """
+        Select the best 'index page' from Wikipedia categories.
+
+        Prioritize season/year pages, then broader topic pages.
+        Examples:
+        - "2022 AFL season" (from "2022 AFL Grand Final")
+        - "UEFA Euro 2016" (from "UEFA Euro 2016 Final")
+        """
+        import re
+
+        for cat in categories:
+            cat_lower = cat.lower()
+
+            if "season" in cat_lower and re.search(r"\b(19|20)\d{2}\b", cat):
+                return cat
+
+            if re.search(r"\b(19|20)\d{2}\b", cat) and any(
+                keyword in cat_lower
+                for keyword in [
+                    "afl",
+                    "nrl",
+                    "euro",
+                    "world cup",
+                    "fifa",
+                    "election",
+                    "olympics",
+                ]
+            ):
+                return cat
+
+        return None
+
     def _generate_queries(
         self,
         topic: str,
@@ -874,8 +1050,18 @@ class WriterV3(BaseAgent):
     ) -> List[str]:
         """Generate secondary search queries using LLM reasoning with Wikipedia categories and top chunk."""
 
-        # Build context from Wikipedia categories and top chunk
+        # STEP 1: Extract entities from index page using Wikipedia categories
+        extracted_entities = self._extract_entities_from_index_page(
+            topic, wikipedia_categories
+        )
+
+        # Build context from extracted entities, Wikipedia categories and top chunk
         context_parts = []
+
+        if extracted_entities:
+            context_parts.append(
+                "EXTRACTED_ENTITIES_FROM_INDEX_PAGE: " + ", ".join(extracted_entities)
+            )
 
         if wikipedia_categories:
             context_parts.append(
@@ -883,9 +1069,7 @@ class WriterV3(BaseAgent):
             )
 
         if top_chunk and top_chunk.content:
-            context_parts.append(
-                f"TOP_RESEARCH_CHUNK: {top_chunk.content[:500]}"
-            )  # First 500 chars
+            context_parts.append(f"TOP_RESEARCH_CHUNK: {top_chunk.content[:500]}")
 
         context = "\n\n".join(context_parts) if context_parts else ""
 
@@ -898,7 +1082,7 @@ class WriterV3(BaseAgent):
             prompt += f"\n\nPrevious outline reasoning context: {self._research_ctx}"
 
         try:
-            query_client = self.get_task_client("query_generation")
+            query_client = self.get_task_client("research")
 
             # Call the structured API, passing the QueryList model directly
             response_model: QueryListValidationModel = query_client.call_structured_api(
@@ -928,44 +1112,68 @@ class WriterV3(BaseAgent):
         sections_out: Dict[str, str] = {}
         headings = outline.headings
 
-        # Step 1: Single batched chunk selection for ALL sections
-        logger.info(f"Batch selecting chunks for all {len(headings)} sections")
-        select_prompt = select_sections_chunks_batch_prompt(
-            headings,
-            topic,
-            chunk_summaries_str,
-            self.retrieval_config.final_passages,
-        )
+        # Step 1: Batched chunk selection (split into batches of 10 to avoid truncation)
+        SELECTION_BATCH_SIZE = 10
+        section_chunks_map = {}
         selection_client = self.get_task_client("section_selection")
 
-        # Get chunk selections for all sections
-        section_chunks_map = {}
-        try:
-            batch_selection = selection_client.call_structured_api(
-                prompt=select_prompt, output_schema=BatchChunkSelectionModel
-            )
-            for selection in batch_selection.selections:
-                section_chunks_map[selection.section_heading] = selection.chunk_ids
-        except Exception as e:
-            logger.warning(
-                f"Batch chunk selection failed: {e}, falling back to sequential selection"
-            )
-            # Fallback: sequential chunk selection
-            for heading in headings:
-                try:
-                    select_prompt = select_section_chunks_prompt(
-                        heading,
-                        topic,
-                        chunk_summaries_str,
-                        self.retrieval_config.final_passages,
-                    )
-                    sel = selection_client.call_structured_api(
-                        prompt=select_prompt,
-                        output_schema=ChunkSelectionValidationModel,
-                    )
-                    section_chunks_map[heading] = getattr(sel, "chunk_ids", [])
-                except Exception:
-                    section_chunks_map[heading] = []
+        logger.info(
+            f"Batch selecting chunks for {len(headings)} sections in batches of {SELECTION_BATCH_SIZE}"
+        )
+
+        for batch_start in range(0, len(headings), SELECTION_BATCH_SIZE):
+            batch_end = min(batch_start + SELECTION_BATCH_SIZE, len(headings))
+            batch_headings = headings[batch_start:batch_end]
+
+            try:
+                select_prompt = select_sections_chunks_batch_prompt(
+                    batch_headings,
+                    topic,
+                    chunk_summaries_str,
+                    self.retrieval_config.final_passages,
+                )
+
+                batch_selection = selection_client.call_structured_api(
+                    prompt=select_prompt, output_schema=BatchChunkSelectionModel
+                )
+
+                for selection in batch_selection.selections:
+                    section_chunks_map[selection.section_heading] = selection.chunk_ids
+
+                logger.info(
+                    f"  Batch {batch_start//SELECTION_BATCH_SIZE + 1}: "
+                    f"Selected chunks for sections {batch_start+1}-{batch_end}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Batch chunk selection failed for sections {batch_start+1}-{batch_end}: {e}, "
+                    f"falling back to sequential selection"
+                )
+                # Fallback: sequential chunk selection for this batch
+                for heading in batch_headings:
+                    try:
+                        select_prompt = select_section_chunks_prompt(
+                            heading,
+                            topic,
+                            chunk_summaries_str,
+                            self.retrieval_config.final_passages,
+                        )
+                        sel = selection_client.call_structured_api(
+                            prompt=select_prompt,
+                            output_schema=ChunkSelectionValidationModel,
+                        )
+                        section_chunks_map[heading] = getattr(sel, "chunk_ids", [])
+                    except Exception:
+                        section_chunks_map[heading] = []
+
+        total_selected = sum(len(chunks) for chunks in section_chunks_map.values())
+        avg_per_section = (
+            total_selected / len(section_chunks_map) if section_chunks_map else 0
+        )
+        logger.info(
+            f"Chunk selection completed: {len(section_chunks_map)} sections, "
+            f"{total_selected} total chunks ({avg_per_section:.1f} avg per section)"
+        )
 
         if BATCH_SIZE > 1:
 
@@ -1106,17 +1314,44 @@ class WriterV3(BaseAgent):
         client = self.get_task_client("writer")
         text = (client.call_api(prompt=prompt) or "").strip()
 
+        sections = self._parse_markdown_sections(text)
+
         return Article(
             title=topic,
             content=text,
-            sections={},  # one-shot; sections can be derived later if desired
+            sections=sections,
             metadata={
                 "iteration": self.shared_memory.state.get("iteration", 0),
-                "sections_count": len(outline.headings),
+                "sections_count": len(sections),
                 "writing_mode": "full_article",
                 "timestamp": datetime.now().isoformat(),
             },
         )
+
+    def _parse_markdown_sections(self, content: str) -> Dict[str, str]:
+        """
+        Parse markdown content into sections based on H2 headers (##).
+        Returns a dictionary mapping section headings to their content.
+        """
+        sections = {}
+        lines = content.split("\n")
+        current_heading = None
+        current_content = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("## "):
+                if current_heading and current_content:
+                    sections[current_heading] = "\n".join(current_content).strip()
+                current_heading = stripped[3:].strip()
+                current_content = []
+            elif current_heading is not None:
+                current_content.append(line)
+
+        if current_heading and current_content:
+            sections[current_heading] = "\n".join(current_content).strip()
+
+        return sections
 
     def _write_single_section(
         self,
@@ -1154,7 +1389,7 @@ class WriterV3(BaseAgent):
         batch_prompt = build_revision_batch_prompt(
             article, pending_by_section, research_ctx
         )
-        client = self.get_task_client("revision_batch")
+        client = self.get_task_client("revision")
         batch_model = client.call_structured_api(
             prompt=batch_prompt, output_schema=WriterValidationBatchModel
         )

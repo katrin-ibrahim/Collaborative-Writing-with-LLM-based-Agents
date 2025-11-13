@@ -210,15 +210,23 @@ def save_summary_and_plots(out_dir, plot_dir):
         means = list(data.values())
         labels = list(data.keys())
         fig = plt.figure()
-        plt.bar(x, means, color=["#4a90e2", "#e94e77"])
-        plt.xticks(x, labels)
-        plt.title(names[metric])
-        plt.ylabel(names[metric])
-        plt.xlabel("Retriever (rm)")
+        plt.bar(
+            x,
+            means,
+            color=["#4575b4", "#f46d43"],
+            alpha=0.8,
+            edgecolor="black",
+            linewidth=1,
+        )
+        plt.xticks(x, labels, fontsize=12)
+        plt.title(names[metric], fontsize=14, fontweight="bold")
+        plt.ylabel(names[metric], fontsize=12)
+        plt.xlabel("Retriever (rm)", fontsize=12)
         for xi, m in zip(x, means):
-            plt.text(xi, m, f"{m:.2f}", ha="center", va="bottom")
+            plt.text(xi, m, f"{m:.2f}", ha="center", va="bottom", fontsize=11)
+        plt.grid(axis="y", alpha=0.3)
         plt.tight_layout()
-        plt.savefig(plot_dir / f"{metric}.png", dpi=160)
+        plt.savefig(plot_dir / f"{metric}.png", dpi=200)
         plt.close(fig)
     log.info("Saved summary and labeled plots.")
 
