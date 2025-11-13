@@ -24,14 +24,10 @@ class ModelConfig(BaseConfig):
     polish_model: str = "qwen3:4b"  # Final polish
 
     # Writer-Reviewer specific model assignments
-    query_generation_model: str = "qwen3:4b"  # Fast model for generating search queries
+    research_model: str = "qwen3:4b"  # Fast model for generating search queries
     create_outline_model: str = "qwen3:4b"  # Model for creating article outlines
-    section_selection_model: str = "qwen3:4b"  # Model for selecting relevant chunks
     writer_model: str = "qwen3:4b"  # High-quality model for writing content
     revision_model: str = "qwen3:4b"  # Model for revising sections based on feedback
-    revision_batch_model: str = (
-        "qwen3:4b"  # Model for revising multiple sections in batch
-    )
     self_refine_model: str = "qwen3:4b"  # Model for self-refinement
     reviewer_model: str = (
         "qwen3:4b"  # Model for holistic review and feedback generation
@@ -81,12 +77,11 @@ class ModelConfig(BaseConfig):
                 "critique": 1200,  # Increased for thorough critique
                 "polish": 1200,  # Increased for better polishing
                 # Writer-Reviewer specific token limits
-                "query_generation": 800,  # Short for focused queries
+                "research": 800,  # Short for focused queries
                 "create_outline": 600,  # Short for outline creation
                 "section_selection": 1200,  # Short for chunk ID selection
                 "writer": 2000,  # Long for detailed section content
                 "revision": 3000,  # Medium for revision with feedback
-                "revision_batch": 2000,  # Long for batch revisions
                 "self_refine": 3000,  # Long for self-refinement
                 "reviewer": 1800,  # Long for comprehensive review and feedback
             }
@@ -122,12 +117,10 @@ class ModelConfig(BaseConfig):
             "writing": self.writing_model,
             "polish": self.polish_model,
             # Writer-Reviewer specific tasks
-            "query_generation": self.query_generation_model,
+            "research": self.research_model,
             "create_outline": self.create_outline_model,
-            "section_selection": self.section_selection_model,
             "writer": self.writer_model,
             "section_revision": self.revision_model,
-            "revision_batch": self.revision_batch_model,
             "self_refine": self.self_refine_model,
             "reviewer": self.reviewer_model,
         }

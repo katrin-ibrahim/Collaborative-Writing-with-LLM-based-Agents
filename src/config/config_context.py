@@ -135,13 +135,6 @@ class ConfigContext:
         return cls._collaboration_config
 
     @classmethod
-    def get_storm_config(cls) -> "StormConfig":
-        """Get STORM configuration."""
-        if not cls._initialized or cls._storm_config is None:
-            raise RuntimeError("ConfigContext: StormConfig not initialized.")
-        return cls._storm_config
-
-    @classmethod
     def get_backend(cls) -> str:
         """Get backend type."""
         return cls._backend
