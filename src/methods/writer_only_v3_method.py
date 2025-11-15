@@ -16,6 +16,7 @@ from src.collaborative.memory.memory import SharedMemory
 from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
 from src.utils.data import Article
+from src.utils.text_processing import remove_citation_tags
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,9 @@ class WriterOnlyV3Method(BaseMethod):
             logger.info(
                 f"Total time: {total_time:.2f}s, tokens: {token_usage['total_tokens']}"
             )
+
+            # Post-processing: Remove citation tags before final output
+            final_article.content = remove_citation_tags(final_article.content)
 
             return final_article
 

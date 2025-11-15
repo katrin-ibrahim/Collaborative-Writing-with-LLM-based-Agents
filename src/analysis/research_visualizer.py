@@ -133,6 +133,7 @@ class ResearchVisualizer:
         colors: Optional[Dict] = None,
         xlabel: Optional[str] = None,
         y_max: Optional[float] = None,
+        y_padding: float = 0.3,
     ):
         """Create box plot showing distributions across groups."""
         n_metrics = len(metrics)
@@ -198,9 +199,19 @@ class ResearchVisualizer:
             ax.set_xlabel(xlabel or x_var.replace("_", " ").title())
             ax.grid(axis="y", alpha=0.3)
 
-            # Set y-axis limit if specified
+            # Set y-axis limits with padding
             if y_max is not None:
+                # User-specified max with padding
                 ax.set_ylim(0, y_max)
+            else:
+                # Auto-calculate max from data with padding
+                # Get the maximum value from all box plot elements (whiskers, outliers)
+                data_max = max(max(data) if len(data) > 0 else 0 for data in box_data)
+
+                # Add padding (default 10% of the range)
+                if data_max > 0:
+                    padded_max = data_max * (1 + y_padding)
+                    ax.set_ylim(0, padded_max)
 
         for idx in range(n_metrics, len(axes_list)):
             fig.delaxes(axes_list[idx])  # type: ignore
@@ -221,6 +232,7 @@ class ResearchVisualizer:
         colors: Optional[Dict] = None,
         xlabel: Optional[str] = None,
         y_max: Optional[float] = None,
+        y_padding: float = 0.15,
     ):
         """Create bar plot showing mean values across groups."""
         n_metrics = len(metrics)
@@ -267,12 +279,29 @@ class ResearchVisualizer:
                 linewidth=1.5,
             )
 
+            # Calculate the appropriate y-axis maximum
+            data_max = max(means) if means else 0
+
+            if y_max is not None:
+                plot_max = y_max
+            else:
+                plot_max = data_max
+
+            # Calculate padding that accounts for text labels
+            # Use minimum absolute padding to ensure text fits
+            text_space = plot_max * 0.08  # Reserve 8% for text labels
+            data_padding = plot_max * y_padding  # User-specified padding
+            total_padding = text_space + data_padding
+
+            # Set y-axis limits BEFORE adding text
+            ax.set_ylim(0, plot_max + total_padding)
+
             # Add value labels on top of bars
             for bar, mean_val in zip(bars, means):
                 height = bar.get_height()
                 ax.text(
                     bar.get_x() + bar.get_width() / 2.0,
-                    height + (y_max or max(means)) * 0.02,
+                    height,
                     f"{mean_val:.1f}",
                     ha="center",
                     va="bottom",
@@ -288,10 +317,6 @@ class ResearchVisualizer:
             ax.set_ylabel(metric.replace("_", " ").title())
             ax.set_xlabel(xlabel or x_var.replace("_", " ").title())
             ax.grid(axis="y", alpha=0.3)
-
-            # Set y-axis limit if specified
-            if y_max is not None:
-                ax.set_ylim(0, y_max)
 
         for idx in range(n_metrics, len(axes_list)):
             fig.delaxes(axes_list[idx])  # type: ignore
@@ -347,7 +372,7 @@ class ResearchVisualizer:
             output_dir / "rm_judge_scores_box.png",
             colors,
             "Retrieval Method",
-            y_max=5,
+            y_max=4,
         )
 
         self._create_bar_plot(
@@ -358,7 +383,7 @@ class ResearchVisualizer:
             output_dir / "rm_judge_scores_bar.png",
             colors,
             "Retrieval Method",
-            y_max=5,
+            y_max=4,
         )
 
         logger.info(f"RM comparison saved to: {output_dir}")
@@ -388,7 +413,6 @@ class ResearchVisualizer:
             output_dir / "wm_reference_metrics_box.png",
             colors,
             "Writing Mode",
-            y_max=0.7,
         )
 
         self._create_bar_plot(
@@ -409,7 +433,7 @@ class ResearchVisualizer:
             output_dir / "wm_judge_scores_box.png",
             colors,
             "Writing Mode",
-            y_max=5,
+            y_max=4,
         )
 
         self._create_bar_plot(
@@ -420,7 +444,7 @@ class ResearchVisualizer:
             output_dir / "wm_judge_scores_bar.png",
             colors,
             "Writing Mode",
-            y_max=5,
+            y_max=4,
         )
 
         logger.info(f"Writing mode comparison saved to: {output_dir}")
@@ -450,7 +474,6 @@ class ResearchVisualizer:
             output_dir / "revm_reference_metrics_box.png",
             colors,
             "Revision Mode",
-            y_max=0.7,
         )
 
         self._create_bar_plot(
@@ -471,7 +494,7 @@ class ResearchVisualizer:
             output_dir / "revm_judge_scores_box.png",
             colors,
             "Revision Mode",
-            y_max=5,
+            y_max=4,
         )
 
         self._create_bar_plot(
@@ -482,7 +505,6 @@ class ResearchVisualizer:
             output_dir / "revm_judge_scores_bar.png",
             colors,
             "Revision Mode",
-            y_max=5,
         )
 
         logger.info(f"Revision mode comparison saved to: {output_dir}")
@@ -540,7 +562,6 @@ class ResearchVisualizer:
             output_dir / f"{sweep_type}_reference_metrics_bar.png",
             colors,
             "Model",
-            y_max=0.7,
         )
 
         self._create_box_plot(
@@ -551,7 +572,7 @@ class ResearchVisualizer:
             output_dir / f"{sweep_type}_judge_scores_box.png",
             colors,
             "Model",
-            y_max=5,
+            y_max=4,
         )
 
         self._create_bar_plot(
@@ -562,7 +583,7 @@ class ResearchVisualizer:
             output_dir / f"{sweep_type}_judge_scores_bar.png",
             colors,
             "Model",
-            y_max=5,
+            y_max=4,
         )
 
         logger.info(f"{sweep_type} saved to: {output_dir}")
@@ -618,7 +639,7 @@ class ResearchVisualizer:
             output_dir / "methods_judge_scores_box.png",
             METHOD_COLORS,
             "Method",
-            y_max=5,
+            y_max=4,
         )
 
         self._create_bar_plot(
@@ -629,6 +650,6 @@ class ResearchVisualizer:
             output_dir / "methods_judge_scores_bar.png",
             METHOD_COLORS,
             "Method",
-            y_max=5,
+            y_max=4,
         )
         logger.info(f"Method comparison saved to: {output_dir}")

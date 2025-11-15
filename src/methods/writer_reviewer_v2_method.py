@@ -11,6 +11,7 @@ from src.collaborative.memory.memory import SharedMemory
 from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
 from src.utils.data import Article
+from src.utils.text_processing import remove_citation_tags
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +317,33 @@ class WriterReviewerV2Method(BaseMethod):
                 logger.info("Confidence distribution:")
                 for bucket, count in conf_dist.items():
                     logger.info(f"  {bucket}: {count} predictions")
+
+                # Log behavioral impact metrics
+                behavioral_impact = tom_metrics.get("behavioral_impact", {})
+                if behavioral_impact:
+                    logger.info("=" * 60)
+                    logger.info("BEHAVIORAL IMPACT ANALYSIS")
+                    logger.info("=" * 60)
+                    logger.info(
+                        f"Feedback volumes per iteration: {behavioral_impact.get('feedback_volumes', [])}"
+                    )
+                    logger.info(
+                        f"ToM confidence progression: {[f'{c:.2f}' for c in behavioral_impact.get('tom_confidence_progression', [])]}"
+                    )
+                    logger.info(
+                        f"Acceptance rate progression: {[f'{r:.2%}' for r in behavioral_impact.get('acceptance_rate_progression', [])]}"
+                    )
+                    logger.info(
+                        f"Confidence-feedback correlation: {behavioral_impact.get('confidence_feedback_correlation', 0.0):.3f}"
+                    )
+                    logger.info(
+                        f"Behavioral adaptation detected: {behavioral_impact.get('behavioral_adaptation_detected', False)}"
+                    )
+
                 logger.info("=" * 60)
+
+            # Post-processing: Remove citation tags before final output
+            final_article.content = remove_citation_tags(final_article.content)
 
             return final_article
 
@@ -340,11 +367,14 @@ class WriterReviewerV2Method(BaseMethod):
         all_feedback = []
         max_iter = memory.get_iteration()
         for i in range(max_iter + 1):
+            iteration_count = 0
             items_by_section = memory.get_feedback_items_for_iteration(i)
             for items in items_by_section.values():
-                for item in items:
-                    feedback_by_iteration.setdefault(i, []).append(item)
-                    all_feedback.append(item)
+                iteration_count += len(items)
+                all_feedback.extend(items)
+
+            # Store the final count for this iteration
+            feedback_by_iteration[str(i)] = iteration_count
 
         # Calculate feedback metrics
         def get_status(item):
@@ -357,14 +387,19 @@ class WriterReviewerV2Method(BaseMethod):
 
         total_feedback = len(all_feedback)
         addressed_feedback = len(
-            [f for f in all_feedback if get_status(f) == "addressed"]
+            [f for f in all_feedback if get_status(f) == "verified_addressed"]
         )
-        pending_feedback = len([f for f in all_feedback if get_status(f) == "pending"])
+
+        # Count *everything* not verified as pending ---
+        pending_feedback = len(
+            [f for f in all_feedback if get_status(f) != "verified_addressed"]
+        )
 
         # Calculate convergence metrics using existing checker
         convergence_metrics = {}
         try:
             iteration = memory.get_iteration()
+            # Use the same logic for "pending" above
             pending_items = [
                 f for f in all_feedback if get_status(f) != "verified_addressed"
             ]
@@ -394,9 +429,7 @@ class WriterReviewerV2Method(BaseMethod):
             "feedback_resolution_rate": (
                 addressed_feedback / total_feedback if total_feedback > 0 else 0
             ),
-            "feedback_by_iteration": {
-                str(k): len(v) for k, v in feedback_by_iteration.items()
-            },
+            "feedback_by_iteration": feedback_by_iteration,
             "average_feedback_per_iteration": total_feedback
             / max(1, len(feedback_by_iteration)),
             "time_efficiency": {
@@ -424,6 +457,9 @@ class WriterReviewerV2Method(BaseMethod):
 
             tom_interactions = memory.tom_module.interactions
 
+            # Calculate behavioral impact metrics
+            behavioral_impact = self._calculate_behavioral_impact_metrics(memory)
+
             return {
                 "interactions": len(tom_interactions),
                 "learning_occurred": sum(
@@ -432,6 +468,7 @@ class WriterReviewerV2Method(BaseMethod):
                 "prediction_stats": prediction_stats,
                 "belief_evolution": belief_evolution,
                 "prediction_quality": prediction_quality,
+                "behavioral_impact": behavioral_impact,
                 # Legacy fields for backward compatibility
                 "total_predictions": prediction_stats.get("total_predictions", 0),
                 "accurate_predictions": prediction_stats.get("correct_predictions", 0),
@@ -442,13 +479,121 @@ class WriterReviewerV2Method(BaseMethod):
             logger.warning(f"Could not calculate ToM metrics: {e}")
             return {"error": str(e)}
 
+    def _calculate_behavioral_impact_metrics(self, memory: SharedMemory) -> dict:
+        """Calculate metrics to assess if ToM predictions actually influence agent behavior."""
+        try:
+            # Track feedback volume per iteration with ToM predictions
+            feedback_volumes_by_iteration = []
+            tom_confidence_by_iteration = []
+            acceptance_rates_by_iteration = []
+
+            max_iter = memory.get_iteration()
+
+            for i in range(max_iter + 1):
+                # Get feedback volume
+                items_by_section = memory.get_feedback_items_for_iteration(i)
+                all_items = []
+                for items in items_by_section.values():
+                    all_items.extend(items)
+                feedback_volumes_by_iteration.append(len(all_items))
+
+                # Get ToM prediction confidence for this iteration
+                iteration_predictions = [
+                    p
+                    for p in memory.tom_module.prediction_history
+                    if getattr(p, "iteration", None) == i
+                ]
+                avg_confidence = (
+                    sum(p.confidence for p in iteration_predictions)
+                    / len(iteration_predictions)
+                    if iteration_predictions
+                    else 0.0
+                )
+                tom_confidence_by_iteration.append(avg_confidence)
+
+                # Calculate acceptance rate if iteration > 0
+                if i > 0 and all_items:
+                    addressed_count = sum(
+                        1
+                        for item in all_items
+                        if getattr(item, "status", None)
+                        and getattr(item, "status").value
+                        in ["addressed", "verified_addressed"]
+                    )
+                    acceptance_rates_by_iteration.append(
+                        addressed_count / len(all_items)
+                    )
+                elif i > 0:
+                    acceptance_rates_by_iteration.append(0.0)
+
+            # Calculate correlation metrics
+            behavioral_adaptation_detected = False
+            confidence_feedback_correlation = 0.0
+
+            if (
+                len(tom_confidence_by_iteration) > 2
+                and len(feedback_volumes_by_iteration) > 2
+            ):
+                # Check if high confidence correlates with adjusted feedback volume
+                import numpy as np
+
+                if len(tom_confidence_by_iteration) == len(
+                    feedback_volumes_by_iteration
+                ):
+                    try:
+                        correlation = np.corrcoef(
+                            tom_confidence_by_iteration, feedback_volumes_by_iteration
+                        )[0, 1]
+                        confidence_feedback_correlation = (
+                            float(correlation) if not np.isnan(correlation) else 0.0
+                        )
+                    except Exception:
+                        pass
+
+                # Detect behavioral adaptation: if acceptance rate changes align with ToM predictions
+                if len(acceptance_rates_by_iteration) > 1:
+                    # Check if acceptance rates converge over time (sign of adaptation)
+                    rate_changes = [
+                        abs(
+                            acceptance_rates_by_iteration[i + 1]
+                            - acceptance_rates_by_iteration[i]
+                        )
+                        for i in range(len(acceptance_rates_by_iteration) - 1)
+                    ]
+                    if rate_changes:
+                        avg_change = sum(rate_changes) / len(rate_changes)
+                        # If changes are decreasing (stabilizing), adaptation likely occurred
+                        behavioral_adaptation_detected = (
+                            avg_change < 0.2 and len(rate_changes) > 1
+                        )
+
+            return {
+                "feedback_volumes": feedback_volumes_by_iteration,
+                "tom_confidence_progression": tom_confidence_by_iteration,
+                "acceptance_rate_progression": acceptance_rates_by_iteration,
+                "confidence_feedback_correlation": confidence_feedback_correlation,
+                "behavioral_adaptation_detected": behavioral_adaptation_detected,
+                "total_iterations": max_iter + 1,
+            }
+
+        except Exception as e:
+            logger.warning(f"Could not calculate behavioral impact metrics: {e}")
+            return {}
+
     def _update_tom_after_writer(self, memory: SharedMemory, iteration: int) -> None:
         """Update ToM belief state after observing writer's behavior."""
         if not memory.tom_module or not memory.tom_module.enabled:
+            logger.info(
+                f"ToM: _update_tom_after_writer skipped (iteration {iteration}): ToM not enabled"
+            )
             return
 
         try:
             from src.collaborative.tom.theory_of_mind import AgentRole
+
+            logger.info(
+                f"ToM: _update_tom_after_writer called for iteration {iteration}"
+            )
 
             # Calculate feedback acceptance rate for this iteration
             if iteration > 0:
@@ -458,6 +603,10 @@ class WriterReviewerV2Method(BaseMethod):
                 all_items = []
                 for items in items_by_section.values():
                     all_items.extend(items)
+
+                logger.info(
+                    f"ToM: Found {len(all_items)} feedback items from iteration {iteration-1}"
+                )
 
                 if all_items:
                     addressed_count = sum(
@@ -487,6 +636,10 @@ class WriterReviewerV2Method(BaseMethod):
                         and p.accuracy.value == "unknown"
                     ]
 
+                    logger.info(
+                        f"ToM: Found {len(recent_predictions)} unevaluated predictions about writer (acceptance_rate: {acceptance_rate:.2%})"
+                    )
+
                     for pred in recent_predictions:
                         # Determine actual outcome based on acceptance rate
                         if acceptance_rate > 0.7:
@@ -499,20 +652,34 @@ class WriterReviewerV2Method(BaseMethod):
                         memory.tom_module.evaluate_prediction_accuracy(
                             prediction_id=pred.id, actual_outcome=actual_outcome
                         )
+                        logger.info(
+                            f"ToM: Evaluated prediction {pred.id[:8]}: predicted '{pred.predicted_action}' vs actual '{actual_outcome}'"
+                        )
 
                     logger.debug(
                         f"ToM: Reviewer observed writer acceptance rate: {acceptance_rate:.2%}"
                     )
+                else:
+                    logger.info(
+                        f"ToM: No feedback items found for iteration {iteration-1}, skipping evaluation"
+                    )
+            else:
+                logger.info(
+                    f"ToM: Skipping writer evaluation for iteration {iteration} (need iteration > 0)"
+                )
         except Exception as e:
             logger.warning(f"Failed to update ToM after writer: {e}")
 
     def _update_tom_after_reviewer(self, memory: SharedMemory) -> None:
         """Update ToM belief state after observing reviewer's behavior."""
         if not memory.tom_module or not memory.tom_module.enabled:
+            logger.info("ToM: _update_tom_after_reviewer skipped: ToM not enabled")
             return
 
         try:
             from src.collaborative.tom.theory_of_mind import AgentRole
+
+            logger.info("ToM: _update_tom_after_reviewer called")
 
             # Get current iteration's feedback
             current_iteration = memory.get_iteration()
@@ -522,6 +689,10 @@ class WriterReviewerV2Method(BaseMethod):
             all_items = []
             for items in items_by_section.values():
                 all_items.extend(items)
+
+            logger.info(
+                f"ToM: Found {len(all_items)} feedback items from iteration {current_iteration}"
+            )
 
             if all_items:
                 # Determine reviewer satisfaction level based on feedback volume
@@ -549,6 +720,10 @@ class WriterReviewerV2Method(BaseMethod):
                     and p.accuracy.value == "unknown"
                 ]
 
+                logger.info(
+                    f"ToM: Found {len(recent_predictions)} unevaluated predictions about reviewer (total items: {total_items}, satisfaction: {satisfaction_level:.2f})"
+                )
+
                 for pred in recent_predictions:
                     # Determine actual outcome based on feedback characteristics
                     if total_items > 10:
@@ -563,9 +738,16 @@ class WriterReviewerV2Method(BaseMethod):
                     memory.tom_module.evaluate_prediction_accuracy(
                         prediction_id=pred.id, actual_outcome=actual_outcome
                     )
+                    logger.info(
+                        f"ToM: Evaluated prediction {pred.id[:8]}: predicted '{pred.predicted_action}' vs actual '{actual_outcome}'"
+                    )
 
                 logger.debug(
                     f"ToM: Writer observed reviewer satisfaction: {satisfaction_level:.2f}, {total_items} feedback items"
+                )
+            else:
+                logger.info(
+                    f"ToM: No feedback items found for iteration {current_iteration}, skipping evaluation"
                 )
         except Exception as e:
             logger.warning(f"Failed to update ToM after reviewer: {e}")

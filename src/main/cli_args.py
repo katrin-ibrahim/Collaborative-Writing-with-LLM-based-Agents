@@ -16,11 +16,11 @@ def _get_available_model_configs() -> list[str]:
     """
     config_dir = Path(__file__).parent.parent / "config" / "configs"
     if not config_dir.exists():
-        return ["balanced_writer"]
+        return ["general"]
 
     config_files = list(config_dir.glob("model_*.yaml"))
     config_names = [f.stem.replace("model_", "") for f in config_files]
-    return sorted(config_names) if config_names else ["balanced_writer"]
+    return sorted(config_names) if config_names else ["general"]
 
 
 def _get_available_collaboration_configs() -> list[str]:
@@ -87,8 +87,8 @@ def parse_arguments() -> argparse.Namespace:
     config_group.add_argument(
         "--model_config",
         "-c",
-        default="ollama_ukp",
-        help=f"Model configuration preset (default: ollama_localhost). Available at startup: {', '.join(available_configs)}. Dynamically generated configs are also supported.",
+        default="general",
+        help=f"Model configuration preset (default: general). Available at startup: {', '.join(available_configs)}. Dynamically generated configs are also supported.",
     )
 
     config_group.add_argument(
@@ -101,21 +101,15 @@ def parse_arguments() -> argparse.Namespace:
     model_group = parser.add_argument_group("Granular Model Configuration")
 
     model_group.add_argument(
-        "--query_generation_model",
-        "-qgm",
-        help="Model for generating search queries",
-    )
-
-    model_group.add_argument(
         "--create_outline_model",
         "-oum",
         help="Model for creating article outlines",
     )
 
     model_group.add_argument(
-        "--section_selection_model",
-        "-ssm",
-        help="Model for selecting relevant chunks",
+        "--research_model",
+        "-resm",
+        help="Model for selecting relevant chunks, querying, and research synthesis",
     )
 
     model_group.add_argument(
@@ -129,13 +123,6 @@ def parse_arguments() -> argparse.Namespace:
         "-rvm",
         help="Model for revising sections based on feedback",
     )
-
-    model_group.add_argument(
-        "--revision_batch_model",
-        "-rbm",
-        help="Model for revising multiple sections in batch",
-    )
-
     model_group.add_argument(
         "--self_refine_model",
         "-srm",
@@ -160,14 +147,6 @@ def parse_arguments() -> argparse.Namespace:
         ],
         default="wiki",
         help="Retrieval manager type (overrides config file)",
-    )
-
-    retrieval_group.add_argument(
-        "--semantic_filtering",
-        "-sf",
-        choices=["true", "false"],
-        default="true",
-        help="Enable or disable semantic filtering for retrieval results (default: true)",
     )
 
     # =================== Output & Debugging ===================
@@ -199,7 +178,7 @@ def parse_arguments() -> argparse.Namespace:
         "--experiment_name",
         "-en",
         type=str,
-        help="Experiment name for auto-generated output directory (e.g., 'semantic_filtering_test')",
+        help="Experiment name for auto-generated output directory (e.g., 'gpt_test')",
     )
 
     # Collaboration-specific options
@@ -267,8 +246,8 @@ def parse_arguments() -> argparse.Namespace:
         "--revise_mode",
         "-revm",
         choices=["section", "pending"],
-        default="section",
-        help="Set the revise mode (default: section - optimal from sequential ablation)",
+        default="pending",
+        help="Set the revise mode: 'pending' = batch mode (fast, 1 LLM call), 'section' = sequential (slow, 1 call per section)",
     )
     parser.add_argument(
         "--no_self_refine",

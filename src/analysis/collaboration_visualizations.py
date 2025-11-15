@@ -2,15 +2,129 @@
 Visualization tools for collaboration and Theory of Mind metrics.
 """
 
+from collections import defaultdict
 from pathlib import Path
 
 import json
 import logging
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _aggregate_collab_metrics(metrics_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Aggregate a list of collaboration_metrics dicts into a single average dict."""
+    if not metrics_list:
+        return {}
+
+    num_experiments = len(metrics_list)
+
+    agg = {
+        "total_feedback_items": np.sum(
+            [m.get("total_feedback_items", 0) for m in metrics_list]
+        ),
+        "addressed_feedback": np.sum(
+            [m.get("addressed_feedback", 0) for m in metrics_list]
+        ),
+        "pending_feedback": np.sum(
+            [m.get("pending_feedback", 0) for m in metrics_list]
+        ),
+        "feedback_by_iteration": {},
+        "convergence": {
+            "convergence_score": np.mean(
+                [
+                    m.get("convergence", {}).get("convergence_score", 0)
+                    for m in metrics_list
+                ]
+            ),
+            "feedback_addressed_percentage": np.mean(
+                [
+                    m.get("convergence", {}).get("feedback_addressed_percentage", 0)
+                    for m in metrics_list
+                ]
+            ),
+            "convergence_criteria_met": np.sum(
+                [
+                    1
+                    for m in metrics_list
+                    if m.get("convergence", {}).get("convergence_criteria_met", False)
+                ]
+            ),
+        },
+        "time_efficiency": {
+            "writer_time_percentage": np.mean(
+                [
+                    m.get("time_efficiency", {}).get("writer_time_percentage", 0)
+                    for m in metrics_list
+                ]
+            ),
+            "reviewer_time_percentage": np.mean(
+                [
+                    m.get("time_efficiency", {}).get("reviewer_time_percentage", 0)
+                    for m in metrics_list
+                ]
+            ),
+        },
+    }
+
+    # --- FIX: Aggregate and AVERAGE feedback_by_iteration counts ---
+    iter_counts_sum = defaultdict(int)
+    total_iters_count = 0
+    for m in metrics_list:
+        fb_by_iter = m.get("feedback_by_iteration", {})
+        if fb_by_iter:  # Ensure it's not empty
+            total_iters_count += len(fb_by_iter)
+            for k, v in fb_by_iter.items():
+                iter_counts_sum[k] += v
+
+    # Calculate the average
+    avg_iter_counts = {}
+    if num_experiments > 0:
+        for k, v_sum in iter_counts_sum.items():
+            avg_iter_counts[k] = v_sum / num_experiments  # Calculate average
+
+    agg["feedback_by_iteration"] = dict(avg_iter_counts)  # Store the average
+
+    # This metric should be avg feedback per iter, across all experiments
+    agg["average_feedback_per_iteration"] = (
+        (agg["total_feedback_items"] / total_iters_count)
+        if total_iters_count > 0
+        else 0
+    )
+
+    # Calculate average resolution rate
+    agg["feedback_resolution_rate"] = (
+        (agg["addressed_feedback"] / agg["total_feedback_items"])
+        if agg["total_feedback_items"] > 0
+        else 0
+    )
+
+    return agg
+
+
+def _aggregate_tom_metrics(metrics_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Aggregate a list of theory_of_mind metrics dicts."""
+    if not metrics_list:
+        return {}
+
+    total_predictions = np.sum([m.get("total_predictions", 0) for m in metrics_list])
+    total_accurate = np.sum([m.get("accurate_predictions", 0) for m in metrics_list])
+
+    agg = {
+        "total_predictions": total_predictions,
+        "accurate_predictions": total_accurate,
+        "accuracy_rate": (
+            (total_accurate / total_predictions) if total_predictions > 0 else 0
+        ),
+        "interactions": np.sum([m.get("interactions", 0) for m in metrics_list]),
+        "learning_occurred": np.sum(
+            [m.get("learning_occurred", 0) for m in metrics_list]
+        ),
+    }
+    return agg
 
 
 class CollaborationMetricsVisualizer:
@@ -665,13 +779,13 @@ def generate_collaboration_visualizations(
 
 def generate_visualizations_from_experiment_dir(experiment_dir: Path) -> List[Path]:
     """
-    Generate visualizations directly from an experiment directory.
+    Generate AGGREGATE visualizations for a single experiment directory.
 
-    Searches for metadata files in the articles subdirectory and creates
-    plots in a 'plots' subdirectory within the experiment directory.
+    Scans all metadata files in the articles subdirectory, aggregates
+    their metrics, and creates a single set of plots.
 
     Args:
-        experiment_dir: Path to experiment directory (e.g., results/ollama/writer_reviewer_tom_N=1_T=12.11_17:15/)
+        experiment_dir: Path to experiment directory
 
     Returns:
         List of paths to generated plots
@@ -693,85 +807,91 @@ def generate_visualizations_from_experiment_dir(experiment_dir: Path) -> List[Pa
 
     # Find all metadata files
     metadata_files = list(articles_dir.glob("*_metadata.json"))
-
     if not metadata_files:
         logger.warning(f"No metadata files found in {articles_dir}")
         return []
 
-    logger.info(f"Found {len(metadata_files)} metadata file(s) in {articles_dir}")
+    logger.info(
+        f"Found {len(metadata_files)} metadata file(s) in {articles_dir}. Aggregating..."
+    )
+
+    # --- AGGREGATION LOGIC ---
+    collab_metrics_list = []
+    tom_metrics_list = []
+    research_metrics_list = []
 
     for metadata_file in metadata_files:
         try:
             with open(metadata_file, "r") as f:
                 metadata = json.load(f)
 
-            # Get metadata fields
-            collab_metrics = metadata.get("collaboration_metrics")
-            tom_metrics = metadata.get("theory_of_mind")
-            research_metrics = metadata.get("research_metrics")
+            if metadata.get("collaboration_metrics"):
+                collab_metrics_list.append(metadata["collaboration_metrics"])
 
-            # Generate collaboration visualizations
-            if collab_metrics:
-                collab_viz = CollaborationMetricsVisualizer(plots_dir)
-                try:
-                    logger.info(
-                        f"Generating collaboration plots from {metadata_file.name}"
-                    )
-                    plot1 = collab_viz.plot_feedback_resolution(
-                        collab_metrics, plots_dir / "feedback_resolution.png"
-                    )
-                    plot2 = collab_viz.plot_convergence_metrics(
-                        collab_metrics, plots_dir / "convergence_metrics.png"
-                    )
-                    plot3 = collab_viz.plot_iteration_progression(
-                        collab_metrics, plots_dir / "iteration_progression.png"
-                    )
-                    generated_plots.extend([plot1, plot2, plot3])
-                    logger.info(
-                        f"Generated {len([plot1, plot2, plot3])} collaboration plots"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to generate collaboration plots: {e}", exc_info=True
-                    )
+            if metadata.get("theory_of_mind"):
+                tom_metrics_list.append(metadata["theory_of_mind"])
 
-            # Generate ToM visualizations
-            if tom_metrics and tom_metrics.get("total_predictions", 0) > 0:
-                tom_viz = ToMMetricsVisualizer(plots_dir)
-                try:
-                    logger.info(f"Generating ToM plots from {metadata_file.name}")
-                    plot4 = tom_viz.plot_tom_predictions(
-                        tom_metrics, plots_dir / "tom_predictions.png"
-                    )
-                    plot5 = tom_viz.plot_tom_interactions(
-                        tom_metrics, plots_dir / "tom_interactions.png"
-                    )
-                    generated_plots.extend([plot4, plot5])
-                    logger.info(f"Generated {len([plot4, plot5])} ToM plots")
-                except Exception as e:
-                    logger.error(f"Failed to generate ToM plots: {e}", exc_info=True)
-
-            # Generate research visualizations
-            if research_metrics:
-                research_viz = ResearchMetricsVisualizer(plots_dir)
-                try:
-                    logger.info(f"Generating research plots from {metadata_file.name}")
-                    plot6 = research_viz.plot_research_utilization(
-                        metadata, plots_dir / "research_utilization.png"
-                    )
-                    generated_plots.append(plot6)
-                    logger.info("Generated research utilization plot")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to generate research plots: {e}", exc_info=True
-                    )
+            if metadata.get("research_metrics"):
+                research_metrics_list.append(metadata["research_metrics"])
 
         except Exception as e:
             logger.error(
                 f"Failed to process metadata file {metadata_file}: {e}", exc_info=True
             )
 
-    logger.info(f"Generated {len(generated_plots)} total plots in {plots_dir}")
+    logger.info(
+        f"Aggregating metrics from {len(collab_metrics_list)} collaborative runs."
+    )
+
+    # --- PLOTTING AGGREGATE METRICS ---
+
+    # Generate collaboration visualizations
+    if collab_metrics_list:
+        agg_collab_metrics = _aggregate_collab_metrics(collab_metrics_list)
+        collab_viz = CollaborationMetricsVisualizer(plots_dir)
+        try:
+            logger.info("Generating aggregate collaboration plots...")
+            plot1 = collab_viz.plot_feedback_resolution(
+                agg_collab_metrics, plots_dir / "AGGREGATE_feedback_resolution.png"
+            )
+            plot2 = collab_viz.plot_convergence_metrics(
+                agg_collab_metrics, plots_dir / "AGGREGATE_convergence_metrics.png"
+            )
+            plot3 = collab_viz.plot_iteration_progression(
+                agg_collab_metrics, plots_dir / "AGGREGATE_iteration_progression.png"
+            )
+            generated_plots.extend([plot1, plot2, plot3])
+            logger.info(
+                f"Generated {len([plot1, plot2, plot3])} aggregate collaboration plots"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to generate aggregate collaboration plots: {e}", exc_info=True
+            )
+
+    # Generate ToM visualizations
+    if tom_metrics_list:
+        agg_tom_metrics = _aggregate_tom_metrics(tom_metrics_list)
+        if agg_tom_metrics.get("total_predictions", 0) > 0:
+            tom_viz = ToMMetricsVisualizer(plots_dir)
+            try:
+                logger.info("Generating aggregate ToM plots...")
+                plot4 = tom_viz.plot_tom_predictions(
+                    agg_tom_metrics, plots_dir / "AGGREGATE_tom_predictions.png"
+                )
+                plot5 = tom_viz.plot_tom_interactions(
+                    agg_tom_metrics, plots_dir / "AGGREGATE_tom_interactions.png"
+                )
+                generated_plots.extend([plot4, plot5])
+                logger.info(f"Generated {len([plot4, plot5])} aggregate ToM plots")
+            except Exception as e:
+                logger.error(
+                    f"Failed to generate aggregate ToM plots: {e}", exc_info=True
+                )
+
+    logger.info(
+        f"Generated {len(generated_plots)} total AGGREGATE plots in {plots_dir}"
+    )
     return generated_plots
 
 

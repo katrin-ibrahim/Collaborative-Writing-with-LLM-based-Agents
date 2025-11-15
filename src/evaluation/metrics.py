@@ -19,12 +19,12 @@ import re
 from flair.data import Sentence
 from flair.models import SequenceTagger
 from sentence_transformers import SentenceTransformer
+from typing import Any, Dict, List, Optional
 
 try:
     import torch
 except Exception:  # torch might be unavailable in some environments
     torch = None
-from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -353,20 +353,73 @@ def calculate_entity_recall(generated: str, reference: str) -> float:
 
 
 def extract_headings_from_content(content: str) -> List[str]:
-    """Extract headings from markdown-style content."""
+    """Extract headings from markdown-style content.
+
+    Handles both properly formatted markdown (headings on separate lines)
+    and malformed markdown (all content on one line) using improved heuristics.
+    """
     headings = []
 
+    # First try standard line-by-line extraction
     lines = content.split("\n")
     for line in lines:
         line = line.strip()
-        # Match markdown headers (# ## ###) and common heading patterns
         if line.startswith("#"):
             heading = line.lstrip("#").strip()
             if heading:
                 headings.append(heading)
         elif line.endswith(":") and len(line) < 100:
-            # Potential section heading
             headings.append(line.rstrip(":"))
+
+    # If we found very few headings (< 3), try split-on-## for inline markdown
+    if len(headings) < 3:
+        parts = content.split("##")
+        inline_headings = []
+
+        # First part might be title (starts with single #)
+        if parts[0].strip().startswith("#"):
+            title = parts[0].strip()[1:].strip()
+            if title:
+                inline_headings.append(title)
+
+        # Process section headings (everything after ##)
+        for part in parts[1:]:
+            part = part.strip()
+            if not part:
+                continue
+
+            # Extract heading: everything before first sentence-ending punctuation or lowercase-to-content transition
+            # Improved heuristic: look for common heading patterns
+            heading_text = part
+
+            # Find where heading likely ends
+            # Pattern 1: At first period, exclamation, or question mark
+            match = re.search(r"[.!?]", part)
+            if match:
+                heading_text = part[: match.start()].strip()
+            # Pattern 2: At transition from title case to sentence (capital after space followed by lowercase)
+            elif len(part) > 10:
+                for i in range(1, min(100, len(part) - 2)):
+                    # Look for: "Title Word The rest of the sentence"
+                    # where "The" starts a lowercase section after being capitalized
+                    if (
+                        part[i - 1] == " "
+                        and part[i].isupper()
+                        and i + 1 < len(part)
+                        and part[i + 1 : i + 4].islower()
+                    ):
+                        heading_text = part[:i].strip()
+                        break
+
+            if heading_text and len(heading_text) < 100:
+                inline_headings.append(heading_text)
+
+        # Use inline headings if we found more than line-by-line extraction
+        if len(inline_headings) > len(headings):
+            headings = inline_headings
+            logger.debug(
+                f"Used split-on-## extraction for inline headings, found {len(headings)} headings"
+            )
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Extracted headings: %s", headings)
@@ -612,10 +665,50 @@ def calculate_heading_entity_recall(
 
 
 def calculate_heading_metrics(
-    generated_content: str, reference_headings: List[str]
+    generated_content: str,
+    reference_headings: List[str],
+    memory_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Calculate both heading metrics (HSR and HER) from content and reference headings."""
+    """Calculate both heading metrics (HSR and HER) from content and reference headings.
+
+    Args:
+        generated_content: The generated article content
+        reference_headings: List of reference headings
+        memory_path: Optional path to memory JSON file for fallback heading extraction
+
+    Returns:
+        Dictionary with HSR, HER, and extracted headings
+    """
     generated_headings = extract_headings_from_content(generated_content)
+
+    # If few headings found and memory path provided, try memory fallback
+    if len(generated_headings) < 3 and memory_path:
+        try:
+            from pathlib import Path
+
+            import json
+
+            memory_file = Path(memory_path)
+            if memory_file.exists():
+                with open(memory_file, "r", encoding="utf-8") as f:
+                    memory_data = json.load(f)
+
+                # Try to get initial_outline from memory
+                if "initial_outline" in memory_data and memory_data["initial_outline"]:
+                    outline = memory_data["initial_outline"]
+                    # Extract headings from outline structure
+                    memory_headings = []
+                    for section in outline:
+                        if isinstance(section, dict) and "section_name" in section:
+                            memory_headings.append(section["section_name"])
+
+                    if len(memory_headings) > len(generated_headings):
+                        logger.info(
+                            f"Using {len(memory_headings)} headings from memory (file had {len(generated_headings)})"
+                        )
+                        generated_headings = memory_headings
+        except Exception as e:
+            logger.warning(f"Failed to load headings from memory: {e}")
 
     hsr = calculate_heading_soft_recall(generated_headings, reference_headings)
     her = calculate_heading_entity_recall(generated_headings, reference_headings)

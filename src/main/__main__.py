@@ -26,7 +26,7 @@ from src.utils.io import OutputManager
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s:%(name)s: %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
+    datefmt="%Y-%m-%dT%H:%M",
 )
 
 logger = logging.getLogger(__name__)
@@ -88,12 +88,10 @@ def load_configurations(args):
             args.model_config,  # Could be None
             override_model=args.override_model,
             mode=args.backend,  # Pass backend as override
-            query_generation_model=args.query_generation_model,
             create_outline_model=args.create_outline_model,
-            section_selection_model=args.section_selection_model,
+            research_model=args.research_model,
             writer_model=args.writer_model,
             revision_model=args.revision_model,
-            revision_batch_model=args.revision_batch_model,
             self_refine_model=args.self_refine_model,
             reviewer_model=args.reviewer_model,
         )
@@ -115,7 +113,6 @@ def load_configurations(args):
 
         retrieval_config = RetrievalConfig.from_yaml_with_overrides(
             retrieval_manager=args.retrieval_manager,  # Could be None
-            semantic_filtering_enabled=args.semantic_filtering,
         )
         if args.retrieval_manager:
             logger.info(f"Loaded retrieval config: {args.retrieval_manager}")
