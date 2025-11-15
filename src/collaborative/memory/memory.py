@@ -346,6 +346,24 @@ class SharedMemory:
         self.state["search_summaries"][search_id] = summary.model_dump()
         self._persist()
 
+    def get_all_chunk_ids(self) -> List[str]:
+        """Get all available chunk IDs."""
+        return list(self.state["research_chunks"].keys())
+
+    def get_chunks_by_ids(self, chunk_ids: List[str]) -> Dict[str, ResearchChunk]:
+        """Get specific chunks by their IDs as typed objects, skipping invalid ones."""
+        chunks = {}
+        for chunk_id in chunk_ids:
+            if chunk_id in self.state["research_chunks"]:
+                chunk_data = self.state["research_chunks"][chunk_id]
+                try:
+                    chunks[chunk_id] = ResearchChunk.model_validate(chunk_data)
+                except Exception as e:
+                    logger.warning(
+                        f"Invalid ResearchChunk for id {chunk_id} skipped: {e}"
+                    )
+        return chunks
+
     # endregion Research Chunks Management
 
     def delete_chunks_by_ids(self, chunk_ids: List[str]) -> int:
