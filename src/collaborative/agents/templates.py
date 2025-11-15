@@ -15,7 +15,6 @@ def build_review_prompt(
     article: Article,
     validation_results: Dict,
     tom_context: Optional[str],
-    strategy: str,
     chunk_summaries: Optional[str] = None,
     max_suggested_queries: int = 5,
     infobox_data: Optional[Dict] = None,
@@ -92,7 +91,7 @@ The section will be indicated by H2 headings in the article.
     if tom_context:
         tom_section = f"\n\nCollaborative Context (Theory of Mind):\n{tom_context}\n"
 
-    return f"""You are reviewing an article using a {strategy} review strategy.
+    return f"""You are reviewing an article an article about "{article.title}".
 
 ARTICLE TO REVIEW:
 {article.content}

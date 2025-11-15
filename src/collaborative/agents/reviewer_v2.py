@@ -334,7 +334,6 @@ class ReviewerV2(BaseAgent):
                 article=article,
                 validation_results=self.validation_results,  # "fact_check stuff"
                 tom_context=self.tom_context,
-                strategy="holistic",  # Hard-coded
                 chunk_summaries=formatted_chunk_summaries,
                 max_suggested_queries=max_suggested_queries,
                 infobox_data=infobox_data,
