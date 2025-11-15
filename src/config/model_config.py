@@ -104,22 +104,25 @@ class ModelConfig(BaseConfig):
             }
 
     def get_model_for_task(self, task: str) -> str:
-        """Get appropriate model for a specific task."""
-        # If override_model is set, use it for all tasks
-        if self.override_model:
-            return self.override_model
+        """Get appropriate model for a specific task.
 
-        # Otherwise use task-specific models
+        Returns the task-specific model. The override_model logic is handled
+        during config initialization in from_yaml_with_overrides(), not here.
+        """
+        # Use task-specific models (which may have been set by override_model during init)
         task_model_map = {
             # Baseline method tasks
-            "conv_simulator": self.default_model,
+            "conv_simulator": self.conv_simulator_model,
             "outline": self.outline_model,
             "writing": self.writing_model,
             "polish": self.polish_model,
             # Writer-Reviewer specific tasks
+            "query_generation": self.research_model,
             "research": self.research_model,
             "create_outline": self.create_outline_model,
+            "section_selection": self.create_outline_model,  # Uses same model as outline
             "writer": self.writer_model,
+            "revision": self.revision_model,
             "section_revision": self.revision_model,
             "self_refine": self.self_refine_model,
             "reviewer": self.reviewer_model,
