@@ -95,10 +95,10 @@ class ConfigContext:
 
         # Create backend-specific client
         if cls._backend == "ollama":
+            from src.engines.ollama_engine import DEFAULT_OLLAMA_HOST
+
             client = OllamaEngine(
-                host=cls._backend_kwargs.get(
-                    "ollama_host", "http://10.167.31.201:11434/"
-                ),
+                host=cls._backend_kwargs.get("ollama_host", DEFAULT_OLLAMA_HOST),
                 model=model,
                 temperature=temp,
                 max_tokens=max_tokens,

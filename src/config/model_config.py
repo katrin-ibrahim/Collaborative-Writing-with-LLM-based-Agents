@@ -9,7 +9,7 @@ class ModelConfig(BaseConfig):
     """Configuration for model selection based on task complexity."""
 
     # Mode of operation: "local" or "ollama"
-    mode: str = "local"
+    mode: str = "ollama"
 
     # Override model to use for all tasks if set
     override_model: Optional[str] = None
@@ -17,24 +17,24 @@ class ModelConfig(BaseConfig):
     # Ollama host URL
     ollama_host: Optional[str] = None
 
-    # Storm-specific model assignments
-    conv_simulator_model: str = "qwen3:4b"  # Fast model for conversation simulation
-    outline_model: str = "qwen3:4b"  # Balanced, for structure
-    writing_model: str = "qwen3:4b"  # Quality, for content
-    polish_model: str = "qwen3:4b"  # Final polish
+    # Storm-specific model assignments (defaults to balanced configuration)
+    conv_simulator_model: str = "qwen2.5:14b"  # Fast model for conversation simulation
+    outline_model: str = "qwen2.5:14b"  # Balanced, for structure
+    writing_model: str = "qwen2.5:32b"  # Quality, for content
+    polish_model: str = "qwen2.5:32b"  # Final polish
 
     # Writer-Reviewer specific model assignments
-    research_model: str = "qwen3:4b"  # Fast model for generating search queries
-    create_outline_model: str = "qwen3:4b"  # Model for creating article outlines
-    writer_model: str = "qwen3:4b"  # High-quality model for writing content
-    revision_model: str = "qwen3:4b"  # Model for revising sections based on feedback
-    self_refine_model: str = "qwen3:4b"  # Model for self-refinement
+    research_model: str = "qwen2.5:32b"  # Model for generating search queries
+    create_outline_model: str = "qwen2.5:14b"  # Model for creating article outlines
+    writer_model: str = "qwen2.5:32b"  # High-quality model for writing content
+    revision_model: str = "qwen2.5:32b"  # Model for revising sections based on feedback
+    self_refine_model: str = "qwen2.5:32b"  # Model for self-refinement
     reviewer_model: str = (
-        "qwen3:4b"  # Model for holistic review and feedback generation
+        "qwen2.5:32b"  # Model for holistic review and feedback generation
     )
 
     # Default fallback
-    default_model: str = "gemma3:4b"
+    default_model: str = "qwen2.5:14b"
 
     # Local models configuration
     local_model_mapping: Optional[Dict[str, str]] = None
@@ -99,8 +99,6 @@ class ModelConfig(BaseConfig):
                 "qwen2.5:14b": "qwen2.5:14b",
                 "qwen2.5:32b": "qwen2.5:32b",
                 "gpt-oss:20b": "gpt-oss:20b",
-                "qwen3:4b": "qwen3:4b",
-                "qwen3:8b": "qwen3:8b",
             }
 
     def get_model_for_task(self, task: str) -> str:

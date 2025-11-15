@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 import os
 import yaml
+from dataclasses import fields
 from typing import Any, Dict, Optional, TypeVar
 
 T = TypeVar("T", bound="BaseConfig")
@@ -17,7 +18,16 @@ class BaseConfig(ABC):
     @classmethod
     def from_dict(cls: type[T], config_dict: Dict[str, Any]) -> T:
         """Create instance from dictionary with field filtering."""
-        return cls(**{k: v for k, v in config_dict.items() if hasattr(cls, k)})
+        # Get valid field names from the dataclass
+        # Use try-except to handle both dataclass and non-dataclass configs
+        try:
+            valid_fields = {f.name for f in fields(cls)}  # type: ignore
+            filtered_dict = {k: v for k, v in config_dict.items() if k in valid_fields}
+        except (TypeError, AttributeError):
+            # Fallback: if not a dataclass, use hasattr on instance
+            temp = cls()
+            filtered_dict = {k: v for k, v in config_dict.items() if hasattr(temp, k)}
+        return cls(**filtered_dict)
 
     @classmethod
     def get_default(cls: type[T]) -> T:
