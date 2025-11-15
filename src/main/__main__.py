@@ -139,11 +139,9 @@ def main():
     model_config, retrieval_config, collaboration_config = load_configurations(args)
     backend_kwargs = {}
 
-    # Get ollama_host from model config first, then allow CLI override
+    # Get ollama_host from model config if specified (defaults to UKP server in OllamaEngine)
     if hasattr(model_config, "ollama_host") and model_config.ollama_host:
         backend_kwargs["ollama_host"] = model_config.ollama_host
-    if hasattr(args, "ollama_host") and args.ollama_host:
-        backend_kwargs["ollama_host"] = args.ollama_host  # CLI override
 
     if hasattr(args, "device") and args.device:
         backend_kwargs["device"] = args.device

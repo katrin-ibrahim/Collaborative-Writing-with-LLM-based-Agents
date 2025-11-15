@@ -16,6 +16,9 @@ from src.utils.json_normalizer import normalize_llm_json
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
+# Default Ollama host (UKP server)
+DEFAULT_OLLAMA_HOST = "http://10.167.31.201:11434/"
+
 
 class OllamaEngine(BaseEngine):
     """
@@ -28,7 +31,7 @@ class OllamaEngine(BaseEngine):
         model: str,
         temperature: float = 0.7,
         max_tokens: int = 1000,
-        host: str = "http://10.167.31.201:11434/",
+        host: str = DEFAULT_OLLAMA_HOST,
         **kwargs,
     ):
         """
