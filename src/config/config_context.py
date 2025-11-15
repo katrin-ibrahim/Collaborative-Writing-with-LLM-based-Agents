@@ -102,12 +102,14 @@ class ConfigContext:
                 model=model,
                 temperature=temp,
                 max_tokens=max_tokens,
+                task=task,
             )
         elif cls._backend == "slurm":
             client = SlurmEngine(
                 device=cls._backend_kwargs.get("device", "cpu"),
                 model_path=model,
                 temperature=temp,
+                task=task,
             )
         else:
             raise ValueError(f"Unsupported backend: {cls._backend}")

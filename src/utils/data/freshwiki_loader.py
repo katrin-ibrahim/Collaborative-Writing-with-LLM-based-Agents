@@ -32,7 +32,7 @@ class FreshWikiLoader:
 
     def __init__(
         self,
-        data_path: str = "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/fw",
+        data_path: str = "/Users/katrin/Documents/Repos/Collaborative-Writing-with-LLM-based-Agents/data/freshwiki_eval_dataset",
         # data_path: str = "/storage/ukp/work/ibrahim1/Writer-Reviewer/data/freshwiki",
     ):
         self.data_path = Path(data_path)

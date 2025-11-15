@@ -3,220 +3,114 @@ from typing import Dict, List, Optional
 from src.collaborative.utils.models import FeedbackStoredModel
 from src.utils.data import Article
 
+# ---------------------------------------- Reviewer Templates ---------------------------------------
+# region Reviewer Prompt Templates
+
 
 # ---------------------------------------- Reviewer Templates ---------------------------------------
 # region Reviewer Prompt Templates
-def build_strategy_prompt(
-    metrics: dict,
-    validation_results: dict,
-    iteration: int,
-    prev_feedback_summary: dict,
-) -> str:
-    return f"""
-You are a Reviewer planning the next review pass.
-
-Context:
-- Iteration: {iteration}
-- Article metrics: {metrics}
-- Citation validation: {validation_results}
-- Previous feedback summary: {prev_feedback_summary}
-
-Decide the BEST strategy for the next review pass.
-Pick ONE:
-- "citation-focused"  (if citations missing/invalid, sources needed, or verifiability is weak)
-- "expansion-focused" (if article is short or lacks depth/coverage)
-- "accuracy-focused"  (if there are correctness, clarity, contradiction, or OFF-TOPIC sections)
-- "holistic"          (if the article is maturing and needs broad polish)
-
-CRITICAL: If you see ANY sections that are off-topic or not directly relevant to the article title, use "accuracy-focused" strategy.
-Sections must directly relate to the main topic - no tangential or weakly related content allowed.
-
-Return JSON with:
-{{
-  "strategy": "citation-focused" | "expansion-focused" | "accuracy-focused" | "holistic",
-  "rationale": "short reason",
-  "focus_sections": ["optional", "section", "names"]
-}}
-""".strip()
 
 
-def build_review_prompt_for_strategy(
+def build_review_prompt(
     article: Article,
-    metrics: Dict,
     validation_results: Dict,
     tom_context: Optional[str],
     strategy: str,
-    research_context: Optional[str] = None,
-    max_suggested_queries: int = 3,
+    chunk_summaries: Optional[str] = None,
+    max_suggested_queries: int = 5,
+    infobox_data: Optional[Dict] = None,
+    related_articles: Optional[List[str]] = None,
 ) -> str:
-    """Build strategy-aware review prompt with dynamic sections."""
-
-    # Format metrics
-    metrics_text = f"""
-Article Metrics:
-- Word count: {metrics.get('word_count', 'N/A')}
-- Section count: {metrics.get('section_count', 'N/A')}
-- Average section length: {metrics.get('avg_section_length', 'N/A')}
-"""
+    """Builds the single, holistic review prompt for the agent."""
 
     # Format citation validation results
     validation_text = f"""
-Citation Validation:
+Citation Validation (for `accuracy` checking):
 - Total citations: {validation_results.get('total_citations', 0)}
 - Valid citations: {validation_results.get('valid_citations', 0)}
 - Missing chunks: {len(validation_results.get('missing_chunks', []))}
 - Needs source tags: {validation_results.get('needs_source_count', 0)}
 """
 
-    # Include research context if provided
+    infobox_context_str = ""
+    if infobox_data:
+        infobox_context_str += (
+            "TOPIC INFOBOX: The following are key facts from the article's Infobox:\n"
+        )
+        infobox_items = [
+            f"- {key}: {value}" for key, value in infobox_data.items() if value
+        ]
+        if infobox_items:
+            infobox_context_str = "\n".join(infobox_items)
+
+    related_articles_str = "No related articles found."
+    if related_articles:
+        related_articles_str = "\n".join([f"- {name}" for name in related_articles])
+
+    # Include research context if provided (now chunk summaries)
     research_section = ""
-    if research_context:
+    if chunk_summaries:
         research_section = f"""
-CITED RESEARCH CHUNKS (for fact-checking):
-The following chunks were CITED by the writer in the article. Use these to verify factual accuracy:
+        ## CHUNK SUMMARIES AND VALIDATION RESULTS
+        {validation_text}
+        {chunk_summaries}
+        """
+    else:
+        research_section = f"""
+        ## CHUNK SUMMARIES
+        {validation_text}
+        No research chunk summaries found in memory.
+        """
 
-{research_context}
+    guidelines = f"""
+You are a world-class editor reviewing an article on "{article.title}".
+Your goal is to provide holistic, actionable feedback. You must check for **Relevance (Gaps)** and **Coherence (Style)** at the same time.
 
-CRITICAL FACT-CHECKING INSTRUCTIONS:
-1. Compare article claims against the chunk content provided above
-2. Flag claims as "accuracy" issues if they are NOT supported by the cited chunks
-3. Use "citation_missing" if factual claims lack citations entirely
-4. Use "needs_source" if claims need additional supporting evidence
-5. This is your PRIMARY tool for catching incorrect or unverified claims
+**REVIEW TASKS (Do all as needed):**
 
-Look for:
-- Claims that contradict the chunk content
-- Claims that go beyond what the chunks actually say
-- Missing context or nuance from the source material
-- Entities, facts, or details mentioned in chunks but missing from article
+1.  **Check for Factual Gaps & Relevance :**
+    * **Compare to `Infobox`:** If a simple fact is missing (e.g., a winner, date), create a `content_expansion` item. In the `suggestion`, write the *exact fact* to add. In the `section` field, name the section where it belongs (e.g., "Event Details").
+    * **Compare to `Chunk Summaries`:** If the writer missed a detail that's already in the research, create a `content_expansion` or `clarity` item. In the `suggestion`, list the *exact `chunk_ids`* to re-examine. In the `section` field, name the section where it belongs.
+    * **Compare to `Potential New Research Paths`:** If a section is lacking depth, **decide** if a new search using only up to {max_suggested_queries} from {related_articles_str} can fix it. If yes, add *one* of the related article names (e.g., "History of the Venue") to the `suggested_queries` list.
+
+2.  **Check for Accuracy & Verifiability:**
+    * Review the `Citation Validation` report above.
+    * If a claim is factually wrong, unverified, or contradicts a source, create an `accuracy` item.
+
+3.  **Check for Coherence & Style:**
+    * Review the article's flow, organization, and tone.
+    * Create `structure` items for confusing order or bad flow.
+    * Create `clarity` items for confusing writing.
+    * Create `style` items for repetitive text or non-encyclopedic tone.
+
+Use any of the 5 allowed feedback types as needed to cover all issues.
+The section will be indicated by H2 headings in the article.
 """
-
-    # Strategy-specific instructions
-    strategy_instructions = {
-        "citation-focused": """
-FOCUS: Citation quality and completeness.
-
-Your primary task is to assess citation quality using ONLY these feedback types:
-- "citation_missing" - For claims that lack proper citations
-- "citation_invalid" - For invalid or missing chunk IDs
-- "needs_source" - For claims needing additional sourcing
-
-Create individual feedback items (in the 'items' array) for each citation issue found.
-DO NOT create items with types like 'citation_issues', 'citation_coverage', or 'citation_quality'.
-""",
-        "expansion-focused": """
-FOCUS: Content gaps and structural improvements.
-
-Your primary task is to identify areas for expansion using ONLY these feedback types:
-- "content_expansion" - For sections that need more depth or missing topics
-- "structure" - For organizational improvements
-- "depth" - For areas lacking sufficient detail
-
-Create individual feedback items (in the 'items' array) for each expansion opportunity.
-DO NOT create items with types like 'coverage_gaps' or 'suggested_sections'.
-""",
-        "accuracy-focused": """
-FOCUS: Factual accuracy and claim verification.
-
-Your primary task is to ensure factual reliability by CHECKING CLAIMS AGAINST CITED CHUNKS:
-
-Use ONLY these feedback types:
-- "accuracy" - For claims that are UNSUPPORTED or CONTRADICTED by their cited chunks
-- "needs_source" - For statements that need stronger evidence or additional citations
-- "citation_missing" - For unsupported factual claims that lack any citation
-
-CRITICAL: When you see cited chunks provided above, verify each major claim in the article:
-1. Find the claim in the article
-2. Check if it matches what the cited chunk actually says
-3. Flag as "accuracy" if the chunk doesn't support the claim
-4. Flag as "citation_missing" if there's no citation at all
-5. Flag as "needs_source" if the citation is weak or insufficient
-
-Create individual feedback items (in the 'items' array) for each accuracy concern.
-DO NOT create items with types like 'accuracy_concerns' or 'factual_issues'.
-BE CRITICAL - catch exaggerations, unsupported claims, and contradictions.
-""",
-    }
-
-    # Build holistic strategy instruction with article title
-    holistic_instruction = f"""
-FOCUS: Overall article quality, coherence, and RELEVANCE to the topic.
-
-CRITICAL RELEVANCE CHECK:
-Before anything else, review EACH section title against the article title: "{article.title}".
-- Does EVERY section directly relate to the main topic?
-- Are there any tangential or weakly related sections?
-- Would a reader expect to find this section in an article about this topic?
-
-If you find OFF-TOPIC sections, create "relevance_focus" feedback items flagging them for removal or major revision.
-
-Your task is to provide balanced, comprehensive feedback using ANY of these feedback types:
-- "citation_missing", "citation_invalid", "needs_source" (for citations)
-- "clarity", "accuracy", "structure" (for quality)
-- "content_expansion", "redundancy", "tone", "depth", "flow" (for content)
-
-Create individual feedback items (in the 'items' array) for each distinct issue.
-Balance all aspects of article quality without focusing too heavily on any single type.
-
-PRIORITY: Relevance and focus issues are CRITICAL - flag any off-topic content immediately.
-"""
-
-    # Add holistic to dictionary
-    strategy_instructions["holistic"] = holistic_instruction
-
-    # Build section list for feedback
-    section_list = "\n".join([f"- {name}" for name in article.sections.keys()])
 
     # ToM context if available
     tom_section = ""
     if tom_context:
         tom_section = f"\n\nCollaborative Context (Theory of Mind):\n{tom_context}\n"
 
-    # Suggested queries instruction
-    suggested_queries_instruction = ""
-    if research_context:
-        suggested_queries_instruction = f"""
-
-KNOWLEDGE GAP IDENTIFICATION:
-If you identify factual gaps or missing entities that could be filled with additional research, populate the 'suggested_queries' field.
-These should be specific, targeted Wikipedia-style search queries that would help the writer fill the gaps.
-
-Rules for suggested_queries:
-- Maximum {max_suggested_queries} queries per review
-- Format as Wikipedia page titles (e.g., "Chris Scott (Australian footballer)", "UEFA Euro 2016 knockout phase")
-- Focus on missing entities, events, or concepts that would strengthen the article
-- Only suggest queries for HIGH-PRIORITY gaps that significantly impact article quality
-- Leave empty if current research coverage is adequate
-
-Example suggested_queries: ["Economic impact of 2020 Olympics", "Historical context of USMCA negotiations", "Biden climate policy timeline"]
-"""
-
     return f"""You are reviewing an article using a {strategy} review strategy.
 
-ARTICLE INFORMATION:
-Title: {article.title}
-
-Content:
+ARTICLE TO REVIEW:
 {article.content}
 
-{metrics_text}
-{validation_text}
+REVIEW GUIDELINES:
+{guidelines}
+{infobox_context_str}
 {research_section}
 
-REVIEW STRATEGY:
-{strategy_instructions[strategy]}
 {tom_section}
-
-ARTICLE SECTIONS:
-{section_list}
 
 REQUIRED OUTPUT FORMAT:
 Your response must be a valid JSON object with the following structure:
 {{
   "items": [
     {{
-      "section": "section name or '_overall' for article-level feedback",
-      "type": "MUST be exactly one of these 11 values: citation_missing, citation_invalid, needs_source, clarity, accuracy, structure, content_expansion, redundancy, tone, depth, flow",
+      "section": "The EXACT name of the section this feedback applies to. MUST NOT be '_overall'.",
+      "type": "MUST be exactly one of these 5 values: accuracy, content_expansion, structure, clarity, style",
       "issue": "clear description of what is wrong",
       "suggestion": "specific actionable recommendation to fix it",
       "priority": "high, medium, or low",
@@ -225,35 +119,24 @@ Your response must be a valid JSON object with the following structure:
       "location_hint": "optional: additional location context"
     }}
   ],
-  "overall_assessment": "optional: holistic summary of the article quality",
   "suggested_queries": []
 }}
 
-CRITICAL TYPE CONSTRAINT:
-The "type" field MUST be EXACTLY one of these 11 strings (no variations allowed):
-1. citation_missing
-2. citation_invalid
-3. needs_source
+CRITICAL RULES:
+- The "type" field MUST be EXACTLY one of these 5 strings:
+1. accuracy
+2. content_expansion
+3. structure
 4. clarity
-5. accuracy
-6. structure
-7. content_expansion
-8. redundancy
-9. tone
-10. depth
-11. flow
-
-DO NOT use: citation_issues, citation_coverage, coverage_gaps, accuracy_concerns, or any other variations.
+5. style
+- The "section" field MUST be one of the section names from the list above.".
+- If you are suggesting new content (`content_expansion`), set the "section" field to the name of the section where this new content should be placed.
 
 GUIDELINES:
 - Create one item per distinct issue found
 - Assign priority based on impact: high (critical), medium (important), low (minor)
 - Use the 'quote' field when referencing specific text
-- Use '_overall' as section name for article-level feedback
 - Be specific and actionable in your suggestions
-
-Focus on providing constructive, actionable feedback that helps the writer improve the article.
-{suggested_queries_instruction}
 """
 
 
@@ -320,61 +203,51 @@ CRITICAL: USE ONLY THE KEY 'updates' IN YOUR OUTPUT JSON, WHICH MUST BE A LIST O
 HEADING_COUNT = 15  # Must match MAX_HEADING_COUNT in models.py
 
 
-def outline_prompt(
-    topic: str, top_chunk: str, chunk_summaries: str, temporal_context: str = ""
-) -> str:
+def outline_prompt(topic: str, chunk_summaries: str) -> str:
     """
     Generates the prompt for creating a structured article outline using LLM.
 
     Args:
         topic: The main subject of the article.
-        top_chunk: The highest-ranked chunk from Phase 1 search for context.
         chunk_summaries: The formatted summaries of all stored research chunks.
-        temporal_context: Optional context from adjacent year for disambiguation.
 
     Returns:
         The prompt string instructing the LLM to output a structured JSON outline.
     """
-
-    # Consolidate research context
-    research_context = consolidate_research(topic, top_chunk, chunk_summaries)
-
-    # Add temporal context if provided (for disambiguation only, not for writing)
-    temporal_disambiguation = ""
-    if temporal_context:
-        temporal_disambiguation = f"""
-TEMPORAL DISAMBIGUATION CONTEXT (FOR UNDERSTANDING ONLY - DO NOT WRITE ABOUT THIS):
-{temporal_context}
-
-The above is from an adjacent year and is provided ONLY to help you understand the structure and category of "{topic}".
-DO NOT create sections about the adjacent year. Use it only to understand what kind of event "{topic}" is.
-"""
-
-    # NOTE: The instruction for JSON output will be added by the call_structured_api method.
-    # We focus here on the core task.
-
     return f"""
     Generate a Wikipedia-style article outline for the topic: "{topic}".
 
     CRITICAL TOPIC FOCUS:
     - This article MUST be specifically about "{topic}" - not related topics, background events, or similar subjects.
+    - TEMPORAL CONSTRAINT: If the topic contains a specific year/date, ALL sections must be about that EXACT time period.
+      * REJECT any sections mentioning different years, different seasons, or different time periods.
+      * Example: For a 2022 event, REJECT sections about 2018, 2023, or any other year.
+    - ENTITY CONSTRAINT: If the topic is about a specific event, DO NOT create sections about related entities' broader histories.
+      * Example: For "2022 Grand Final", REJECT sections about team season performance, venue history, or championship history.
     - If the research context mentions related but different topics (e.g., different competitions, different years, different categories),
       DO NOT create sections about those topics. Focus ONLY on "{topic}" itself.
     - Every section heading must directly relate to "{topic}" - reject any tangential or background topics that distract from the main subject.
     - When in doubt: "Is this section specifically about '{topic}'?" If no, exclude it.
 
-    {temporal_disambiguation}
-
     Use the research context to identify key entities such as people, organizations, events, locations, and outcomes.
     Headings should reflect these specific entities and capture factual, verifiable aspects of the topic.
 
-    {research_context}
+    RESEARCH CONTEXT:
+    ---
+    {chunk_summaries}
+    ---
+
 
     Guidelines for Wikipedia-style section headings:
     - Each heading must refer to a concrete entity, event, or concept found in the context.
     - Prioritize entity-rich headings that include NAMES of people, places, organizations, or specific events.
       Examples: "Response by Pakistani Government", "Impact in Sindh Province", "International Aid from UN"
       (NOT: "Government Response", "Regional Impact", "International Aid")
+
+    - CRITICAL: DO NOT fabricate or guess specific entity names (venues, people, organizations) not explicitly mentioned in the research context
+    - If the research context does not mention a specific venue name, use generic headings like "Venue and Location" (NOT "Match Location: [Guessed Stadium Name]")
+    - If the research context does not mention specific people, use generic headings like "Key Players" (NOT "Performance by [Guessed Player Name]")
+    - Only include specific entity names in headings when those entities are EXPLICITLY mentioned in the provided research chunks
 
     - For events about disasters/incidents: prefer sections like "Background", "Impact in [Region]", "Response", "Aftermath"
     - For events about elections: prefer sections like "Background", "Candidates", "Campaign", "Results", "Aftermath"
@@ -387,58 +260,13 @@ DO NOT create sections about the adjacent year. Use it only to understand what k
     - Keep the tone factual, neutral, and encyclopedic — matching real Wikipedia article structure.
     - Ensure exactly {HEADING_COUNT} headings in total.
     - Headings must be a flat list of strings — no objects, no key–value pairs, no nested arrays, no annotations.
-    - DO NOT Return a DICT or ANYTHING other than a LIST of strings.
+
+    OUTPUT FORMAT:
+    Return a JSON object with one field:
+    - "headings": A list of exactly {HEADING_COUNT} section headings as strings
+
+    Example: {{"headings": ["Background", "Teams and Players", "Match Summary", "Aftermath", ...]}}
     """
-
-
-def refine_outline_prompt(
-    topic: str, top_chunk: str, chunk_summaries: str, previous_outline: str
-) -> str:
-    """Generate prompt for refining article outline with research context."""
-    research_context = consolidate_research(topic, top_chunk, chunk_summaries)
-
-    prompt = f"""
-You are refining an existing article outline for the topic: "{topic}", to be more entity-rich and Wikipedia-style.
-The outline should be informed by the research context provided below.
-
-CRITICAL TOPIC FOCUS:
-- This article MUST be specifically about "{topic}" - not related topics, background events, or similar subjects.
-- Review the existing outline and REMOVE any sections that are NOT directly about "{topic}".
-- Do not keep sections about related competitions, different years, background history, or tangential topics.
-- Every section must pass the test: "Is this specifically about '{topic}'?" If no, remove it.
-
-{research_context}
-
-Existing Outline:
-{previous_outline}
-
-Your task is to enhance this outline by:
-- Making section titles more specific and entity-rich (include names of people, places, organizations, specific events)
-- Converting analytical/topical headings into factual, entity-focused ones
-  Example transformations:
-  • "Climate Factors" → "Monsoon Season in Pakistan"
-  • "Government Response" → "Response by Pakistani Government"
-  • "Environmental Impact" → "Impact in Sindh Province"
-- Ensuring all sections leverage concrete entities from the research context
-- Following Wikipedia conventions: "Background", "Impact in [Region]", "Response", "Aftermath" patterns
-- Avoiding abstract/analytical titles like "Analysis", "Implications", "Causes and Effects"
-- Maintaining exactly {HEADING_COUNT} sections
-"""
-    return prompt
-
-
-def consolidate_research(topic: str, top_chunk: str, chunk_summaries: str) -> str:
-    """Generate prompt for consolidating research information for article writing."""
-    research_context = ""
-    if top_chunk or chunk_summaries:
-        research_context = "\n--- RESEARCH CONTEXT ---\n"
-        if top_chunk:
-            research_context += f"TOP CHUNK:\n{top_chunk}\n\n"
-        if chunk_summaries:
-            research_context += f"SUMMARIZED RESEARCH:\n{chunk_summaries}\n"
-        research_context += "----------------------\n"
-
-    return research_context
 
 
 def select_section_chunks_prompt(
@@ -503,20 +331,6 @@ def select_sections_chunks_batch_prompt(
     section_headings: List[str], topic: str, chunk_summaries: str, num_chunks: int
 ) -> str:
     """Generate prompt for batch selecting relevant research chunks for multiple sections."""
-    import re
-
-    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
-    topic_year = year_match.group(0) if year_match else None
-
-    year_awareness = ""
-    if topic_year:
-        year_awareness = f"""
-TEMPORAL AWARENESS:
-The topic is about {topic_year}. When selecting chunks:
-- STRONGLY PREFER chunks that mention {topic_year} or events from {topic_year}
-- PENALIZE chunks about different years unless they provide essential background
-- General background without year mentions is acceptable
-"""
 
     sections_list = "\n".join(f"{i+1}. {h}" for i, h in enumerate(section_headings))
     num_sections = len(section_headings)
@@ -558,37 +372,19 @@ TASK: Select research chunks for ALL {num_sections} sections listed below.
 Sections ({num_sections} total):
 {sections_list}
 
-{year_awareness}
-
 CRITICAL SELECTION RULES:
 
-1. **PER SECTION ALLOCATION:** You must select UP TO {num_chunks} chunk IDs FOR EACH SECTION.
-   - This means a TOTAL of up to {num_chunks * num_sections} chunks across all sections
-   - Each section gets its own allocation of up to {num_chunks} chunks
-   - DO NOT limit the total across all sections to {num_chunks}!
-
-2. **Relevance:** For each section, select chunks most relevant to that specific section heading.
+1. **Relevance:** For each section, select chunks most relevant to that specific section heading.
 
 3. **Minimum:** Select AT LEAST ONE chunk per section (never return empty chunk_ids arrays).
 
 4. **Maximum:** Select NO MORE than {num_chunks} chunks per section.
 
-5. **Temporal Relevance:** If the topic has a year, prioritize chunks from that year.
+5. **Temporal Relevance:** If the topic has a year, prioritize chunks from that year, penalize chunks from different years.
 
-6. **Output Format:** Return a JSON object with a "selections" array containing one object per section:
-   {{
-     "selections": [
-       {{
-         "section_heading": "exact heading from list",
-         "chunk_ids": ["id1", "id2", "id3", ...]  // up to {num_chunks} IDs
-       }},
-       ...
-     ]
-   }}
+6. **ID Integrity:** Use only the literal chunk IDs from the Research Context above.
 
-7. **ID Integrity:** Use only the literal chunk IDs from the Research Context above.
-
-8. **No Chatter:** Return ONLY the JSON object, no explanations.
+7. **No Chatter:** Return ONLY the JSON object, no explanations.
 
 {example_output}
 
@@ -808,86 +604,6 @@ OUTPUT CHECKLIST:
 """
 
 
-def search_query_generation_prompt(
-    topic: str, context: str = "", num_queries: int = 5
-) -> str:
-    """Generate prompt for creating targeted search queries for structured output."""
-
-    # Extract year from topic if present (e.g., "2022 AFL Grand Final" -> 2022)
-    import re
-
-    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
-    topic_year = year_match.group(0) if year_match else None
-
-    year_awareness_section = ""
-    if topic_year:
-        year_awareness_section = f"""
-CRITICAL: The topic is about {topic_year}. Focus on:
-- Events, people, and entities relevant to {topic_year}
-- Do NOT query about different years unless getting background context
-- Prefer specific {topic_year} entities over general historical articles
-"""
-
-    context_section = ""
-    if context:
-        context_section = f"""
-CONTEXT FROM INITIAL SEARCH:
-{context}
-
-First, extract key entities from this context:
-...
-Then use these entities to create specific, relationship-focused queries.
-"""
-
-    return f""" You are generating search queries for a Wikipedia knowledge base.
-
-TASK: Generate exactly {num_queries} Wikipedia article titles that would be useful for writing about "{topic}".
-
-APPROACH:
-1. Identify the key entities involved in "{topic}" based on your knowledge
-2. For each entity, provide its Wikipedia article title
-3. Format titles as they would appear on Wikipedia (proper capitalization, disambiguation in parentheses if needed)
-
-{year_awareness_section}
-
-{context_section}
-
-GUIDELINES:
-- Prefer specific named entities (people, teams, places, organizations, events) over generic topics
-- Use disambiguation when needed: e.g., "Chris Scott (Australian footballer)"
-- Keep titles concise (≤ 8 words)
-- If topic contains a year, focus on entities from that specific year
-
-You should return the titles under the key "queries" in a JSON object
-"""
-
-
-def extract_entities_from_context_prompt(topic: str, context: str) -> str:
-    """Extract key entities from index/season page context to generate targeted queries."""
-    return f"""You are extracting key entities from Wikipedia content to help write about "{topic}".
-
-CONTEXT FROM BROADER WIKIPEDIA PAGE:
-{context[:2000]}
-
-TASK:
-Based ONLY on the context above, identify the key entities (people, teams, organizations, locations, events) that are directly involved in "{topic}".
-
-INSTRUCTIONS:
-- Extract ONLY entities that are explicitly mentioned in the context
-- Focus on entities that are central to "{topic}" itself
-- Do NOT hallucinate or guess entities not in the context
-- Return specific Wikipedia page titles for each entity
-- Use proper capitalization and disambiguation (e.g., "Chris Scott (Australian footballer)")
-
-Return a JSON object with key "entities" containing a list of Wikipedia page titles (max 5).
-
-Example response format:
-{{
-  "entities": ["Entity Name 1", "Entity Name 2 (disambiguation)", "Entity Name 3"]
-}}
-"""
-
-
 def safe_trim(text: str, max_chars: int = 6000) -> str:
     if not text or len(text) <= max_chars:
         return text or ""
@@ -917,7 +633,103 @@ def enhance_prompt_with_tom(base_prompt: str, tom_context: Optional[str]) -> str
     """Enhance prompt with Theory of Mind context if available."""
     if not tom_context:
         return base_prompt
-    return f"{base_prompt}\n\nCollaborative context: {tom_context}"
+    return f"{base_prompt}\n\n{tom_context}"
+
+
+def build_directive_tom_context_for_writer(
+    predicted_action: str, confidence: float, reasoning: str
+) -> str:
+    """Build directive ToM context for writer based on predicted reviewer behavior."""
+    action_to_strategy = {
+        "provide_extensive_feedback": (
+            "The reviewer will provide extensive, detailed feedback.",
+            "Focus on thoroughness and detail in your revisions. Expect comprehensive suggestions across multiple dimensions.",
+        ),
+        "provide_moderate_feedback": (
+            "The reviewer will provide moderate, balanced feedback.",
+            "Maintain a balance between depth and breadth in your revisions. Address key issues without over-engineering.",
+        ),
+        "approve_with_minor_suggestions": (
+            "The reviewer will mostly approve with only minor suggestions.",
+            "Focus on polishing and refinement. Small adjustments will likely be sufficient.",
+        ),
+        "focus_on_accuracy_refinement": (
+            "The reviewer will focus primarily on factual accuracy and citations.",
+            "Prioritize fact-checking, adding citations, and ensuring claims are well-supported. Accuracy is paramount.",
+        ),
+        "request_major_expansion": (
+            "The reviewer will request significant content expansion.",
+            "Be prepared to substantially expand content. Consider adding new sections or significantly deepening existing ones.",
+        ),
+    }
+
+    prediction, strategy = action_to_strategy.get(
+        predicted_action,
+        (
+            f"The reviewer will likely take action: {predicted_action}",
+            "Adapt your approach based on reviewer expectations.",
+        ),
+    )
+
+    confidence_level = (
+        "high" if confidence >= 0.75 else "moderate" if confidence >= 0.5 else "low"
+    )
+
+    return f"""COLLABORATIVE INTELLIGENCE (Theory of Mind):
+Based on past interactions, I predict: {prediction}
+Confidence: {confidence_level} ({confidence:.1%})
+Reasoning: {reasoning}
+
+STRATEGIC ADAPTATION:
+{strategy}
+
+Use this prediction to proactively shape your work to align with reviewer expectations."""
+
+
+def build_directive_tom_context_for_reviewer(
+    predicted_action: str, confidence: float, reasoning: str
+) -> str:
+    """Build directive ToM context for reviewer based on predicted writer behavior."""
+    action_to_strategy = {
+        "accept_most_feedback": (
+            "The writer will accept most of your feedback.",
+            "Be comprehensive and detailed in your feedback. The writer is receptive and will implement most suggestions.",
+        ),
+        "partially_accept_maintain_creative_vision": (
+            "The writer will partially accept feedback while maintaining their creative vision.",
+            "Focus on high-priority issues and provide clear justification. The writer may selectively implement suggestions.",
+        ),
+        "contest_some_feedback": (
+            "The writer may contest or reject some feedback.",
+            "Ensure your feedback is well-justified and specific. Be prepared for pushback on lower-priority items.",
+        ),
+        "request_justification": (
+            "The writer will request additional justification for feedback.",
+            "Provide detailed rationale and specific examples. Anticipate questions about your suggestions.",
+        ),
+    }
+
+    prediction, strategy = action_to_strategy.get(
+        predicted_action,
+        (
+            f"The writer will likely take action: {predicted_action}",
+            "Adjust your feedback approach based on writer tendencies.",
+        ),
+    )
+
+    confidence_level = (
+        "high" if confidence >= 0.75 else "moderate" if confidence >= 0.5 else "low"
+    )
+
+    return f"""COLLABORATIVE INTELLIGENCE (Theory of Mind):
+Based on past interactions, I predict: {prediction}
+Confidence: {confidence_level} ({confidence:.1%})
+Reasoning: {reasoning}
+
+STRATEGIC ADAPTATION:
+{strategy}
+
+Calibrate your feedback style and volume to maximize collaborative effectiveness."""
 
 
 def build_single_section_revision_prompt(
@@ -934,6 +746,17 @@ def build_single_section_revision_prompt(
     lines: list[str] = [
         "ROLE: You are revising an encyclopedia-style article section.",
         "GOAL: Address ONLY the PENDING feedback for THIS section.",
+        "",
+        "CRITICAL HONESTY REQUIREMENT:",
+        "For EACH feedback item you MUST:",
+        "1. QUOTE the feedback: Read it carefully and understand what is being asked",
+        "2. MAKE THE CHANGE: Actually implement the requested change in the updated_content",
+        "3. SET STATUS HONESTLY:",
+        "   - Set 'addressed' ONLY if you genuinely made the requested change",
+        "   - Set 'wont_fix' if you cannot or should not make the change (explain why in writer_comment)",
+        "4. The reviewer WILL VERIFY your work - dishonest claims will be caught",
+        "",
+        "DO NOT claim 'addressed' unless you actually did the work. Be honest.",
         "",
         "OUTPUT RULES:",
         "- Return a single JSON object matching WriterValidationModel exactly.",
@@ -979,6 +802,17 @@ def build_revision_batch_prompt(
     lines: list[str] = [
         "ROLE: You are revising an encyclopedia-style article.",
         "GOAL: Address ONLY the PENDING feedback for the sections listed below.",
+        "",
+        "CRITICAL HONESTY REQUIREMENT:",
+        "For EACH feedback item you MUST:",
+        "1. QUOTE the feedback: Read it carefully and understand what is being asked",
+        "2. MAKE THE CHANGE: Actually implement the requested change in the updated_content",
+        "3. SET STATUS HONESTLY:",
+        "   - Set 'addressed' ONLY if you genuinely made the requested change",
+        "   - Set 'wont_fix' if you cannot or should not make the change (explain why in writer_comment)",
+        "4. The reviewer WILL VERIFY your work - dishonest claims will be caught",
+        "",
+        "DO NOT claim 'addressed' unless you actually did the work. Be honest.",
         "",
         "OUTPUT RULES:",
         "- Return a single JSON object matching WriterValidationBatchModel exactly.",
@@ -1037,7 +871,7 @@ def build_self_refine_prompt(title: str, current_text: str) -> str:
     This represents the self-correction approach where the writer
     internally improves their work without external critique.
     """
-    return f"""You are refining an encyclopedia article through internal self-correction.
+    return f"""You are refining an encyclopedia article through careful internal polishing.
 
 ARTICLE TITLE: {title}
 
@@ -1045,37 +879,41 @@ CURRENT DRAFT:
 {current_text}
 
 SELF-REFINEMENT TASK:
-Perform internal quality improvement by:
+Perform LIGHT polishing to improve quality WITHOUT removing content:
 
-1. CONTENT QUALITY:
-   - Identify and fix factual inconsistencies or unclear statements
-   - Ensure all claims are well-supported by the existing content
-   - Remove redundant or repetitive information
-   - Add transitions where flow is choppy
+1. FACTUAL CONSISTENCY (PRIMARY FOCUS):
+   - Check if the article contains any contradicting statements
+   - If two statements directly conflict, keep the more specific/supported one
+   - Example: If article says both "Event occurred in 2022" and "Event occurred in 2023", resolve the conflict
+   - DO NOT remove content just because it seems uncertain - only remove clear contradictions
 
-2. STRUCTURE & ORGANIZATION:
-   - Verify logical section ordering
-   - Ensure each paragraph has a clear purpose
-   - Check that the article tells a coherent story
-
-3. WRITING STYLE:
-   - Replace vague or generic language with specific details
-   - Eliminate clichés and overused phrases
-   - Improve sentence variety and readability
+2. LANGUAGE & FLOW:
+   - Improve transitions between paragraphs
+   - Fix awkward phrasing or unclear sentences
+   - Enhance readability while preserving all information
    - Maintain encyclopedic tone (objective, informative)
 
-4. TECHNICAL CORRECTNESS:
+3. TECHNICAL POLISH:
    - Fix grammar, spelling, and punctuation errors
    - Ensure consistent terminology throughout
    - Preserve all citation markers (e.g., <c cite="..."/>)
-   - Maintain article length (within 10% of original)
+   - Remove any non-English text unless it's proper nouns
 
 CRITICAL CONSTRAINTS:
-- Do NOT add new facts or information not in the original
-- Do NOT remove factual content
-- Do NOT change the fundamental structure (section headings)
+- PRESERVE ALL SECTIONS: Do not delete or merge sections
+- PRESERVE ALL FACTS: Do not remove information unless it directly contradicts other facts
+- ADD NOTHING NEW: Do not add facts or information not in the original
+- LIGHT TOUCH: Focus on polishing, not rewriting
+- When in doubt, KEEP the content rather than removing it
+
+This is a POLISH step, not an editorial review. The goal is to improve presentation of existing content, not to restructure or reduce it.
+- DO resolve factual conflicts by choosing the most relevant/supported claim
+- Do NOT change section headings
 - Do NOT include meta-commentary ("I have refined...", etc.)
 - Output ONLY the refined article text
+- Article length may decrease if removing contradictions/redundancy
+
+PRIORITY: Factual consistency and relevance are more important than length.
 
 OUTPUT: The complete refined article with all improvements applied.
 """
@@ -1083,89 +921,70 @@ OUTPUT: The complete refined article with all improvements applied.
 
 def build_research_gate_prompt(
     topic: str,
-    outline_str: str,
-    batch_idx: int,
-    total_batches: int,
     chunks_formatted: str,
-    max_queries: int,
+    wiki_links: Optional[str] = None,
+    tried_queries: str = "None yet",
+    retry_count: int = 0,
 ) -> str:
-    """Generate prompt for research gate agent to gather more info."""
+    """Pre-outline research filter with retry capability and clear grounding rules."""
 
-    # Extract year from topic for temporal filtering
-    import re
+    links_ctx = ""
+    if wiki_links and wiki_links.strip().lower() != "none":
+        links_ctx = f"""
+Pre-fetched Wikipedia links (already reviewed):
+{wiki_links}
+You may only select or rephrase entities from these links or the chunk summaries below.
+Do NOT invent entities outside this information.
+"""
 
-    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
-    topic_year = year_match.group(0) if year_match else None
+    retry_instruction = ""
+    if retry_count < 3:
+        retry_instruction = f"""
+Retry logic:
+- Current attempt: {retry_count + 1}/3
+- Already tried queries: {tried_queries}
+- If you propose any new_queries (exact Wikipedia page titles), you MUST set "action": "retry".
+- If no new_queries are needed, set "action": "continue".
+"""
 
-    year_filter_instruction = ""
-    if topic_year:
-        year_filter_instruction = f"""
-                TEMPORAL FILTERING (CRITICAL):
-                - The topic is about {topic_year}.
-                - DELETE chunks that primarily discuss different years (e.g., {int(topic_year)-1}, {int(topic_year)+1}, {int(topic_year)+5}) unless they provide essential background.
-                - KEEP chunks about {topic_year} or general timeless information.
-                - When proposing new queries, focus on {topic_year}-specific entities and events.
-                """
+    return f"""You are filtering research chunks BEFORE outline creation for topic: "{topic}"
 
-    return f"""
-                You are the research gate for the Writer. Topic: {topic}
+RETRIEVED CHUNKS (summaries only, with IDs):
+{chunks_formatted}
 
-                CRITICAL TOPIC FOCUS:
-                - This article is ONLY about "{topic}" - not related topics, similar events, or background subjects.
-                - DELETE chunks that discuss different but related topics (e.g., different competitions, leagues, categories, or competitions with similar names).
-                - KEEP only chunks that directly discuss "{topic}" itself.
+{links_ctx}
 
-                Article Outline:
-                {outline_str}
+Task 1: Identify chunks to DELETE that are obviously irrelevant.
 
-                Reviewing batch {batch_idx + 1}/{total_batches} of retrieved chunks:
-                {chunks_formatted}
+DELETE ONLY if:
+1. Discusses a completely unrelated topic or domain
+2. Navigation/metadata pages ("List of...", "Category:", "Index of...")
+3. Background information with no connection to "{topic}"
 
-                {year_filter_instruction}
+KEEP if:
+- Directly discusses "{topic}" or its main participants/entities
+- Provides background context relevant to "{topic}"
+- About key entities involved in "{topic}" (e.g., for "2022 Event X", keep pages about participants, venue, etc.)
+- About the general topic domain
 
-                Task:
-                - Identify chunks that do NOT support any section in the outline OR that are about different topics. List their ids in delete_chunk_ids.
-                - ONLY propose new_queries if there are CRITICAL missing entities that were mentioned in the initial query generation.
-                - DO NOT propose queries for new teams, people, or organizations that were not in the original research plan.
+Task 2: NEW QUERIES MUST BE MORE SPECIFIC, NOT BROADER
 
-                Rules:
-                - Be AGGRESSIVE with deletions — remove chunks about related but different topics (different leagues, years, categories, matches, etc.).
-                - AGGRESSIVELY delete chunks about wrong years if the topic has a specific year.
-                - DELETE chunks about similarly-named but different events or competitions.
-                - DELETE chunks that mention other teams/competitors not relevant to this specific topic.
-                - VERY RARELY propose new queries - only if there's an obvious gap for a known entity (venue, organization, key person).
-                - DO NOT propose queries for teams/people found in retrieved chunks unless they were in the initial query plan.
-                - Limit new_queries to {max_queries} precise queries targeting specific outline sections.
-                - Each new_query must be formatted like a Wikipedia page title:
-                    • Use Title Case (no underscores or all-caps).
-                    • Prefer the core entity name (person, place, organization, season, etc.) rather than repeating the topic.
-                    • Add parenthetical disambiguation if needed (e.g., "(2021 season)" or "(organization)").
-                    • Keep titles concise and natural — around 2–6 words.
-                - Keep reasoning short and actionable.
-                - Set action="retry" if you recommend any changes (deletions or new queries), otherwise "continue".
-                """
+If proposing new_queries:
+- Queries MUST be MORE SPECIFIC subaspects of "{topic}"
+- For temporal topics (with years/dates), queries MUST be about the SAME time period
+- VALID: More specific aspects of the event itself
+- INVALID: Broader histories, general categories, unrelated time periods
 
+{retry_instruction}
 
-def build_outline_gate_prompt(topic: str, outline_str: str, ctx: Optional[str]) -> str:
-    if ctx:
-        prev_refinement_dec_ctx = f"You previously decided to refine the outline with the following reasoning:\n{ctx}\n"
-    else:
-        prev_refinement_dec_ctx = ""
-    return f"""You just created an outline for the article:
-                {topic} outline:
-                {outline_str}
-                {prev_refinement_dec_ctx}
-                If a quick refinement (adding, merging, or reordering sections) would clearly improve the outline, set action="retry"; otherwise "continue".
-                Give reasoning briefly, mentioning which sections or entities might need changes.
-                Follow these rules:
-                - Choose "retry" ONLY if:
-                  • Important subtopics or entities mentioned in the research are missing.
-                  • The logical order of sections is clearly confusing or incomplete.
-                  • Key entities, concepts or time periods are missing.
-                - Choose "continue" if the outline is coherent and covers all major aspects,
-                  even if minor details could be improved.
-                - Default to "continue" if uncertain.
-                """
+Output format:
+{{
+    "action": "continue" or "retry",
+    "delete_chunk_ids": ["id1", "id2", ...],
+    "new_queries": ["Exact Wikipedia Page Title 1", "Exact Wikipedia Page Title 2"],
+    "reasoning": "Brief explanation (1-2 sentences)"
+}}
+"""
 
 
 # endregion Writer Prompt Templates

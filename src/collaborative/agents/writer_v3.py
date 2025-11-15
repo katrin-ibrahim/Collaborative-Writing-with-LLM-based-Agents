@@ -8,15 +8,11 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
-    build_outline_gate_prompt,
-    build_research_gate_prompt,
     build_revision_batch_prompt,
     build_self_refine_prompt,
     build_single_section_revision_prompt,
     enhance_prompt_with_tom,
     outline_prompt,
-    refine_outline_prompt,
-    search_query_generation_prompt,
     select_section_chunks_prompt,
     select_sections_chunks_batch_prompt,
     write_full_article_prompt,
@@ -41,6 +37,7 @@ from src.collaborative.utils.writer_utils import (
 from src.config.config_context import ConfigContext
 from src.retrieval.factory import create_retrieval_manager
 from src.utils.data.models import Article, Outline, ResearchChunk
+from src.utils.link_extractor import LinkExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +52,20 @@ MAX_CHUNKS_PER_SECTION = (
     if retrieval_config and hasattr(retrieval_config, "final_passages")
     else 10
 )
+
+
+class ResearchGateDecision(BaseModel):
+    action: Literal["continue", "retry"] = Field(
+        description="continue to outline, or retry to do more research"
+    )
+    delete_chunk_ids: List[str] = Field(
+        default_factory=list, description="Chunk IDs to delete"
+    )
+    new_queries: List[str] = Field(
+        default_factory=list,
+        description="New Wikipedia page titles to search (only if action=retry)",
+    )
+    reasoning: str = Field(default="", description="Brief explanation of decision")
 
 
 # region Writer Validation Models
@@ -105,37 +116,6 @@ class GateDecision(BaseModel):
     reasoning: Optional[str] = None
 
 
-class ResearchSteerModel(BaseModel):
-    """Structured output for the research gate.
-
-    Either recommend chunk deletions and/or new queries. The action controls routing.
-    """
-
-    action: Literal["continue", "retry"]
-    reasoning: Optional[str] = Field(
-        default=None,
-        description="Brief rationale explaining deletions and/or new queries",
-    )
-    delete_chunk_ids: List[str] = Field(
-        default_factory=list,
-        description="Chunk ids to delete due to redundancy, low relevance, or low quality",
-    )
-    new_queries: List[str] = Field(
-        default_factory=list,
-        min_length=0,
-        max_length=MAX_QUERIES_CONFIG,
-        description="Additional targeted queries to improve coverage",
-    )
-
-    @field_validator("delete_chunk_ids", mode="before")
-    @classmethod
-    def coerce_chunk_ids_to_strings(cls, v: Any) -> List[str]:
-        """Coerce chunk IDs to strings (LLMs often return them as integers)."""
-        if not isinstance(v, list):
-            return v
-        return [str(item) for item in v]
-
-
 # ======================== MINIMAL STATE ========================
 
 
@@ -149,8 +129,7 @@ class WriterV3(BaseAgent):
     Simplified Writer agent with hybrid Python/LLM architecture.
 
     Workflow:
-    - Iteration 0: direct_search(topic) → generate_queries(top_chunk) →
-                   search_queries → create_outline(top_chunk) → write_all_sections(chunks)
+    - Iteration 0: research → create_outline() → write_all_sections()
     - Iteration 1+: get_pending_feedback → identify_target_sections →
                      revise_sections(feedback + chunks) → mark_feedback_status
     """
@@ -170,11 +149,11 @@ class WriterV3(BaseAgent):
         )
         self.needs_refine = getattr(self.config, "should_self_refine", False)
 
-        self._research_ctx: Optional[List[str]] = None
         self._outline_ctx: Optional[str] = None
         self._research_retries: int = 0
         self._refine_retries: int = 0
-        self._wikipedia_categories: Optional[List[str]] = None
+        self._tried_queries: set = set()
+        self._pending_gate_queries: Optional[List[str]] = None
 
         logger.info("Writer agent initialized with LangGraph architecture")
 
@@ -200,11 +179,7 @@ class WriterV3(BaseAgent):
         workflow.add_node("router", self._router_by_iteration)
         workflow.add_node("research", self._research)  # Initial Flow Only
         workflow.add_node("outline", self._outline)  # Initial Flow Only
-        workflow.add_node("refine_outline", self._refine_outline)  # Initial Flow Only
         workflow.add_node("write", self._write_draft)  # Initial Flow Only
-        workflow.add_node(
-            "process_suggested_queries", self._process_suggested_queries
-        )  # Revision Flow Only
         workflow.add_node("revise", self._revise_draft)  # Revision Flow Only
         workflow.add_node("self_refine", self._self_refine)  # Both Flows (Optional)
 
@@ -216,35 +191,24 @@ class WriterV3(BaseAgent):
             lambda state: self.flow_type,
             {
                 "INITIAL_FLOW": "research",  # iter 0: research -> outline...
-                "REVISION_FLOW": "process_suggested_queries",  # iter 1+: process suggested queries -> revise
+                "REVISION_FLOW": "revise",  # iter 1+: go directly to revise (no retrieval)
             },
         )
 
-        # 2. Research -> Outline (no gate, just collect chunks)
-        workflow.add_edge("research", "outline")
-
-        # 3. Process suggested queries -> Revise (for revision flow)
-        workflow.add_edge("process_suggested_queries", "revise")
-
-        # 4. Outline -> Research Gate (with outline context)
+        # 2. Research -> Research Gate (pre-outline filtering)
         workflow.add_conditional_edges(
-            "outline",
-            self._should_refine_research,  # LLM gate with outline context
+            "research",
+            self._should_refine_research,
             {
                 "retry": "research",
-                "continue_outline": "refine_outline",
-                "continue_write": "write",
+                "continue": "outline",
             },
         )
 
-        # 5. Outline Refinement
-        workflow.add_conditional_edges(
-            "refine_outline",
-            self._should_refine_outline,
-            {"retry": "refine_outline", "continue": "write"},
-        )
+        # 4. Outline Refinement -> Write
+        workflow.add_edge("outline", "write")
 
-        # 7. Post-Content Edges (Shared for write and revise)
+        # 5. Post-Content Edges (Shared for write and revise)
         workflow.add_conditional_edges(
             "write", self._should_self_refine, {"refine": "self_refine", "done": END}
         )
@@ -274,143 +238,124 @@ class WriterV3(BaseAgent):
     # ======================== RESEARCH GATE NODE ========================
     def _should_refine_research(self, state) -> str:
         """
-        Decide: do another research pass ('retry') or move on to outline refinement or writing.
-        Uses outline context to make informed decisions about chunk relevance and gaps.
-        Reviews all chunks via batched LLM calls to ensure complete coverage.
+        Pre-outline research gate: LLM filters irrelevant chunks and decides if more research needed.
+        Can return "retry" (max 2 times) to do more research, or "continue" to outline.
         """
-        if self._research_retries >= 2:
-            logger.info(
-                "Max research retries reached, proceeding to outline refinement."
-            )
-            return "continue_outline"
-
         chunk_summaries = self.shared_memory.get_search_summaries()
         topic = self.shared_memory.get_topic()
-        outline = self.shared_memory.get_outline()
 
-        if not outline or not outline.headings:
-            logger.warning(
-                "No outline available for research gate, skipping refinement."
-            )
-            return "continue_write"
-
-        outline_str = "\n".join(outline.headings)
-        research_client = self.get_task_client("research")
-
-        batch_size = (
-            self.retrieval_config.final_passages if self.retrieval_config else 10
-        )
-
-        all_delete_ids = []
-        all_new_queries = []
-        all_decisions = []
-
-        total_chunks = sum(len(summary.results) for summary in chunk_summaries.values())
-        total_batches = (total_chunks + batch_size - 1) // batch_size
-
-        logger.info(
-            f"Research gate (post-outline) reviewing {total_chunks} chunks in {total_batches} batch(es)"
-        )
-
-        for batch_idx in range(total_batches):
-            start_idx = batch_idx * batch_size
-            end_idx = min(start_idx + batch_size, total_chunks)
-
-            chunks_formatted = build_formatted_chunk_summaries(
-                chunk_summaries,
-                max_content_pieces=None,
-                fields=["description", "chunk_id"],
-                start_idx=start_idx,
-                end_idx=end_idx,
-            )
-
-            try:
-                prompt = build_research_gate_prompt(
-                    topic,
-                    outline_str,
-                    batch_idx,
-                    total_batches,
-                    chunks_formatted,
-                    MAX_QUERIES_CONFIG,
-                )
-
-                dec: ResearchSteerModel = research_client.call_structured_api(
-                    prompt=prompt,
-                    output_schema=ResearchSteerModel,
-                    system_prompt="Answer with JSON only.",
-                    temperature=0.0,
-                )
-
-                all_decisions.append(dec.action)
-                if getattr(dec, "delete_chunk_ids", None):
-                    all_delete_ids.extend(dec.delete_chunk_ids)
-                if getattr(dec, "new_queries", None):
-                    all_new_queries.extend(dec.new_queries)
-
-            except Exception as e:
-                logger.warning(f"Batch {batch_idx + 1} review failed: {e}")
-                continue
-
-        all_delete_ids = list(dict.fromkeys(all_delete_ids))
-        all_new_queries = list(dict.fromkeys(all_new_queries))[:MAX_QUERIES_CONFIG]
-
-        if all_delete_ids:
-            try:
-                removed = self.shared_memory.delete_chunks_by_ids(all_delete_ids)
-                logger.info(
-                    f"Research gate deleted {removed} irrelevant chunks: {all_delete_ids}"
-                )
-            except Exception as del_exc:
-                logger.warning(
-                    f"Failed to delete irrelevant chunks {all_delete_ids}: {del_exc}"
-                )
-
-        if all_new_queries:
-            self._research_ctx = all_new_queries
-            logger.info(f"Research gate proposed {len(all_new_queries)} new queries")
-
-        should_retry = "retry" in all_decisions and all_new_queries
-
-        if should_retry:
-            self._research_retries += 1
-            return "retry"
-
-        return "continue_outline" if self._refine_retries < 1 else "continue_write"
-
-    # ======================== OUTLINE GATE NODE ========================
-    def _should_refine_outline(self, state) -> str:
-        """
-        Decide: refine outline once ('retry') or proceed to writing ('continue').
-        """
-        if self._refine_retries >= 1:
-            logger.info(
-                "Max outline refinement retries reached, proceeding to writing."
-            )
+        if not chunk_summaries:
+            logger.warning("No chunks to filter, proceeding to outline.")
             return "continue"
 
-        topic = self.shared_memory.get_topic()
-        outline = self.shared_memory.get_outline()
-        outline_str = (
-            "\n".join(outline.headings) if outline else "No outline available."
+        total_chunks = sum(len(summary.results) for summary in chunk_summaries.values())
+
+        if total_chunks == 0:
+            logger.warning("No chunks available, proceeding to outline.")
+            return "continue"
+
+        # Track research attempts
+        if not hasattr(self, "_research_retries"):
+            self._research_retries = 0
+            self._tried_queries = set()
+
+        # Get queries we already tried
+        tried_queries_str = (
+            ", ".join(sorted(self._tried_queries))
+            if self._tried_queries
+            else "None yet"
         )
-        outline_client = self.get_task_client("create_outline")
-        self._refine_retries += 1
+
+        logger.info(
+            f"Pre-outline research gate (attempt {self._research_retries + 1}/3): LLM filtering {total_chunks} chunks"
+        )
+        logger.info(f"Already tried queries: {tried_queries_str}")
+
+        # Build formatted chunk list for LLM
+        from src.collaborative.utils.writer_utils import build_formatted_chunk_summaries
+
+        chunks_formatted = build_formatted_chunk_summaries(
+            chunk_summaries,
+            max_content_pieces=None,
+            fields=["description", "chunk_id"],
+        )
+
+        # Call LLM to filter and decide
+        research_client = self.get_task_client("research")
+        link_extractor = LinkExtractor()
+        normalized_topic = topic.replace("_", " ")
+        wiki_links = link_extractor.extract_topic_data(normalized_topic)
+
         try:
-            dec: GateDecision = outline_client.call_structured_api(
-                prompt=build_outline_gate_prompt(topic, outline_str, self._outline_ctx),
-                output_schema=GateDecision,
-                system_prompt="Answer with JSON only.",
-                temperature=0.0,
-                max_tokens=120,
+            from src.collaborative.agents.templates import build_research_gate_prompt
+
+            prompt = build_research_gate_prompt(
+                topic=topic,
+                wiki_links=", ".join(wiki_links),
+                chunks_formatted=chunks_formatted,
+                tried_queries=tried_queries_str,
+                retry_count=self._research_retries,
             )
-            if dec.action == "retry":
-                self._outline_ctx = dec.reasoning
-                self._refine_retries += 1
-                return "retry"
-            else:
-                return "continue"
-        except Exception:
-            return "continue"  # fail safe
+
+            decision: ResearchGateDecision = research_client.call_structured_api(
+                prompt=prompt,
+                output_schema=ResearchGateDecision,
+                system_prompt="You are a research gate. Decide if we need more research or can proceed to outline.",
+                temperature=0.0,
+            )
+
+            logger.info(
+                f"Research gate decision: {decision.action}, reasoning: {decision.reasoning}, new queries: {', '.join(decision.new_queries)}"
+            )
+            logger.debug(f"Chunks to delete: {len(decision.delete_chunk_ids)}")
+
+        except Exception as e:
+            logger.warning(f"LLM filtering failed: {e}, proceeding to outline")
+            return "continue"
+
+        # Delete bad chunks
+        if decision.delete_chunk_ids:
+            chunks_before = self.shared_memory.get_stored_chunks()
+            logger.info(f"BEFORE pruning: {len(chunks_before)} chunks in memory")
+            logger.debug(f"Deleting chunk IDs: {decision.delete_chunk_ids}")
+            logger.debug(
+                f"Deleting chunks with content excerpts: {[chunk.description for chunk in chunks_before if chunk.chunk_id in decision.delete_chunk_ids]}"
+            )
+
+            try:
+                removed = self.shared_memory.delete_chunks_by_ids(
+                    decision.delete_chunk_ids
+                )
+                logger.info(f"Pre-outline gate pruned {removed} irrelevant chunks")
+            except Exception as del_exc:
+                logger.warning(f"Failed to delete chunks: {del_exc}")
+
+            chunks_after = self.shared_memory.get_stored_chunks()
+            logger.info(f"AFTER pruning: {len(chunks_after)} chunks remaining")
+            logger.debug(
+                f"Remaining chunks with content excerpts: {[chunk.description for chunk in chunks_after]}"
+            )
+
+        # Check if we should retry with new queries
+        if (
+            decision.action == "retry"
+            and self._research_retries < 2
+            and decision.new_queries
+        ):
+            self._research_retries += 1
+            logger.info(
+                f"Research gate requesting retry with {len(decision.new_queries)} new queries"
+            )
+
+            # Store new queries for research node to use
+            self._pending_gate_queries = decision.new_queries
+
+            return "retry"
+
+        if self._research_retries >= 2:
+            logger.info("Max research retries (2) reached, proceeding to outline")
+
+        return "continue"
 
     # ======================== SELF-REFINE GATE NODE ========================
     def _should_self_refine(self, state: MinimalState) -> str:
@@ -428,67 +373,49 @@ class WriterV3(BaseAgent):
     def _research(self, state: MinimalState) -> MinimalState:
         """Research node: two-phase research process (initial + secondary search)."""
         topic = self.shared_memory.get_topic()
-        logger.info(f"Starting research for topic: {topic}")
 
-        # Fetch Wikipedia categories once at the start of research
-        if self._wikipedia_categories is None:
-            self._wikipedia_categories = self._fetch_wikipedia_categories(topic)
-
-        # If we already have validated queries in context (from the gate), execute them
-        if self._research_ctx and len(self._research_ctx) > 0:
-            # Deduplicate and cap to configured maximum
-            seen = set()
-            deduped = []
-            for q in self._research_ctx:
-                if q and q not in seen:
-                    seen.add(q)
-                    deduped.append(q)
-            max_q = (
-                self.retrieval_config.num_queries
-                if self.retrieval_config
-                and hasattr(self.retrieval_config, "num_queries")
-                else MAX_QUERIES_CONFIG
+        if _pending_gate_queries := getattr(self, "_pending_gate_queries", None):
+            # Use queries proposed by research gate
+            logger.info(
+                f"Using {len(_pending_gate_queries)} queries from research gate"
             )
-            queries = deduped[:max_q]
-            if queries:
-                logger.info(f"Research: executing {len(queries)} gate-provided queries")
-                self._execute_search_phase(queries=queries)
-            else:
-                logger.info(
-                    "Research: research_ctx had no usable queries after dedup/cap"
-                )
-            # Clear after consumption to avoid reuse
-            self._research_ctx = None
+            self._execute_search_phase(_pending_gate_queries)
+            self._tried_queries.update(_pending_gate_queries)
+            # Clear pending queries after use
+            self._pending_gate_queries = None
             return state
 
-        # No context provided -> first pass: initial topic search + generated queries
+        link_extractor = LinkExtractor()
+        # Normalize topic: replace underscores with spaces for Wikipedia lookup
+        normalized_topic = topic.replace("_", " ")
+        wiki_links = link_extractor.extract_topic_data(normalized_topic)
+
+        # If no links found, use the topic itself as fallback
+        if not wiki_links:
+            logger.warning(
+                f"No related links found for {normalized_topic}, using topic as single query"
+            )
+            wiki_links = [normalized_topic]
+
         logger.info(
-            "Research: no existing context; running initial topic search + generated queries"
+            f"Starting research for topic: {topic} with {len(wiki_links)} queries"
         )
+        self._execute_search_phase(wiki_links)
+        self._tried_queries = set(wiki_links)
 
-        top_chunk = self._get_best_chunk()
-
-        secondary_queries = self._generate_queries(
-            topic=topic,
-            wikipedia_categories=self._wikipedia_categories,
-            top_chunk=top_chunk,
-        )
-        if secondary_queries:
-            self._execute_search_phase(queries=secondary_queries)
-        else:
-            logger.info("No secondary queries generated by LLM. Search complete.")
         return state
 
     # ======================== OUTLINE NODE ========================
     def _outline(self, state: MinimalState) -> MinimalState:
         """Outline node: create article outline using LLM reasoning with top chunk context."""
         topic = self.shared_memory.get_topic()
-        top_chunk = self._get_best_chunk()
-        top_chunk_text = top_chunk.content if top_chunk else ""
 
-        # Get temporal context for disambiguation (adjacent year's article)
-        # This is passed separately to the prompt, not mixed with actual research chunks
-        temporal_context = self._get_temporal_context_chunk(topic)
+        # Log memory state at outline creation
+        chunks_in_memory = self.shared_memory.get_stored_chunks()
+        chunk_ids_in_memory = [c.chunk_id for c in chunks_in_memory]
+        logger.info(
+            f"OUTLINE CREATION: {len(chunk_ids_in_memory)} chunks available: {chunk_ids_in_memory}"
+        )
 
         chunk_summaries = self.shared_memory.get_search_summaries()
         formatted_chunk_summaries = build_formatted_chunk_summaries(
@@ -497,16 +424,10 @@ class WriterV3(BaseAgent):
             fields=["description"],
         )
 
-        outline_prompt_str = outline_prompt(
-            topic,
-            top_chunk_text,
-            formatted_chunk_summaries,
-            temporal_context=temporal_context or "",
-        )
+        outline_prompt_str = outline_prompt(topic, formatted_chunk_summaries)
 
         tom_context = self._get_tom_context(
-            action="outline_review",
-            has_research=bool(top_chunk),
+            action="create_outline",
             topic=topic,
         )
         try:
@@ -527,9 +448,7 @@ class WriterV3(BaseAgent):
                 "Conclusion and Summary",
             ]
             outline = Outline(title=topic, headings=generic_headings)
-            logger.info(
-                f"Using generic fallback outline with {len(outline.headings)} sections"
-            )
+            logger.warning("Fallback outline created.")
 
         # Store outline in memory (whether from LLM or fallback)
         self.initial_outline = outline
@@ -537,65 +456,6 @@ class WriterV3(BaseAgent):
         logger.info(
             f"Created outline with {len(outline.headings)} sections: {outline.headings}"
         )
-        return state
-
-    # ======================== REFINE OUTLINE NODE ========================
-    def _refine_outline(self, state: MinimalState) -> MinimalState:
-        """Refine outline node."""
-        logger.info("Refining existing outline.")
-
-        try:
-            refine_client = self.get_task_client("create_outline")
-            topic = self.shared_memory.get_topic()
-            top_chunk = self._get_best_chunk()
-            top_chunk_text = top_chunk.content if top_chunk else ""
-            chunk_summaries = self.shared_memory.get_search_summaries()
-            formatted_chunk_summaries = build_formatted_chunk_summaries(
-                chunk_summaries,
-                max_content_pieces=self.retrieval_config.final_passages,
-                fields=["description"],
-            )
-
-            tom_context = self._get_tom_context(
-                action="outline_review",
-                has_research=bool(top_chunk),
-                topic=topic,
-            )
-
-            # Prompt uses the existing outline and research context
-            if self.initial_outline is not None:
-                outline = "\n".join(self.initial_outline.headings)
-            else:
-                logger.warning(
-                    "No initial outline found, using empty headings for refinement prompt."
-                )
-                outline = ""
-
-            refine_prompt = refine_outline_prompt(
-                topic, top_chunk_text, formatted_chunk_summaries, outline
-            )
-            if self._outline_ctx is not None:
-                refine_prompt += (
-                    f"\n\nPrevious refinement reasoning context: {self._outline_ctx}"
-                )
-
-            final_prompt = enhance_prompt_with_tom(refine_prompt, tom_context)
-            outline_model: ArticleOutlineValidationModel = (
-                refine_client.call_structured_api(
-                    prompt=final_prompt, output_schema=ArticleOutlineValidationModel
-                )
-            )
-
-            refined_outline = Outline(
-                title=self.initial_outline.title if self.initial_outline else "",
-                headings=outline_model.headings,
-            )
-            self.shared_memory.update({"initial_outline": refined_outline})
-            self.initial_outline = refined_outline
-
-        except Exception as e:
-            logger.error(f"Outline refinement failed: {e}", exc_info=True)
-
         return state
 
     # ======================== WRITE NODE ========================
@@ -608,7 +468,6 @@ class WriterV3(BaseAgent):
 
         tom_context = self._get_tom_context(
             action="content_write",
-            has_research=True,
             topic=topic,
         )
         chunk_summaries = self.shared_memory.get_search_summaries()
@@ -646,7 +505,7 @@ class WriterV3(BaseAgent):
         if not article or not (article.content or "").strip():
             return state  # nothing to polish
 
-        client = self.get_task_client("self_refine_full")
+        client = self.get_task_client("self_refine")
         prompt = build_self_refine_prompt(
             title=article.title,
             current_text=article.content,
@@ -667,51 +526,65 @@ class WriterV3(BaseAgent):
 
     # ======================== REVISION FLOW NODES ========================
     # region Revision Flow Nodes
-    def _process_suggested_queries(self, state: MinimalState) -> MinimalState:
-        """Process suggested queries from reviewer if available."""
-        iteration = self.shared_memory.get_iteration()
-        if iteration == 0:
-            # No suggested queries in first iteration
-            return state
-
-        # Get suggested queries from previous iteration
-        previous_iteration = iteration - 1
-        suggested_queries = self.shared_memory.get_suggested_queries(previous_iteration)
-
-        if suggested_queries:
-            logger.info(
-                f"Processing {len(suggested_queries)} suggested queries from reviewer (iteration {previous_iteration})"
-            )
-            # Execute search for suggested queries
-            self._execute_search_phase(queries=suggested_queries)
-        else:
-            logger.debug("No suggested queries from reviewer")
-
-        return state
-
     def _revise_draft(self, state: MinimalState) -> MinimalState:
         """
         Graph node: revision step.
+        - Check if reviewer suggested new queries and execute searches
         - Collect sections that have PENDING feedback items (current iteration).
         - One LLM call returns WriterValidationBatchModel with per-section updates.
         - Apply status updates + content rewrites.
         """
+        logger.info("[REVISE NODE] Starting _revise_draft")
         iteration = self.shared_memory.state.get("iteration", 0)
+        logger.info(f"[REVISE NODE] Current iteration: {iteration}")
+
+        # Execute reviewer-suggested queries if available
+        reviewer_queries = self.shared_memory.state.get("reviewer_suggested_queries")
+        if reviewer_queries:
+            logger.info(
+                f"[REVISE NODE] Found {len(reviewer_queries)} reviewer-suggested queries"
+            )
+            self._execute_search_phase(reviewer_queries)
+            # Clear the queries after execution
+            self.shared_memory.state["reviewer_suggested_queries"] = None
+            logger.info(
+                "[REVISE NODE] Executed reviewer queries and cleared from memory"
+            )
+
         article = self.shared_memory.get_current_draft_as_article()
         if not article:
+            logger.error("[REVISE NODE] No current draft article found!")
             raise RuntimeError("Revise node: no current draft in memory.")
 
         # collect sections -> [pending items]
+        # Feedback is stored under the previous iteration (when reviewer generated it)
+        feedback_iteration = iteration - 1 if iteration > 0 else 0
+        logger.info(
+            f"[REVISE NODE] Getting feedback items from iteration {feedback_iteration} (current={iteration})"
+        )
         pending_by_section = self.shared_memory.get_feedback_items_for_iteration(
-            iteration, FeedbackStatus.PENDING
+            feedback_iteration, FeedbackStatus.PENDING
+        )
+        logger.info(
+            f"[REVISE NODE] Found pending feedback for {len(pending_by_section)} sections"
         )
         if not pending_by_section:
+            logger.info("[REVISE NODE] No pending feedback - returning early")
             return state  # nothing to do
 
-        mode = getattr(getattr(self, "config", None), "revise_mode", "pending_sections")
+        mode = getattr(getattr(self, "config", None), "revise_mode", "pending")
+        logger.info(f"[REVISE NODE] Revise mode: {mode}")
         if mode == "section":
+            # Sequential: one LLM call per section (SLOW but more focused)
+            logger.info(
+                f"[REVISE NODE] Using SEQUENTIAL mode ({len(pending_by_section)} LLM calls, one per section)"
+            )
             self._revise_sections_sequential(article, pending_by_section)
-        else:  # default "pending_sections"
+        else:  # "pending" or any other value - default to batch/pending mode
+            # Batch/Pending: one LLM call for all pending sections (FAST, recommended)
+            logger.info(
+                f"[REVISE NODE] Using BATCH/PENDING mode (1 LLM call for all {len(pending_by_section)} sections)"
+            )
             self._revise_sections_batch(article, pending_by_section)
 
         # persist
@@ -722,28 +595,8 @@ class WriterV3(BaseAgent):
 
     # ======================== WRITER V2 HELPERS ========================
     # region WriterV2 Helpers
-    def _fetch_wikipedia_categories(self, topic: str) -> List[str]:
-        """Fetch Wikipedia categories for the topic."""
-        try:
-            from src.utils.wikipedia_categories import WikipediaCategoryFetcher
 
-            fetcher = WikipediaCategoryFetcher()
-            cats = fetcher.get_categories(topic, max_categories=6)
-            if cats:
-                logger.info(
-                    f"Fetched {len(cats)} Wikipedia categories for '{topic}': {cats}"
-                )
-                return cats
-            else:
-                logger.info(f"No Wikipedia categories found for '{topic}'")
-                return []
-        except Exception as e:
-            logger.warning(f"Failed to fetch Wikipedia categories: {e}")
-            return []
-
-    def _get_tom_context(
-        self, action: str, has_research: bool, topic: str
-    ) -> Optional[str]:
+    def _get_tom_context(self, action: str, topic: str) -> Optional[str]:
         """Generate Theory of Mind context if available."""
         if not (
             hasattr(self.shared_memory, "tom_module")
@@ -753,16 +606,25 @@ class WriterV3(BaseAgent):
             return None
 
         try:
+            from src.collaborative.agents.templates import (
+                build_directive_tom_context_for_writer,
+            )
+
+            # Writer predicts how Reviewer will respond
             tom_prediction = self.shared_memory.tom_module.predict_agent_response(
-                predictor=AgentRole.REVIEWER,
-                target=AgentRole.WRITER,
+                predictor=AgentRole.WRITER,
+                target=AgentRole.REVIEWER,
                 context={
                     "topic": topic,
-                    "has_research": has_research,
                     "action": action,
                 },
             )
-            return tom_prediction.reasoning
+
+            return build_directive_tom_context_for_writer(
+                predicted_action=tom_prediction.predicted_action,
+                confidence=tom_prediction.confidence,
+                reasoning=tom_prediction.reasoning,
+            )
         except Exception as e:
             logger.warning(f"ToM prediction failed: {e}")
             return None
@@ -811,6 +673,12 @@ class WriterV3(BaseAgent):
                 all_results: List[ResearchChunk] = retrieval_manager.search_concurrent(
                     query_list=queries, topic=topic
                 )
+                logger.debug(
+                    f"Retrieved {len(all_results)} results from wiki retrieval manager."
+                )
+                logger.debug(
+                    f"debug excerpts: {[chunk.description for chunk in all_results]}"
+                )
             else:
                 # faiss has segfault issues with concurrent calls, so we use sequential for now
                 all_results: List[ResearchChunk] = retrieval_manager.search(
@@ -826,8 +694,20 @@ class WriterV3(BaseAgent):
                 rm_type=rm_type,
             )
 
+            # Log current memory state after storing
+            chunks_in_memory = self.shared_memory.get_stored_chunks()
+            chunk_ids_in_memory = [c.chunk_id for c in chunks_in_memory]
             logger.info(
-                f"Stored {len(all_results)} final chunks under search_id: {search_id}"
+                f"AFTER storing: Total {len(chunk_ids_in_memory)} chunks in memory: {chunk_ids_in_memory}"
+            )
+
+            # Track queries in shared memory to prevent redundant searches
+            if "all_searched_queries" not in self.shared_memory.state:
+                self.shared_memory.state["all_searched_queries"] = set()
+            for query in queries:
+                self.shared_memory.state["all_searched_queries"].add(query)
+            logger.debug(
+                f"Tracked {len(queries)} queries. Total tracked: {len(self.shared_memory.state['all_searched_queries'])}"
             )
 
         except Exception as exc:
@@ -895,211 +775,6 @@ class WriterV3(BaseAgent):
 
         return search_result
 
-    def _get_best_chunk(self) -> Optional[ResearchChunk]:
-        """Get the highest-scoring chunk for context."""
-        chunks = self.shared_memory.get_stored_chunks()
-        if not chunks:
-            logger.warning("No chunks available for context")
-            return None
-
-        # Sort by relevance score if available, otherwise take first
-        sorted_chunks = sorted(
-            chunks, key=lambda x: getattr(x, "relevance_score", 0.0), reverse=True
-        )
-
-        top_chunk = sorted_chunks[0]
-        logger.info(
-            f"Selected top chunk: {top_chunk.chunk_id} (score: {getattr(top_chunk, 'relevance_score', 'N/A')})"
-        )
-        return top_chunk
-
-    def _get_temporal_context_chunk(self, topic: str) -> Optional[str]:
-        """
-        Fetch top chunk from an adjacent year's article for temporal disambiguation.
-        For example, if topic is "2022 AFL Grand Final", fetch from "2021 AFL Grand Final".
-        This helps the model understand the structure and disambiguate (e.g., AFL vs AFLW).
-        """
-        import re
-
-        year_match = re.search(r"\b(19|20)\d{2}\b", topic)
-        if not year_match:
-            return None
-
-        topic_year = int(year_match.group(0))
-
-        # Try previous year first, then next year
-        for adjacent_year in [topic_year - 1, topic_year + 1]:
-            adjacent_topic = topic.replace(str(topic_year), str(adjacent_year))
-
-            try:
-                # Search for the adjacent year's article
-                search_results = self.retrieval_manager.search(
-                    query_list=[adjacent_topic], max_results=1
-                )
-
-                if search_results and len(search_results) > 0:
-                    top_result = search_results[0]
-                    logger.info(
-                        f"Fetched temporal context from '{adjacent_topic}' for disambiguation"
-                    )
-                    # Return just the content snippet, not the full chunk
-                    return f"TEMPORAL CONTEXT (from {adjacent_year}, for structure reference only):\n{top_result.content[:500]}"
-            except Exception as e:
-                logger.debug(
-                    f"Could not fetch temporal context for {adjacent_topic}: {e}"
-                )
-                continue
-
-        return None
-
-    def _extract_entities_from_index_page(
-        self, topic: str, categories: Optional[List[str]] = None
-    ) -> List[str]:
-        """
-        Use Wikipedia categories to find a broader 'index page' and extract key entities.
-
-        For example, "2022 AFL Grand Final" has category "2022 AFL season",
-        which we can query to find the actual teams that played.
-        """
-        from src.collaborative.agents.templates import (
-            extract_entities_from_context_prompt,
-        )
-
-        if not categories:
-            logger.debug("No categories provided for entity extraction")
-            return []
-
-        index_page = self._select_best_index_page(categories)
-        if not index_page:
-            logger.debug(f"No suitable index page found in categories: {categories}")
-            return []
-
-        logger.info(
-            f"Using index page '{index_page}' to extract entities for '{topic}'"
-        )
-
-        try:
-            search_results = self.retrieval_manager.search(
-                query_list=[index_page], max_results=3
-            )
-
-            if not search_results:
-                logger.debug(f"No results from index page query '{index_page}'")
-                return []
-
-            combined_context = "\n\n".join(
-                [chunk.content[:1000] for chunk in search_results[:3]]
-            )
-
-            prompt = extract_entities_from_context_prompt(topic, combined_context)
-
-            extraction_client = self.get_task_client("research")
-
-            response_model = extraction_client.call_structured_api(
-                prompt=prompt, output_schema=EntityListValidationModel
-            )
-
-            entities = response_model.entities
-            logger.info(
-                f"Extracted {len(entities)} entities from index page '{index_page}': {entities}"
-            )
-            return entities
-
-        except Exception as e:
-            logger.warning(f"Entity extraction from index page failed: {e}")
-            return []
-
-    def _select_best_index_page(self, categories: List[str]) -> Optional[str]:
-        """
-        Select the best 'index page' from Wikipedia categories.
-
-        Prioritize season/year pages, then broader topic pages.
-        Examples:
-        - "2022 AFL season" (from "2022 AFL Grand Final")
-        - "UEFA Euro 2016" (from "UEFA Euro 2016 Final")
-        """
-        import re
-
-        for cat in categories:
-            cat_lower = cat.lower()
-
-            if "season" in cat_lower and re.search(r"\b(19|20)\d{2}\b", cat):
-                return cat
-
-            if re.search(r"\b(19|20)\d{2}\b", cat) and any(
-                keyword in cat_lower
-                for keyword in [
-                    "afl",
-                    "nrl",
-                    "euro",
-                    "world cup",
-                    "fifa",
-                    "election",
-                    "olympics",
-                ]
-            ):
-                return cat
-
-        return None
-
-    def _generate_queries(
-        self,
-        topic: str,
-        wikipedia_categories: Optional[List[str]] = None,
-        top_chunk: Optional[ResearchChunk] = None,
-    ) -> List[str]:
-        """Generate secondary search queries using LLM reasoning with Wikipedia categories and top chunk."""
-
-        # STEP 1: Extract entities from index page using Wikipedia categories
-        extracted_entities = self._extract_entities_from_index_page(
-            topic, wikipedia_categories
-        )
-
-        # Build context from extracted entities, Wikipedia categories and top chunk
-        context_parts = []
-
-        if extracted_entities:
-            context_parts.append(
-                "EXTRACTED_ENTITIES_FROM_INDEX_PAGE: " + ", ".join(extracted_entities)
-            )
-
-        if wikipedia_categories:
-            context_parts.append(
-                "WIKIPEDIA_CATEGORIES: " + ", ".join(wikipedia_categories)
-            )
-
-        if top_chunk and top_chunk.content:
-            context_parts.append(f"TOP_RESEARCH_CHUNK: {top_chunk.content[:500]}")
-
-        context = "\n\n".join(context_parts) if context_parts else ""
-
-        prompt = search_query_generation_prompt(
-            topic,
-            context=context,
-            num_queries=self.retrieval_config.num_queries,
-        )
-        if self._research_ctx is not None:
-            prompt += f"\n\nPrevious outline reasoning context: {self._research_ctx}"
-
-        try:
-            query_client = self.get_task_client("research")
-
-            # Call the structured API, passing the QueryList model directly
-            response_model: QueryListValidationModel = query_client.call_structured_api(
-                prompt=prompt, output_schema=QueryListValidationModel
-            )
-            # Access the validated list directly
-            queries = response_model.queries
-
-            logger.info(
-                f"Generated {len(queries)} secondary queries via structured output."
-            )
-            return queries
-
-        except Exception as e:
-            logger.error(f"LLM structured query generation failed: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to generate secondary queries: {e}") from e
-
     def _write_sections(
         self,
         topic: str,
@@ -1108,14 +783,14 @@ class WriterV3(BaseAgent):
         tom_context: Optional[str],
     ) -> "Article":
         """Batch section writing with batch size 2 for better quality."""
-        BATCH_SIZE = 2
+        BATCH_SIZE = 1
         sections_out: Dict[str, str] = {}
         headings = outline.headings
 
         # Step 1: Batched chunk selection (split into batches of 10 to avoid truncation)
-        SELECTION_BATCH_SIZE = 10
+        SELECTION_BATCH_SIZE = 5
         section_chunks_map = {}
-        selection_client = self.get_task_client("section_selection")
+        selection_client = self.get_task_client("research")
 
         logger.info(
             f"Batch selecting chunks for {len(headings)} sections in batches of {SELECTION_BATCH_SIZE}"
@@ -1176,29 +851,23 @@ class WriterV3(BaseAgent):
         )
 
         if BATCH_SIZE > 1:
-
-            # Step 2: Write sections in small batches (size 2)
+            # Step 2: Write sections in batches
             for batch_start in range(0, len(headings), BATCH_SIZE):
                 batch_end = min(batch_start + BATCH_SIZE, len(headings))
                 batch_headings = headings[batch_start:batch_end]
 
                 logger.info(
-                    f"Writing batch {batch_start//BATCH_SIZE + 1}: "
-                    f"sections {batch_start+1}-{batch_end} of {len(headings)}"
+                    f"Writing batch {batch_start//BATCH_SIZE + 1}: sections {batch_start+1}-{batch_end} of {len(headings)}"
                 )
 
-                # Prepare section-specific chunk data
                 sections_with_chunks = []
                 for heading in batch_headings:
                     chunk_ids = section_chunks_map.get(heading, [])
-
                     if not chunk_ids:
                         sections_with_chunks.append(
                             {"section_heading": heading, "relevant_info": ""}
                         )
                         continue
-
-                    # Get chunk content for this section
                     chunk_models = self.shared_memory.get_chunks_by_ids(chunk_ids)
                     if chunk_models:
                         chunks_str = ", ".join(
@@ -1213,31 +882,25 @@ class WriterV3(BaseAgent):
                             {"section_heading": heading, "relevant_info": ""}
                         )
 
-                # Batch section writing
                 if not sections_with_chunks:
                     continue
 
                 write_prompt = write_sections_batch_prompt(sections_with_chunks, topic)
                 final_prompt = enhance_prompt_with_tom(write_prompt, tom_context)
-
                 writer_client = self.get_task_client("writer")
                 try:
                     batch_result = writer_client.call_structured_api(
                         prompt=final_prompt, output_schema=BatchSectionWritingModel
                     )
-
-                    # Extract section content
                     for section_model in batch_result.sections:
                         section_heading = section_model.section_heading
                         content = section_model.content
                         if content and content.strip():
                             sections_out[section_heading] = content.strip()
-
                 except Exception as e:
                     logger.warning(
                         f"Batch section writing failed: {e}, falling back to sequential"
                     )
-                    # Fallback to sequential writing for this batch
                     for item in sections_with_chunks:
                         heading = item["section_heading"]
                         relevant_info = item["relevant_info"]
@@ -1247,7 +910,6 @@ class WriterV3(BaseAgent):
                         final_prompt = enhance_prompt_with_tom(
                             write_prompt, tom_context
                         )
-
                         try:
                             text = (
                                 writer_client.call_api(prompt=final_prompt) or ""
@@ -1256,32 +918,36 @@ class WriterV3(BaseAgent):
                                 sections_out[heading] = text
                         except Exception:
                             continue
-            else:
-                # Step 2: Sequential section writing
-                for heading in headings:
-                    logger.info(f"Writing section: {heading}")
-                    chunk_ids = section_chunks_map.get(heading, [])
-                    chunks_str = ""
-                    if not chunk_ids:
-                        chunks_str = ""
+        else:
+            # Step 2: Sequential section writing
+            for heading in headings:
+                logger.info(f"Writing section: {heading}")
+                chunk_ids = section_chunks_map.get(heading, [])
+                chunk_models = self.shared_memory.get_chunks_by_ids(chunk_ids)
 
-                    chunk_models = self.shared_memory.get_chunks_by_ids(chunk_ids)
-                    if not chunk_models:
-                        continue
-
-                    chunks_str = ", ".join(
-                        f"{cid} {{content: {m.content}, score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
-                        for cid, m in chunk_models.items()
-                    )
-
+                if not chunk_models:
+                    # Still attempt to write using heading alone for minimal content
                     text = self._write_single_section(
                         section=heading,
                         topic=topic,
-                        chunks_str=chunks_str,
+                        chunks_str="",
                         tom_context=tom_context,
                     )
                     if text:
                         sections_out[heading] = text
+                    continue
+                chunks_str = ", ".join(
+                    f"{cid} {{content: {m.content}, score: {m.metadata.get('relevance_score')}, url: {m.url or 'N/A'}}}"
+                    for cid, m in chunk_models.items()
+                )
+                text = self._write_single_section(
+                    section=heading,
+                    topic=topic,
+                    chunks_str=chunks_str,
+                    tom_context=tom_context,
+                )
+                if text:
+                    sections_out[heading] = text
 
         article = Article(
             title=topic,
@@ -1404,6 +1070,15 @@ class WriterV3(BaseAgent):
 
         for vm in batch_model.items:
             # feedback updates (via memory)
+            # Log what statuses the writer is setting
+            status_counts = {}
+            for upd in vm.updates:
+                status_val = (
+                    upd.status if isinstance(upd.status, str) else upd.status.value
+                )
+                status_counts[status_val] = status_counts.get(status_val, 0) + 1
+            logger.info(f"[revise/batch] Writer setting statuses: {status_counts}")
+
             results = self.shared_memory.apply_feedback_updates(vm.updates)
 
             # infer target section from first resolvable id; fallback to '_overall'
@@ -1479,6 +1154,17 @@ class WriterV3(BaseAgent):
             )
             vm = client.call_structured_api(
                 prompt=prompt, output_schema=WriterValidationModel
+            )
+
+            # Log what statuses the writer is setting
+            status_counts = {}
+            for upd in vm.updates:
+                status_val = (
+                    upd.status if isinstance(upd.status, str) else upd.status.value
+                )
+                status_counts[status_val] = status_counts.get(status_val, 0) + 1
+            logger.info(
+                f"[revise/sequential] Section '{section}' writer setting statuses: {status_counts}"
             )
 
             # 2) feedback updates (via memory)

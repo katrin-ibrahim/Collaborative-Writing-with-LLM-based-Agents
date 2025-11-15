@@ -8,12 +8,8 @@ from .factory import create_retrieval_manager
 from .rms.base_retriever import BaseRetriever
 from .rms.wiki_rm import WikiRM
 
-# Retrieval Managers (with graceful imports)
-try:
-    from .rms.faiss_rm import FaissRM
-except ImportError as e:
-    print(f"Warning: Could not import FaissRM: {e}")
-    FaissRM = None
+# FaissRM is loaded lazily in factory.py to avoid unnecessary imports
+FaissRM = None
 
 
 __all__ = [

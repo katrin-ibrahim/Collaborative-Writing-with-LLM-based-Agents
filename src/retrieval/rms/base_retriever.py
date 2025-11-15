@@ -27,7 +27,7 @@ class BaseRetriever(ABC):
     def __init__(
         self,
         cache_dir: str = "data/wiki_cache",
-        cache_results: bool = True,
+        cache_results: bool = False,
         config: Optional[RetrievalConfig] = None,
         format_type: str = "rag",
     ):

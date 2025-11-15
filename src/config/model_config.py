@@ -58,9 +58,8 @@ class ModelConfig(BaseConfig):
                 "critique": 0.2,  # More conservative critique
                 "polish": 0.3,  # More conservative polishing
                 # Writer-Reviewer specific temperatures
-                "query_generation": 0.3,  # Low for focused query generation
+                "research": 0.3,  # More focused queries
                 "create_outline": 0.4,  # More structured outlines
-                "section_selection": 0.2,  # Very low for analytical chunk selection
                 "writer": 0.6,  # Balanced for creative content generation
                 "revision": 0.4,  # Moderate for thoughtful revision
                 "revision_batch": 0.4,  # Moderate for thoughtful batch revision
@@ -79,7 +78,6 @@ class ModelConfig(BaseConfig):
                 # Writer-Reviewer specific token limits
                 "research": 800,  # Short for focused queries
                 "create_outline": 600,  # Short for outline creation
-                "section_selection": 1200,  # Short for chunk ID selection
                 "writer": 2000,  # Long for detailed section content
                 "revision": 3000,  # Medium for revision with feedback
                 "self_refine": 3000,  # Long for self-refinement
@@ -115,10 +113,8 @@ class ModelConfig(BaseConfig):
             "writing": self.writing_model,
             "polish": self.polish_model,
             # Writer-Reviewer specific tasks
-            "query_generation": self.research_model,
             "research": self.research_model,
             "create_outline": self.create_outline_model,
-            "section_selection": self.create_outline_model,  # Uses same model as outline
             "writer": self.writer_model,
             "revision": self.revision_model,
             "section_revision": self.revision_model,
@@ -157,18 +153,16 @@ class ModelConfig(BaseConfig):
 
         # Track which task models were explicitly provided
         task_model_keys = {
-            "query_generation_model",
             "create_outline_model",
-            "section_selection_model",
             "writer_model",
             "revision_model",
-            "revision_batch_model",
             "self_refine_model",
             "reviewer_model",
             "conv_simulator_model",
             "outline_model",
             "writing_model",
             "polish_model",
+            "research_model",
         }
 
         explicitly_set_models = {

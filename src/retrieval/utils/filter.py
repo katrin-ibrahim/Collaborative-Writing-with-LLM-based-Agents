@@ -28,7 +28,10 @@ class ContentFilter:
     def _load_exclude_urls(self) -> None:
         """Load URLs from freshwiki dataset to exclude (prevent data leakage)."""
         freshwiki_csv = (
-            Path(self.project_root) / "data" / "fw" / "topic_list_with_categories.csv"
+            Path(self.project_root)
+            / "data"
+            / "freshwiki_eval_dataset"
+            / "topic_list_with_categories.csv"
         )
 
         if not freshwiki_csv.exists():

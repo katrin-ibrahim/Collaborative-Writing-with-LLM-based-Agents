@@ -12,6 +12,9 @@ import re
 import requests
 from typing import Dict, List, Union
 
+# Default Ollama host (UKP server)
+DEFAULT_OLLAMA_HOST = "http://10.167.31.201:11434/"
+
 # Removed logging.basicConfig() - logging should be configured at application level
 
 RUBRIC_STRING = dedent(
@@ -116,7 +119,7 @@ def extract_json_from_text(text: str) -> Dict:
 def call_ollama(
     prompt: str,
     model: str = "qwen2.5:14b",
-    host: str = "http://10.167.31.201:11434/",
+    host: str = DEFAULT_OLLAMA_HOST,
     temperature: float = 0.0,
     max_tokens: int = 1024,
 ) -> str:
@@ -156,7 +159,7 @@ def call_ollama(
 def score_articles(
     article_texts: Union[str, List[str]],
     model: str = "qwen2.5:14b",
-    host: str = "http://10.167.31.201:11434/",
+    host: str = DEFAULT_OLLAMA_HOST,
     temperature: float = 0.0,
     max_tokens: int = 1024,
 ) -> List[Dict]:
@@ -228,8 +231,8 @@ def main():
     )
     parser.add_argument(
         "--host",
-        default="http://10.167.31.201:11434/",
-        help="Ollama server URL (default: http://10.167.31.201:11434/)",
+        default=DEFAULT_OLLAMA_HOST,
+        help=f"Ollama server URL (default: UKP server {DEFAULT_OLLAMA_HOST})",
     )
     parser.add_argument(
         "--temperature",

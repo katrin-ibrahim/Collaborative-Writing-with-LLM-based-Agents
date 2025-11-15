@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import logging
-from typing import Any, Dict, Iterable, List, Optional, TypedDict
+from typing import Any, Dict, Iterable, List, Optional, Set, TypedDict
 
 from src.collaborative.memory.storage import SessionStorage
 from src.collaborative.tom.theory_of_mind import TheoryOfMindModule
@@ -37,18 +37,18 @@ class MemoryState(TypedDict):
     article_sections_by_iteration: Dict[
         str, Dict[str, str]
     ]  # iteration -> {section_name: content}
-    feedback_items: Dict[str, FeedbackStoredModel]
     feedback_by_iteration: Dict[
         int, Dict[str, FeedbackStoredModel]
     ]  # iteration -> {item_id: item_data}
     item_index: Dict[str, int]  # item_id -> index (for feedback management)
-    suggested_queries_by_iteration: Dict[
-        int, List[str]
-    ]  # iteration -> list of suggested queries from reviewer
-
     # Optional fields
     initial_outline: Optional[Outline]
     metadata: Dict[str, Any]
+    # Query tracking
+    all_searched_queries: Set[str]  # All queries searched by writer across iterations
+    reviewer_suggested_queries: Optional[
+        List[str]
+    ]  # Queries suggested by reviewer based on gaps
 
 
 class SharedMemory:
@@ -95,10 +95,9 @@ class SharedMemory:
             ensure_key(raw_data, "article_sections_by_iteration", {})
             ensure_key(raw_data, "research_chunks", {})
             ensure_key(raw_data, "search_summaries", {})
-            ensure_key(raw_data, "feedback_items", {})
             ensure_key(raw_data, "metadata", {})
             ensure_key(raw_data, "item_index", {})
-            ensure_key(raw_data, "suggested_queries_by_iteration", {})
+            ensure_key(raw_data, "all_searched_queries", set())
             self.state: MemoryState = MemoryState(**raw_data)
         else:
             # Create new state with defaults
@@ -108,7 +107,6 @@ class SharedMemory:
                 iteration=0,
                 research_chunks={},
                 search_summaries={},
-                feedback_items={},
                 article_sections_by_iteration={},
                 drafts_by_iteration={},
                 current_draft="",
@@ -117,7 +115,8 @@ class SharedMemory:
                 metadata={},
                 feedback_by_iteration={},
                 item_index={},
-                suggested_queries_by_iteration={},
+                all_searched_queries=set(),
+                reviewer_suggested_queries=None,
             )
 
         # Persist if new state
@@ -176,10 +175,6 @@ class SharedMemory:
         """Get the initial outline of the session, if available."""
         return self.state.get("initial_outline")
 
-    def get_session_id(self) -> str:
-        """Get the session ID."""
-        return self.state["session_id"]
-
     def get_iteration(self) -> int:
         """Get the current iteration number."""
         return self.state["iteration"]
@@ -202,17 +197,6 @@ class SharedMemory:
         """Get the current full draft content."""
         return self.state["current_draft"]
 
-    def get_current_sections(self) -> Dict[str, str]:
-        """Get the current sections content."""
-        return self.state["current_sections"]
-
-    def get_previous_draft(self) -> Optional[str]:
-        """Get draft from previous iteration, if available."""
-        prev_iteration = self.state.get("iteration", 0) - 1
-        if prev_iteration < 0:
-            return None
-        return self.state.get("drafts_by_iteration", {}).get(str(prev_iteration))
-
     def get_current_draft_as_article(self) -> Optional[Article]:
         """Get current article as Article object, rebuilding content from sections if available."""
         from src.collaborative.utils.writer_utils import build_full_article_content
@@ -232,13 +216,6 @@ class SharedMemory:
             metadata=self.state.get("metadata", {}),
         )
         return article
-
-    def get_drafts_by_iteration(self, iteration: int) -> Dict[str, str]:
-        """Get all drafts from a specific iteration."""
-        value = self.state["drafts_by_iteration"].get(str(iteration), {})
-        if isinstance(value, dict):
-            return value
-        return {}
 
     def get_sections_by_iteration(self, iteration: int) -> Dict[str, str]:
         """Get all sections from a specific iteration."""
@@ -368,24 +345,6 @@ class SharedMemory:
         # 3. Store using the flexible search_id key
         self.state["search_summaries"][search_id] = summary.model_dump()
         self._persist()
-
-    def get_all_chunk_ids(self) -> List[str]:
-        """Get all available chunk IDs."""
-        return list(self.state["research_chunks"].keys())
-
-    def get_chunks_by_ids(self, chunk_ids: List[str]) -> Dict[str, ResearchChunk]:
-        """Get specific chunks by their IDs as typed objects, skipping invalid ones."""
-        chunks = {}
-        for chunk_id in chunk_ids:
-            if chunk_id in self.state["research_chunks"]:
-                chunk_data = self.state["research_chunks"][chunk_id]
-                try:
-                    chunks[chunk_id] = ResearchChunk.model_validate(chunk_data)
-                except Exception as e:
-                    logger.warning(
-                        f"Invalid ResearchChunk for id {chunk_id} skipped: {e}"
-                    )
-        return chunks
 
     # endregion Research Chunks Management
 
@@ -606,37 +565,3 @@ class SharedMemory:
 
         # --- 4. Persist changes ---
         self._persist()
-
-    # =================== Suggested Queries Management ===================
-    # region Suggested Queries Management
-
-    def store_suggested_queries(self, iteration: int, queries: List[str]) -> None:
-        """
-        Store suggested queries from reviewer for a specific iteration.
-
-        Args:
-            iteration: Iteration number when queries were suggested
-            queries: List of search query strings suggested by reviewer
-        """
-        if not queries:
-            return
-
-        self.state["suggested_queries_by_iteration"][iteration] = queries
-        self._persist()
-        logger.info(
-            f"Stored {len(queries)} suggested queries for iteration {iteration}"
-        )
-
-    def get_suggested_queries(self, iteration: int) -> List[str]:
-        """
-        Retrieve suggested queries for a specific iteration.
-
-        Args:
-            iteration: Iteration number to retrieve queries for
-
-        Returns:
-            List of query strings, empty list if none exist
-        """
-        return self.state["suggested_queries_by_iteration"].get(iteration, [])
-
-    # endregion Suggested Queries Management

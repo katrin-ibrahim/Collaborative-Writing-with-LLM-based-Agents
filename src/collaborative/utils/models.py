@@ -26,7 +26,6 @@ class SearchSummary(BaseModel):
 class ArticleOutlineValidationModel(BaseModel):
     """The title and hierarchical structure for the article."""
 
-    title: str = Field(..., description="The original given title of the article.")
     headings: List[str] = Field(
         ...,
         min_length=3,
@@ -144,19 +143,14 @@ class ArticleOutlineValidationModel(BaseModel):
 
 # region Enums
 class FeedbackType(str, Enum):
-    """Categories of feedback."""
+    """Categories of feedback for gap-based review."""
 
-    CITATION_MISSING = "citation_missing"
-    CITATION_INVALID = "citation_invalid"
-    NEEDS_SOURCE = "needs_source"
-    CLARITY = "clarity"
+    # accuracy, content_expansion, structure, clarity, and style.
     ACCURACY = "accuracy"
-    STRUCTURE = "structure"
     CONTENT_EXPANSION = "content_expansion"
-    REDUNDANCY = "redundancy"
-    TONE = "tone"
-    DEPTH = "depth"
-    FLOW = "flow"
+    STRUCTURE = "structure"
+    CLARITY = "clarity"
+    STYLE = "style"
 
 
 class FeedbackStatus(str, Enum):
@@ -215,18 +209,15 @@ class FeedbackValidationModel(BaseModel):
 
 class ReviewerTaskValidationModel(BaseModel):
     """
-    Reviewer LLM output: a flat list of feedback items (+ optional global text).
+    Reviewer LLM output: section-level feedback items and suggested search queries.
     """
 
     items: List[FeedbackValidationModel] = Field(
-        description="List of feedback items (no id/status/iteration)."
-    )
-    overall_assessment: Optional[str] = Field(
-        default=None, description="Optional short holistic summary."
+        description="A list of specific feedback items, one for each issue found. Must not be empty."
     )
     suggested_queries: List[str] = Field(
         default_factory=list,
-        description="Optional list of specific search queries to fill knowledge gaps identified during review.",
+        description="Search queries suggested based on gaps in coverage (entities, topics, categories).",
     )
 
 
@@ -491,3 +482,14 @@ class BatchSectionWritingModel(BaseModel):
 
 
 # endregion Reviewer Feedback Models
+
+
+# ======================== QUERY SUGGESTION MODEL ========================
+
+
+class QuerySuggestionModel(BaseModel):
+    """Model for reviewer's suggested search queries based on Wikipedia categories."""
+
+    suggested_queries: List[str] = Field(
+        description="List of Wikipedia page titles to search (3-5 queries max)"
+    )

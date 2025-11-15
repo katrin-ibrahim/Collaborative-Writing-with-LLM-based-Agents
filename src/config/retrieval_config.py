@@ -18,14 +18,12 @@ class RetrievalConfig(BaseConfig):
     retrieval_manager: str = "wiki"  # Options: "wiki", "faiss"
 
     # Single Source of Truth for Retrieval Flow
-    num_queries: int = 5  # How many search queries to generate
-    results_per_query: int = 8
+    num_queries: int = 8  # More queries for comprehensive initial research
+    results_per_query: int = 5  # Fewer per query to get diversity
     max_content_pieces: int = (
         3  # How many sections/chunks per result (replaces wiki_max_sections)
     )
-    final_passages: int = (
-        8  # Final context size (replaces max_final_passages, retrieve_top_k)
-    )
+    final_passages: int = 15  # Fetch more than we need, then prune down to 8
 
     # Content Processing
     embedding_model: str = "thenlper/gte-small"
@@ -35,7 +33,9 @@ class RetrievalConfig(BaseConfig):
     chunk_overlap: int = 200  # overlap in chars approx. 50 tokens
 
     # Semantic Filtering Configuration
-    semantic_filtering_enabled: bool = True
+    semantic_filtering_enabled: bool = (
+        False  # Disabled: embeddings too similar for same-domain chunks
+    )
     # gte-small for better embeddings, gte-base for better quality (slower)
     similarity_threshold: float = 0.4
 

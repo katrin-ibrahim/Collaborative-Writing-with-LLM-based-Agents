@@ -2,13 +2,11 @@
 
 import logging
 from langgraph.graph import END, StateGraph
-from pydantic import BaseModel, Field
-from typing import Dict, List, Literal, Optional, TypedDict
+from typing import Dict, List, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.templates import (
-    build_review_prompt_for_strategy,
-    build_strategy_prompt,
+    build_review_prompt,
     build_verification_prompt,
 )
 from src.collaborative.memory.memory import SharedMemory
@@ -21,22 +19,14 @@ from src.collaborative.utils.reviewer_utils import (
     build_ref_map,
     extract_citations,
     finalize_feedback_items,
-    get_article_metrics,
     validate_citations,
 )
+from src.collaborative.utils.writer_utils import build_formatted_chunk_summaries
 from src.config.config_context import ConfigContext
+from src.utils.category_extractor import CategoryExtractor
+from src.utils.infobox_extractor import InfoboxExtractor
 
 logger = logging.getLogger(__name__)
-
-
-StrategyLiteral = Literal[
-    "citation-focused", "expansion-focused", "accuracy-focused", "holistic"
-]
-
-
-class StrategyDecision(BaseModel):
-    strategy: StrategyLiteral
-    rationale: str = Field("", description="Short why-this choice")
 
 
 # ======================== MINIMAL STATE ========================
@@ -62,6 +52,7 @@ class ReviewerV2(BaseAgent):
         self.shared_memory: SharedMemory = ConfigContext.get_memory_instance()
         if not self.shared_memory:
             raise RuntimeError("SharedMemory instance not found in ConfigContext")
+        self.retrieval_config = ConfigContext.get_retrieval_config()
 
         # Initialize instance variables for review cycle state
         self._reset()
@@ -106,10 +97,13 @@ class ReviewerV2(BaseAgent):
 
         # Add nodes
         workflow.add_node("router", self._router_by_iteration)
-        workflow.add_node("verify_writer_claims", self._verify_writer_claims)
+
+        # iteration 0 flow (no writer claims exist for us to verify)
         workflow.add_node("fact_check", self._fact_check)
-        workflow.add_node("analyze_strategy", self._analyze_strategy)
         workflow.add_node("generate_feedback", self._generate_feedback)
+
+        # iteration 1+ flow (verify writer claims from previous iteration, then continue the review
+        workflow.add_node("verify_writer_claims", self._verify_writer_claims)
 
         # Set entry point
         workflow.set_entry_point("router")
@@ -124,7 +118,6 @@ class ReviewerV2(BaseAgent):
         # Linear flow after routing
         workflow.add_edge("verify_writer_claims", "fact_check")
         workflow.add_edge("fact_check", "analyze_strategy")
-        workflow.add_edge("analyze_strategy", "generate_feedback")
         workflow.add_edge("generate_feedback", END)
 
         return workflow.compile()
@@ -287,6 +280,129 @@ class ReviewerV2(BaseAgent):
 
         return state
 
+    # ======================== GENERATE FEEDBACK NODE ========================
+
+    def _generate_feedback(self, state: MinimalState) -> MinimalState:
+        """
+        LLM semantic review with strategy-aware prompt.
+        Uses call_structured_api with Pydantic schema.
+        Stores feedback to SharedMemory.
+        """
+        logger.info("Generating LLM-based review feedback...")
+
+        try:
+            article = self.shared_memory.get_current_draft_as_article()
+            if not article:
+                raise RuntimeError("No current draft article found in memory")
+
+            topic = self.shared_memory.get_topic()
+
+            infobox_extractor = InfoboxExtractor()
+            infobox_data = infobox_extractor.extract_infobox(topic)
+            logger.info(f"Fetched infobox data for '{topic}'")
+
+            all_searched_chunks = self.shared_memory.get_stored_chunks()
+            all_searched_titles = set(
+                chunk.metadata.get("title", "") for chunk in all_searched_chunks
+            )
+
+            # 2. External Scaffold: Categories & Related Articles (as potential queries)
+            category_extractor = CategoryExtractor()
+            categories = category_extractor.get_topic_categories(topic)
+
+            related_articles = []
+            for category in categories[:3]:  # Limit to top 3 categories
+                members = category_extractor.get_category_members(
+                    category, max_members=10
+                )
+                for member in members:
+                    if member != topic and member not in all_searched_titles:
+                        related_articles.append(member)
+            related_articles = related_articles[:15]  # Limit to 15 suggestions
+            logger.info(
+                f"Found {len(related_articles)} potential new research paths from categories."
+            )
+
+            chunk_summaries = self.shared_memory.get_search_summaries()
+            formatted_chunk_summaries = build_formatted_chunk_summaries(
+                chunk_summaries,
+                max_content_pieces=self.retrieval_config.final_passages,
+                fields=["description"],
+            )
+            max_suggested_queries = self.retrieval_config.num_queries
+            prompt = build_review_prompt(
+                article=article,
+                validation_results=self.validation_results,  # "fact_check stuff"
+                tom_context=self.tom_context,
+                strategy="holistic",  # Hard-coded
+                chunk_summaries=formatted_chunk_summaries,
+                max_suggested_queries=max_suggested_queries,
+                infobox_data=infobox_data,
+                related_articles=related_articles,
+            )
+
+            review_client = self.get_task_client("reviewer")
+            llm_output: ReviewerTaskValidationModel = review_client.call_structured_api(
+                prompt=prompt, output_schema=ReviewerTaskValidationModel
+            )
+
+            if llm_output.suggested_queries:
+                # Cap to configured maximum
+                suggested_queries = llm_output.suggested_queries[
+                    : self.retrieval_config.num_queries
+                ]
+                self.shared_memory["reviewer_suggested_queries"] = suggested_queries
+                logger.info(
+                    f"Reviewer suggested {len(suggested_queries)} additional queries: {suggested_queries}"
+                )
+            else:
+                logger.info("Reviewer suggested no additional queries")
+
+            logger.info("✓ Stored article-level review data")
+
+            # Store individual feedback items
+            items = finalize_feedback_items(llm_output, iteration=self.iteration)
+            self.shared_memory.store_feedback_items_for_iteration(self.iteration, items)
+
+            logger.info("✓ Stored article-level review data")
+
+        except Exception as e:
+            logger.error(f"Feedback generation failed: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to generate review feedback: {e}")
+
+        return state
+
+    # endregion Graph Nodes Definitions
+
+    def _get_tom_context(
+        self, strategy: str, metrics: Dict, validation_results: Dict, iteration: int
+    ) -> Optional[str]:
+        """Generate Theory of Mind context if available."""
+        if not (
+            hasattr(self.shared_memory, "tom_module")
+            and self.shared_memory.tom_module
+            and self.shared_memory.tom_module.enabled
+        ):
+            return None
+
+        try:
+
+            tom_prediction = self.shared_memory.tom_module.predict_agent_response(
+                predictor=AgentRole.REVIEWER,
+                target=AgentRole.WRITER,
+                context={
+                    "review_strategy": strategy,
+                    "article_metrics": metrics,
+                    "citation_validation": validation_results,
+                    "iteration": iteration,
+                    "action": "feedback_response",
+                },
+            )
+            return tom_prediction.reasoning
+        except Exception as e:
+            logger.warning(f"ToM prediction failed: {e}")
+            return None
+
     def _verify_claims_against_chunks(
         self, structured_claims: List, ref_map: Dict
     ) -> Dict:
@@ -357,330 +473,3 @@ class ReviewerV2(BaseAgent):
             "unsupported_count": len(unsupported_claims),
             "unsupported_claims": unsupported_claims,
         }
-
-    # ======================== ANALYZE STRATEGY NODE ========================
-    def _analyze_strategy(self, state: MinimalState) -> MinimalState:
-        """
-        Autonomous planning: determines LLM review strategy.
-
-
-        - Article metrics (word count, sections)
-        - Citation validation results
-        - Previous feedback items and their status (if iteration > 0)
-        - Types of unresolved issues
-        """
-        logger.info("Analyzing article and determining review strategy...")
-
-        try:
-            article = self.shared_memory.get_current_draft()
-
-            # Get metrics
-            self.metrics = get_article_metrics(article)
-
-            # Determine strategy based on article state AND feedback history
-            self.review_strategy = self._determine_review_strategy(
-                metrics=self.metrics,
-                validation_results=self.validation_results,
-                iteration=self.iteration,
-            )
-            logger.info(f"Selected strategy: {self.review_strategy}")
-
-            # Generate ToM context if available
-            self.tom_context = self._get_tom_context(
-                self.review_strategy,
-                self.metrics,
-                self.validation_results,
-                self.iteration,
-            )
-            if self.tom_context:
-                logger.info("Generated ToM prediction")
-
-        except Exception as e:
-            logger.error(f"Strategy analysis failed: {e}", exc_info=True)
-            self.review_strategy = "holistic"
-
-        return state
-
-    def _determine_review_strategy(
-        self, metrics: Dict, validation_results: Dict, iteration: int
-    ) -> str:
-        """
-        Determine review approach based on:
-        1. Article state (metrics, citations)
-        2. Previous feedback history
-        3. Unresolved issues from previous iterations
-        """
-        prev_summary = {
-            "has_previous": iteration > 0,
-            "pending_counts": {},
-            "high_priority_pending": 0,
-            "citation_pending": 0,
-            "resolution_rate": 0.0,
-            "most_common_pending_type": None,
-        }
-        try:
-            if iteration > 0:
-                items_by_section = (
-                    self.shared_memory.get_feedback_items_for_iteration(
-                        iteration=iteration - 1
-                    )
-                    or {}
-                )
-                items = []
-                for sec, its in items_by_section.items():
-                    if sec == "_overall":
-                        continue
-                    items.extend(its)
-
-                total = len(items) or 1
-                pending = [i for i in items if getattr(i, "status", None) == "pending"]
-                addressed = [
-                    i for i in items if getattr(i, "status", None) == "addressed"
-                ]
-
-                # Count by type (robust to missing fields)
-                type_counts = {}
-                for it in pending:
-                    t = getattr(it, "type", None)
-                    if t:
-                        type_counts[t] = type_counts.get(t, 0) + 1
-
-                prev_summary["pending_counts"] = type_counts
-                prev_summary["high_priority_pending"] = sum(
-                    1 for it in pending if getattr(it, "priority", None) == "high"
-                )
-                prev_summary["citation_pending"] = sum(
-                    1
-                    for it in pending
-                    if getattr(it, "type", None)
-                    in ("citation_missing", "citation_invalid")
-                )
-                prev_summary["resolution_rate"] = len(addressed) / total
-                prev_summary["most_common_pending_type"] = (
-                    max(type_counts, key=lambda k: type_counts[k])
-                    if type_counts
-                    else None
-                )
-        except Exception:
-            # Non-fatal: keep a minimal summary
-            pass
-
-        # Build prompt and call LLM
-        try:
-            prompt = build_strategy_prompt(
-                metrics=metrics,
-                validation_results=validation_results,
-                iteration=iteration,
-                prev_feedback_summary=prev_summary,
-            )
-
-            # You already use this pattern elsewhere; reuse the same client style.
-            planner_client = self.get_task_client("reviewer")
-            decision: StrategyDecision = planner_client.call_structured_api(
-                prompt=prompt,
-                output_schema=StrategyDecision,
-            )
-
-            return decision.strategy
-
-        except Exception as e:
-            logger.warning(f"Could not analyze previous feedback: {e}")
-
-        logger.info("Strategy: holistic (fallback)")
-        return "holistic"
-        """
-        Analyze previous feedback items to inform strategy.
-
-        Returns:
-            Dict with analysis results:
-            - pending_count: Number of pending items
-            - pending_high_priority: Number of high-priority pending items
-            - pending_citation_items: Citation-related pending items
-            - most_common_pending_type: Most frequent type in pending items
-            - resolution_rate: Percentage of addressed items
-        """
-        from collections import Counter
-
-        pending_items = [item for item in items if item.get("status") == "pending"]
-        addressed_items = [item for item in items if item.get("status") == "addressed"]
-
-        # Count pending high-priority items
-        pending_high_priority = len(
-            [item for item in pending_items if item.get("priority") == "high"]
-        )
-
-        # Count pending citation items
-        pending_citation_items = len(
-            [
-                item
-                for item in pending_items
-                if item.get("type") in ["citation_missing", "citation_invalid"]
-            ]
-        )
-
-        # Find most common type in pending items
-        pending_types = [item.get("type") for item in pending_items if item.get("type")]
-        most_common_pending_type = None
-        if pending_types:
-            type_counts = Counter(pending_types)
-            most_common_pending_type = type_counts.most_common(1)[0][0]
-
-        # Calculate resolution rate
-        total_items = len(items)
-        resolution_rate = len(addressed_items) / total_items if total_items > 0 else 0
-
-        analysis = {
-            "total_items": total_items,
-            "pending_count": len(pending_items),
-            "pending_high_priority": pending_high_priority,
-            "pending_citation_items": pending_citation_items,
-            "most_common_pending_type": most_common_pending_type,
-            "resolution_rate": resolution_rate,
-        }
-
-        logger.debug(f"Previous feedback analysis: {analysis}")
-        return analysis
-
-    # ======================== GENERATE FEEDBACK NODE ========================
-
-    def _generate_feedback(self, state: MinimalState) -> MinimalState:
-        """
-        LLM semantic review with strategy-aware prompt.
-        Uses call_structured_api with Pydantic schema.
-        Stores feedback to SharedMemory.
-        """
-        logger.info("Generating LLM-based review feedback...")
-
-        try:
-            article = self.shared_memory.get_current_draft_as_article()
-            if not article:
-                raise RuntimeError("No current draft article found in memory")
-            metrics = get_article_metrics(article.content)
-
-            # Get configuration for reviewer grounding
-            from src.config.config_context import ConfigContext
-
-            collab_config = ConfigContext.get_collaboration_config()
-            ground_reviewer = getattr(
-                collab_config, "ground_reviewer_with_research", True
-            )
-            max_suggested_queries = getattr(collab_config, "max_suggested_queries", 3)
-
-            # Conditionally include research context
-            research_context = None
-            if ground_reviewer:
-                # Extract CITED chunks only (not all chunks) for fact-checking
-                article = self.shared_memory.get_current_draft_as_article()
-                if not article:
-                    raise RuntimeError("No current draft found")
-
-                structured_claims = extract_citations(article)
-                ref_map = build_ref_map(structured_claims)
-                cited_chunk_ids = list(ref_map.keys())
-
-                if cited_chunk_ids:
-                    # Get only the chunks that were actually cited
-                    cited_chunks = self.shared_memory.get_chunks_by_ids(cited_chunk_ids)
-
-                    # Format cited chunks with their content for verification
-                    chunk_items = []
-                    for chunk_id, chunk_model in cited_chunks.items():
-                        chunk_items.append(
-                            f"Chunk ID: {chunk_id}\n"
-                            f"Content: {chunk_model.content[:500]}...\n"  # Limit to avoid token overflow
-                            f"URL: {chunk_model.url or 'N/A'}"
-                        )
-
-                    research_context = (
-                        "CITED CHUNKS (for fact-checking):\n\n"
-                        + "\n\n---\n\n".join(chunk_items)
-                    )
-                    logger.info(
-                        f"Reviewer grounding enabled: providing {len(cited_chunks)} CITED chunks for fact-checking"
-                    )
-                else:
-                    research_context = "No citations found in the article. This is a red flag - the article should cite sources."
-                    logger.warning("No citations found - reviewer will flag this")
-            else:
-                logger.info(
-                    "Reviewer grounding disabled: metadata-only review (no research chunks)"
-                )
-
-            # Build strategy-aware prompt
-            prompt = build_review_prompt_for_strategy(
-                article=article,
-                metrics=metrics,
-                validation_results=self.validation_results,
-                tom_context=self.tom_context,
-                strategy=self.review_strategy,
-                research_context=research_context,
-                max_suggested_queries=max_suggested_queries,
-            )
-            prompt += """
-IMPORTANT - Quote Field Guidelines:
-- USE quote: When feedback targets specific text (e.g., citation needed for "X showed Y")
-- OMIT quote: When feedback is conceptual or section-level (e.g., "add more depth", "reorganize structure")
-- You can mix: Some items with quotes, some without, based on what makes sense
-"""
-
-            review_client = self.get_task_client("reviewer")
-            llm_output: ReviewerTaskValidationModel = review_client.call_structured_api(
-                prompt=prompt, output_schema=ReviewerTaskValidationModel
-            )
-
-            # Store individual feedback items
-            items = finalize_feedback_items(llm_output, iteration=self.iteration)
-            self.shared_memory.store_feedback_items_for_iteration(self.iteration, items)
-            self.reviewer_overall_assessment = llm_output.overall_assessment or ""
-
-            # Store suggested queries if provided
-            if llm_output.suggested_queries:
-                # Cap to configured maximum
-                suggested_queries = llm_output.suggested_queries[:max_suggested_queries]
-                self.shared_memory.store_suggested_queries(
-                    self.iteration, suggested_queries
-                )
-                logger.info(
-                    f"Reviewer suggested {len(suggested_queries)} additional queries: {suggested_queries}"
-                )
-            else:
-                logger.info("Reviewer suggested no additional queries")
-
-            logger.info("✓ Stored article-level review data")
-
-        except Exception as e:
-            logger.error(f"Feedback generation failed: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to generate review feedback: {e}")
-
-        return state
-
-    # endregion Graph Nodes Definitions
-
-    def _get_tom_context(
-        self, strategy: str, metrics: Dict, validation_results: Dict, iteration: int
-    ) -> Optional[str]:
-        """Generate Theory of Mind context if available."""
-        if not (
-            hasattr(self.shared_memory, "tom_module")
-            and self.shared_memory.tom_module
-            and self.shared_memory.tom_module.enabled
-        ):
-            return None
-
-        try:
-
-            tom_prediction = self.shared_memory.tom_module.predict_agent_response(
-                predictor=AgentRole.REVIEWER,
-                target=AgentRole.WRITER,
-                context={
-                    "review_strategy": strategy,
-                    "article_metrics": metrics,
-                    "citation_validation": validation_results,
-                    "iteration": iteration,
-                    "action": "feedback_response",
-                },
-            )
-            return tom_prediction.reasoning
-        except Exception as e:
-            logger.warning(f"ToM prediction failed: {e}")
-            return None

@@ -128,16 +128,50 @@ def slug(s: str) -> str:
 
 
 def finalize_feedback_items(
-    validation: ReviewerTaskValidationModel, iteration: int
+    validation: ReviewerTaskValidationModel, iteration: int, max_items: int = 10
 ) -> list[FeedbackStoredModel]:
     """
-    PURE: build IDs + set status='pending'. Does not touch memory/state.
+    Build IDs + set status='pending'. Limits to max_items by prioritizing high priority feedback.
+    Validates that section names are real (not '_overall' or 'N/A').
     in:  ReviewerTaskValidationModel (LLM items without id/status)
-    out: List[FeedbackStoredModel] (ready to store)
+    out: List[FeedbackStoredModel] (ready to store, limited to max_items)
     """
+    # Filter out invalid section names
+    valid_items = []
+    invalid_count = 0
+    for item in validation.items:
+        if item.section in ("_overall", "N/A", "n/a", "NA", "na"):
+            invalid_count += 1
+            logger.warning(
+                f"Skipping feedback item with invalid section name '{item.section}': {item.issue[:50]}..."
+            )
+            continue
+        valid_items.append(item)
+
+    if invalid_count > 0:
+        logger.warning(
+            f"Filtered out {invalid_count} feedback items with invalid section names "
+            f"(must use actual section names, not '_overall' or 'N/A')"
+        )
+
+    # Sort by priority: high > medium > low
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    sorted_items = sorted(valid_items, key=lambda x: priority_order.get(x.priority, 3))
+
+    # Take only the top max_items
+    items_to_process = sorted_items[:max_items]
+
+    if len(valid_items) > max_items:
+        logger.info(
+            f"Limiting feedback from {len(valid_items)} to {max_items} items "
+            f"(keeping {sum(1 for x in items_to_process if x.priority == 'high')} high, "
+            f"{sum(1 for x in items_to_process if x.priority == 'medium')} medium, "
+            f"{sum(1 for x in items_to_process if x.priority == 'low')} low priority items)"
+        )
+
     counters: dict[str, int] = {}
     out: list[FeedbackStoredModel] = []
-    for it in validation.items:
+    for it in items_to_process:
         sec_slug = slug(it.section)
         counters[sec_slug] = counters.get(sec_slug, 0) + 1
         idx = counters[sec_slug] - 1

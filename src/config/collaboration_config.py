@@ -15,13 +15,20 @@ class CollaborationConfig(BaseConfig):
     # Core collaboration parameters
     max_iterations: int = 3
     min_iterations: int = 1  # don't stop before this
-    resolution_rate_threshold: float = 0.9
+    resolution_rate_threshold: float = (
+        0.75  # Realistic target after fixing underlying issues
+    )
     stall_tolerance: int = 2  # consecutive low-improvement iters allowed
-    min_improvement: float = 0.02  # required progress per iter (2%)
-    small_tail_max: int = 2  # e.g., 5 remaining low/medium items
+    min_improvement: float = 0.05  # required progress per iter (5%)
+    small_tail_max: int = 5  # Reasonable number of remaining low/medium items
     writing_mode: str = "section"  # "section" or "article"
-    revise_mode: str = "pending"  # "section" or "pending"
+    revise_mode: str = (
+        "pending"  # "pending" (batch: fast, 1 LLM call) or "section" (sequential: slow, 1 call per section)
+    )
     should_self_refine: bool = False  # whether writers self-refine
+    max_feedback_items_per_iteration: int = (
+        10  # Limit reviewer feedback to focus on critical issues
+    )
 
     # Reviewer enhancement parameters
     ground_reviewer_with_research: bool = (
