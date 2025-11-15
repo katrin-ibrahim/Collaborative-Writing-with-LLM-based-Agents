@@ -32,6 +32,7 @@ class OllamaEngine(BaseEngine):
         temperature: float = 0.7,
         max_tokens: int = 1000,
         host: str = DEFAULT_OLLAMA_HOST,
+        task: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -45,7 +46,11 @@ class OllamaEngine(BaseEngine):
             **kwargs: Additional parameters
         """
         super().__init__(
-            model=model, temperature=temperature, max_tokens=max_tokens, **kwargs
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            task=task,
+            **kwargs,
         )
 
         self.host = host

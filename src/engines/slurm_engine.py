@@ -41,6 +41,7 @@ class SlurmEngine(BaseEngine):
         temperature: float = 0.7,
         max_tokens: int = 1000,
         device: str = "auto",
+        task: Optional[str] = None,
         **kwargs,
     ):
         """

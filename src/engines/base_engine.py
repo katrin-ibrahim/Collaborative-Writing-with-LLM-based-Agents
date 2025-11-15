@@ -6,7 +6,7 @@ import time
 from abc import ABC, abstractmethod
 
 import logging
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,12 @@ class BaseEngine(ABC):
     """
 
     def __init__(
-        self, model: str, temperature: float = 0.7, max_tokens: int = 1000, **kwargs
+        self,
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1000,
+        task: Optional[str] = None,
+        **kwargs,
     ):
         """
         Initialize engine with minimal parameters from ConfigContext.
@@ -53,7 +58,9 @@ class BaseEngine(ABC):
             "calls": 0,
         }
 
-        logger.info(f"{self.__class__.__name__} initialized with model: {model}")
+        logger.info(
+            f"{self.__class__.__name__} initialized with model: {model} for task: {task}"
+        )
 
     @abstractmethod
     def __call__(self, messages=None, **kwargs):

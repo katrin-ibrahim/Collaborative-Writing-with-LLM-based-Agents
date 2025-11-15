@@ -160,18 +160,18 @@ class BaseMethod(ABC):
         elif "writer" in method_name:
             # Writer-Reviewer methods
             return {
-                "query_generation": ConfigContext.get_model_config().get_model_for_task(
-                    "query_generation"
+                "research": ConfigContext.get_model_config().get_model_for_task(
+                    "research"
                 ),
                 "create_outline": ConfigContext.get_model_config().get_model_for_task(
                     "create_outline"
                 ),
-                "section_selection": ConfigContext.get_model_config().get_model_for_task(
-                    "section_selection"
-                ),
                 "writer": ConfigContext.get_model_config().get_model_for_task("writer"),
                 "revision": ConfigContext.get_model_config().get_model_for_task(
                     "revision"
+                ),
+                "self_refine": ConfigContext.get_model_config().get_model_for_task(
+                    "self_refine"
                 ),
                 "reviewer": ConfigContext.get_model_config().get_model_for_task(
                     "reviewer"
