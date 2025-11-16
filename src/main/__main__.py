@@ -88,7 +88,7 @@ def load_configurations(args):
             args.model_config,  # Could be None
             override_model=args.override_model,
             mode=args.backend,  # Pass backend as override
-            create_outline_model=args.create_outline_model,
+            outline_model=args.outline_model,
             research_model=args.research_model,
             writer_model=args.writer_model,
             revision_model=args.revision_model,

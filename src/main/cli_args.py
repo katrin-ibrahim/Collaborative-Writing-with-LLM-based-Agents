@@ -101,7 +101,7 @@ def parse_arguments() -> argparse.Namespace:
     model_group = parser.add_argument_group("Granular Model Configuration")
 
     model_group.add_argument(
-        "--create_outline_model",
+        "--outline_model",
         "-oum",
         help="Model for creating article outlines",
     )
