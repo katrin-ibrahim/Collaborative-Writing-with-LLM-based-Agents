@@ -81,7 +81,7 @@ class StormMethod(BaseMethod):
             token_usage = self._collect_token_usage(task_models)
 
             # Get model info from ConfigContext
-            writing_engine = ConfigContext.get_client("writing")
+            writing_engine = ConfigContext.get_client("writer")
 
             article = Article(
                 title=topic,

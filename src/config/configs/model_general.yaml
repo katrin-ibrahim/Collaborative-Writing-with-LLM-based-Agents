@@ -3,38 +3,25 @@ mode: 'ollama'
 override_model: null
 ollama_host: 'http://10.167.31.201:11434/'
 
-outline_model: 'qwen2.5:14b'
-writing_model: 'qwen2.5:32b' # <= writer medium
-critique_model: 'qwen2.5:32b'
-polish_model: 'qwen2.5:32b'
-default_model: 'qwen2.5:14b' # <= same as writer
-
 research_model: 'qwen2.5:32b' # +3.74 composite (best overall), 237.2s (+2.9%)
-create_outline_model: 'qwen2.5:14b' # +0.68 composite, 226.8s (-1.6%) [14b invalid data]      # +2.15 composite, 228.2s (-1.0%)
+outline_model: 'qwen2.5:14b' # +0.68 composite, 226.8s (-1.6%) [14b invalid data]      # +2.15 composite, 228.2s (-1.0%)
 writer_model: 'qwen2.5:32b' # Keep at 32b (no ablation)
 revision_model: 'qwen2.5:32b' # +0.64 composite, 216.1s (-6.2%)
 self_refine_model: 'qwen2.5:32b' # Keep at 32b (14b = -13.20, harmful)
 reviewer_model: 'qwen2.5:32b' # Keep at 32b (no ablation)
 
 temperatures:
-  fast: 0.2
+  research: 0.3
   outline: 0.2
-  writing: 0.28
-  critique: 0.15
-  polish: 0.22
-  research: 0.45
-  writer: 0.28
-  revision: 0.18
-  self_refine: 0.2
+  writer: 0.2
+  revision: 0.2
+  self_refine: 0.1
   reviewer: 0.15
 
 token_limits:
-  fast: 2000
-  outline: 1500
-  writing: 3500
-  critique: 2200
-  polish: 2200
-  research: 5000
+  research: 6192
+  outline: 6192
   writer: 6192
   revision: 6192
-  reviewer: 5000
+  self_refine: 6192
+  reviewer: 6192

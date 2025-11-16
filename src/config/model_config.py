@@ -17,15 +17,9 @@ class ModelConfig(BaseConfig):
     # Ollama host URL
     ollama_host: Optional[str] = None
 
-    # Storm-specific model assignments (defaults to balanced configuration)
-    conv_simulator_model: str = "qwen2.5:14b"  # Fast model for conversation simulation
-    outline_model: str = "qwen2.5:14b"  # Balanced, for structure
-    writing_model: str = "qwen2.5:32b"  # Quality, for content
-    polish_model: str = "qwen2.5:32b"  # Final polish
-
     # Writer-Reviewer specific model assignments
     research_model: str = "qwen2.5:32b"  # Model for generating search queries
-    create_outline_model: str = "qwen2.5:14b"  # Model for creating article outlines
+    outline_model: str = "qwen2.5:14b"  # Model for creating article outlines
     writer_model: str = "qwen2.5:32b"  # High-quality model for writing content
     revision_model: str = "qwen2.5:32b"  # Model for revising sections based on feedback
     self_refine_model: str = "qwen2.5:32b"  # Model for self-refinement
@@ -51,37 +45,23 @@ class ModelConfig(BaseConfig):
     def __post_init__(self):
         if self.temperatures is None:
             self.temperatures = {
-                # Baseline method temperatures
-                "conv_simulator": 0.5,  # Reduced for more focused queries
-                "outline": 0.4,  # More structured outlines
-                "writing": 0.6,  # Balanced creativity and accuracy
-                "critique": 0.2,  # More conservative critique
-                "polish": 0.3,  # More conservative polishing
                 # Writer-Reviewer specific temperatures
                 "research": 0.3,  # More focused queries
-                "create_outline": 0.4,  # More structured outlines
+                "outline": 0.4,  # More structured outlines
                 "writer": 0.6,  # Balanced for creative content generation
                 "revision": 0.4,  # Moderate for thoughtful revision
-                "revision_batch": 0.4,  # Moderate for thoughtful batch revision
                 "self_refine": 0.5,  # Balanced for self-refinement
                 "reviewer": 0.3,  # Low for analytical review and feedback
             }
 
         if self.token_limits is None:
             self.token_limits = {
-                # Baseline method token limits
-                "conv_simulator": 1200,  # Increased for better query generation
-                "outline": 1200,  # Increased for better structure
-                "writing": 2500,  # Increased for better articles
-                "critique": 1200,  # Increased for thorough critique
-                "polish": 1200,  # Increased for better polishing
                 # Writer-Reviewer specific token limits
-                "research": 800,  # Short for focused queries
-                "create_outline": 600,  # Short for outline creation
-                "writer": 2000,  # Long for detailed section content
-                "revision": 3000,  # Medium for revision with feedback
-                "self_refine": 3000,  # Long for self-refinement
-                "reviewer": 1800,  # Long for comprehensive review and feedback
+                "outline": 6192,  # Short for outline creation
+                "writer": 6192,  # Long for detailed section content
+                "revision": 6192,  # Medium for revision with feedback
+                "self_refine": 6192,  # Long for self-refinement
+                "reviewer": 6192,  # Long for comprehensive review and feedback
             }
 
         if self.local_model_mapping is None:
@@ -107,17 +87,11 @@ class ModelConfig(BaseConfig):
         """
         # Use task-specific models (which may have been set by override_model during init)
         task_model_map = {
-            # Baseline method tasks
-            "conv_simulator": self.conv_simulator_model,
-            "outline": self.outline_model,
-            "writing": self.writing_model,
-            "polish": self.polish_model,
             # Writer-Reviewer specific tasks
             "research": self.research_model,
-            "create_outline": self.create_outline_model,
+            "outline": self.outline_model,
             "writer": self.writer_model,
             "revision": self.revision_model,
-            "section_revision": self.revision_model,
             "self_refine": self.self_refine_model,
             "reviewer": self.reviewer_model,
         }
@@ -153,16 +127,11 @@ class ModelConfig(BaseConfig):
 
         # Track which task models were explicitly provided
         task_model_keys = {
-            "create_outline_model",
+            "research_model" "outline_model",
             "writer_model",
             "revision_model",
             "self_refine_model",
             "reviewer_model",
-            "conv_simulator_model",
-            "outline_model",
-            "writing_model",
-            "polish_model",
-            "research_model",
         }
 
         explicitly_set_models = {

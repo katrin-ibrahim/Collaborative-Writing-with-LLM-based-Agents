@@ -28,10 +28,10 @@ def setup_storm_config() -> STORMWikiLMConfigs:
     lm_config = STORMWikiLMConfigs()
 
     # Use fast model for conversation and question asking
-    conv_simulator_model = ConfigContext.get_client("conv_simulator")
+    conv_simulator_model = ConfigContext.get_client("research")
     outline_model = ConfigContext.get_client("outline")
-    writing_engine = ConfigContext.get_client("writing")
-    polish_model = ConfigContext.get_client("polish")
+    writing_engine = ConfigContext.get_client("writer")
+    polish_model = ConfigContext.get_client("self_refine")
 
     # Set up all STORM LM configurations
     lm_config.set_conv_simulator_lm(

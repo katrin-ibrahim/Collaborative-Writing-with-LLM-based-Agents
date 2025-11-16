@@ -46,7 +46,7 @@ class DirectMethod(BaseMethod):
         try:
 
             # Get the writing client from ConfigContext
-            client = ConfigContext.get_client("writing")
+            client = ConfigContext.get_client("writer")
 
             # Build direct prompt and generate
             prompt = build_direct_prompt(topic)

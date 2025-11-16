@@ -26,6 +26,7 @@ def remove_citation_tags(text: str) -> str:
     """
     # Remove <c cite="..."/> tags
     cleaned = re.sub(r'<c\s+cite="[^"]+"\s*/>', "", text)
+    cleaned = re.sub(r"<needs_source\s*/>", "", cleaned)
     # Remove any other citation tag variants
     cleaned = re.sub(r"<c[^>]*>", "", cleaned)
     cleaned = re.sub(r"</c>", "", cleaned)

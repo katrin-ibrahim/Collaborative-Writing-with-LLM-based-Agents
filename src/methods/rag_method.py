@@ -53,7 +53,7 @@ class RagMethod(BaseMethod):
         try:
 
             # Get clients and config
-            writing_client = ConfigContext.get_client("writing")
+            writing_client = ConfigContext.get_client("writer")
 
             # Create retrieval manager
             retrieval_manager = create_retrieval_manager(
