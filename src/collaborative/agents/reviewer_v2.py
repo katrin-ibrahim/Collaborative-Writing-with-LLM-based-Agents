@@ -5,7 +5,7 @@ from langgraph.graph import END, StateGraph
 from typing import Dict, List, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
-from src.collaborative.agents.templates import (
+from src.collaborative.agents.reviewer_templates import (
     build_review_prompt,
     build_verification_prompt,
 )
@@ -43,8 +43,7 @@ class ReviewerV2(BaseAgent):
     """
     Reviewer agent methods mapped to LangGraph nodes:
     Graph Flow:
-        START → router → [verify_writer_claims (iter 1+)] → fact_check
-              → analyze_strategy → generate_feedback → END
+        START → router → [verify_writer_claims (iter 1+)] → fact_check → generate_feedback → END
     """
 
     def __init__(self):
@@ -69,7 +68,6 @@ class ReviewerV2(BaseAgent):
 
         # Intermediate computation results
         self.validation_results: Dict = {}
-        self.review_strategy: str = "holistic"
         self.tom_context: Optional[str] = None
         self.verification_results: Optional[VerificationValidationModel] = None
 
@@ -117,7 +115,7 @@ class ReviewerV2(BaseAgent):
 
         # Linear flow after routing
         workflow.add_edge("verify_writer_claims", "fact_check")
-        workflow.add_edge("fact_check", "analyze_strategy")
+        workflow.add_edge("fact_check", "generate_feedback")
         workflow.add_edge("generate_feedback", END)
 
         return workflow.compile()
@@ -173,9 +171,6 @@ class ReviewerV2(BaseAgent):
             needs_clarification_items = []
 
             for section_name, items in all_items_by_section.items():
-                if section_name == "_overall":
-                    continue  # Skip overall assessment for verification
-
                 for item in items:
                     # Include id token so the verifier can reference exact items in structured output
                     item_summary = f"[{section_name}] id={item.id} | {item.issue}"
@@ -409,7 +404,9 @@ class ReviewerV2(BaseAgent):
         Verify claims against cited chunk content using LLM.
         Returns verification results with potentially unsupported claims.
         """
-        from src.collaborative.agents.templates import CLAIM_VERIFICATION_PROMPT
+        from src.collaborative.agents.reviewer_templates import (
+            CLAIM_VERIFICATION_PROMPT,
+        )
 
         unsupported_claims = []
         total_verified = 0

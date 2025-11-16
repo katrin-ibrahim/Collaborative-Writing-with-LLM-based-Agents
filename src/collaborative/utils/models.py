@@ -12,7 +12,7 @@ from typing import Any, List, Literal, Optional
 
 # --- Configuration Values ---
 
-MAX_HEADING_COUNT = 20  # Must match HEADING_COUNT in templates.py
+MAX_HEADING_COUNT = 20
 # ----------------------------
 
 

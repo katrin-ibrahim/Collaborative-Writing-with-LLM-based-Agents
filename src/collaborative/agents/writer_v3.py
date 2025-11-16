@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
-from src.collaborative.agents.templates import (
+from src.collaborative.agents.writer_templates import (
     build_revision_batch_prompt,
     build_self_refine_prompt,
     build_single_section_revision_prompt,
@@ -287,7 +287,9 @@ class WriterV3(BaseAgent):
         wiki_links = link_extractor.extract_topic_data(normalized_topic)
 
         try:
-            from src.collaborative.agents.templates import build_research_gate_prompt
+            from src.collaborative.agents.writer_templates import (
+                build_research_gate_prompt,
+            )
 
             prompt = build_research_gate_prompt(
                 topic=topic,
@@ -606,7 +608,7 @@ class WriterV3(BaseAgent):
             return None
 
         try:
-            from src.collaborative.agents.templates import (
+            from src.collaborative.agents.writer_templates import (
                 build_directive_tom_context_for_writer,
             )
 
@@ -702,7 +704,10 @@ class WriterV3(BaseAgent):
             )
 
             # Track queries in shared memory to prevent redundant searches
-            if "all_searched_queries" not in self.shared_memory.state:
+            if (
+                "all_searched_queries" not in self.shared_memory.state
+                or not isinstance(self.shared_memory.state["all_searched_queries"], set)
+            ):
                 self.shared_memory.state["all_searched_queries"] = set()
             for query in queries:
                 self.shared_memory.state["all_searched_queries"].add(query)
