@@ -111,6 +111,8 @@ class Runner:
                         self.state_manager.mark_topic_completed(topic, method)
                     else:
                         logger.warning(f"Not marking {topic} as completed due to error")
+                        # clear memory of in-progress state
+                        self.state_manager.cleanup_in_progress_topic(topic, method)
 
             results.extend(method_results)
 

@@ -275,10 +275,17 @@ class OllamaEngine(BaseEngine):
 
                 if normalized_data is None:
                     # JSON extraction completely failed (likely truncated)
+                    # Log the first 500 and last 200 chars to help debug
                     logger.error(
                         f"Failed to extract valid JSON from LLM response. "
                         f"Response length: {len(raw_json_string)} chars. "
                         f"Error: {direct_error}"
+                    )
+                    logger.error(
+                        f"Response preview (first 500 chars): {raw_json_string[:500]}"
+                    )
+                    logger.error(
+                        f"Response end (last 200 chars): {raw_json_string[-200:]}"
                     )
                     raise direct_error
 

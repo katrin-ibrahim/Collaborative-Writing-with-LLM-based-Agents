@@ -129,6 +129,7 @@ class ExperimentStateManager:
             safe_topic = topic.replace(" ", "_").replace("/", "_")
             article_file = articles_dir / f"{method}_{safe_topic}.md"
             metadata_file = articles_dir / f"{method}_{safe_topic}_metadata.json"
+            memory_file = self.output_dir / f"memory/{method}_{safe_topic}.json"
 
             if article_file.exists():
                 article_file.unlink()
@@ -137,6 +138,10 @@ class ExperimentStateManager:
             if metadata_file.exists():
                 metadata_file.unlink()
                 logger.debug(f"Removed incomplete metadata: {metadata_file}")
+
+            if memory_file.exists():
+                memory_file.unlink()
+                logger.debug(f"Removed incomplete memory file: {memory_file}")
 
             logger.info(f"Cleaned up incomplete {method} files for topic: {topic}")
 
