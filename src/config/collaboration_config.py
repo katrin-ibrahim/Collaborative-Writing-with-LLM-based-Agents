@@ -14,7 +14,7 @@ class CollaborationConfig(BaseConfig):
 
     # Core collaboration parameters
     max_iterations: int = 3
-    min_iterations: int = 1  # don't stop before this
+    min_iterations: int = 2  # don't stop before this
     resolution_rate_threshold: float = (
         0.75  # Realistic target after fixing underlying issues
     )

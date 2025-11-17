@@ -22,13 +22,7 @@ from src.utils.data import FreshWikiLoader
 from src.utils.experiment import save_final_results, setup_output_directory
 from src.utils.io import OutputManager
 
-# Configure global logging with timestamps (ISO-like)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s:%(name)s: %(message)s",
-    datefmt="%Y-%m-%dT%H:%M",
-)
-
+# Logging will be configured after parsing args to respect --debug flag
 logger = logging.getLogger(__name__)
 
 
@@ -131,6 +125,15 @@ def main():
     """Main entry point for collaborative writing experiments."""
 
     args = parse_arguments()
+
+    # Configure logging based on debug flag
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s %(levelname)s:%(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M",
+        force=True,  # Override any existing configuration
+    )
 
     # Setup HuggingFace cache
     setup_hf_cache_for_backend(args.backend)

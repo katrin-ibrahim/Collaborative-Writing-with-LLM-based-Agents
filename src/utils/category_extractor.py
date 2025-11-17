@@ -1,3 +1,5 @@
+import concurrent.futures
+
 import logging
 import wikipediaapi
 from typing import List, Optional, Set
@@ -110,41 +112,73 @@ class CategoryExtractor:
         return members
 
     def get_related_articles(
-        self, topic: str, max_categories: int = 3, max_members_per_category: int = 5
+        self,
+        topic: str,
+        max_categories: int = 15,
+        max_members_per_category: int = 5,
+        max_workers: int = 10,
     ) -> List[str]:
         """
-        Get related articles by extracting members from topic's categories.
+        Get related articles by extracting members from topic's categories
+        in parallel using a thread pool.
 
         Args:
             topic: Topic title
             max_categories: Maximum number of categories to process
             max_members_per_category: Maximum members to extract from each category
+            max_workers: Maximum number of threads to use
 
         Returns:
             List of related article titles (deduplicated)
         """
         # Get topic's categories
         categories = self.get_topic_categories(topic)
-
         if not categories:
             return []
 
         # Limit categories to process
-        categories = categories[:max_categories]
+        categories_to_process = categories[:max_categories]
+        if not categories_to_process:
+            return []
 
         # Create exclusion set with the topic itself
         exclude = {topic, topic.replace("_", " ")}
 
-        # Collect members from each category
         all_members = set()
-        for cat_name in categories:
-            members = self.get_category_members(
-                cat_name, max_members=max_members_per_category, exclude_topics=exclude
-            )
-            all_members.update(members)
+
+        # Determine the number of workers, ensuring it's not more than the tasks
+        num_workers = min(len(categories_to_process), max_workers)
+
+        if num_workers <= 0:
+            return []
+
+        # Use a thread pool to fetch members for all categories in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+
+            # Submit all tasks
+            future_to_category = {
+                executor.submit(
+                    self.get_category_members,
+                    cat_name,
+                    max_members=max_members_per_category,
+                    exclude_topics=exclude,
+                ): cat_name
+                for cat_name in categories_to_process
+            }
+
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_category):
+                category_name = future_to_category[future]
+                try:
+                    members_list = future.result()
+                    all_members.update(members_list)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to get members for category '{category_name}' in thread: {e}"
+                    )
 
         result = list(all_members)
         logger.info(
-            f"Found {len(result)} unique related articles from {len(categories)} categories"
+            f"Found {len(result)} unique related articles from {len(categories_to_process)} categories (threaded)"
         )
         return result

@@ -163,8 +163,8 @@ class BaseMethod(ABC):
                 "research": ConfigContext.get_model_config().get_model_for_task(
                     "research"
                 ),
-                "create_outline": ConfigContext.get_model_config().get_model_for_task(
-                    "create_outline"
+                "outline": ConfigContext.get_model_config().get_model_for_task(
+                    "outline"
                 ),
                 "writer": ConfigContext.get_model_config().get_model_for_task("writer"),
                 "revision": ConfigContext.get_model_config().get_model_for_task(

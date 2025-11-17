@@ -3,12 +3,12 @@ mode: 'ollama'
 override_model: null
 ollama_host: 'http://10.167.31.201:11434/'
 
-research_model: 'qwen2.5:32b' # +3.74 composite (best overall), 237.2s (+2.9%)
-outline_model: 'qwen2.5:14b' # +0.68 composite, 226.8s (-1.6%) [14b invalid data]      # +2.15 composite, 228.2s (-1.0%)
-writer_model: 'qwen2.5:32b' # Keep at 32b (no ablation)
-revision_model: 'qwen2.5:32b' # +0.64 composite, 216.1s (-6.2%)
-self_refine_model: 'qwen2.5:32b' # Keep at 32b (14b = -13.20, harmful)
-reviewer_model: 'qwen2.5:32b' # Keep at 32b (no ablation)
+research_model: 'qwen2.5:14b'
+outline_model: 'qwen2.5:32b'
+writer_model: 'gemma3:27b'
+revision_model: 'qwen2.5:32b'
+self_refine_model: 'qwen2.5:32b'
+reviewer_model: 'llama3.3:latest'
 
 temperatures:
   research: 0.3
@@ -21,7 +21,7 @@ temperatures:
 token_limits:
   research: 6192
   outline: 6192
-  writer: 6192
-  revision: 6192
-  self_refine: 6192
-  reviewer: 6192
+  writer: 8192
+  revision: 8192
+  self_refine: 8192
+  reviewer: 8192

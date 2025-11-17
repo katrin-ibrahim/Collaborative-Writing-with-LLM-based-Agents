@@ -57,7 +57,9 @@ class OllamaEngine(BaseEngine):
         self.client = Client(host=host)
         self._available_models = None
 
-        logger.info(f"OllamaEngine initialized with host: {host}, model: {model}")
+        logger.info(
+            f"OllamaEngine initialized with host: {host}, model: {model}, max_tokens: {max_tokens}"
+        )
 
     def __call__(self, messages=None, **kwargs):
         """Make client callable for STORM compatibility."""
@@ -224,9 +226,16 @@ class OllamaEngine(BaseEngine):
             options = {
                 "temperature": temperature or self.temperature,
                 "num_predict": max_tokens or self.max_tokens,
+                # CRITICAL: Set context window large enough for prompt + completion
+                # Otherwise the model will truncate output when context fills up
+                "num_ctx": 16384,  # Increased context window to prevent truncation
             }
             if stop:
                 options["stop"] = stop
+
+            logger.debug(
+                f"Calling Ollama with num_predict={options['num_predict']}, temperature={options['temperature']}, num_ctx={options['num_ctx']}"
+            )
 
             # 4. Call Ollama API with JSON format
             response = self.client.chat(
@@ -255,6 +264,10 @@ class OllamaEngine(BaseEngine):
                 }
                 # Update total usage stats
                 self._update_total_usage(self.last_usage)
+
+                logger.debug(
+                    f"Response tokens: prompt={prompt_tokens}, completion={completion_tokens}, requested_max={options['num_predict']}"
+                )
 
             raw_json_string = (
                 response.message.content.strip()

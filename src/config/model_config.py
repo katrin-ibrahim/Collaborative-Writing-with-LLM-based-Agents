@@ -105,7 +105,7 @@ class ModelConfig(BaseConfig):
     def get_token_limit_for_task(self, task: str) -> int:
         """Get appropriate token limit for a specific task."""
         limits = self.token_limits or {}
-        return limits.get(task, 1000)
+        return limits.get(task, 6192)
 
     @classmethod
     def get_default(cls) -> "ModelConfig":

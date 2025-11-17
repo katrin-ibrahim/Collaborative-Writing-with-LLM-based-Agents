@@ -63,13 +63,37 @@ class JSONNormalizer:
             try:
                 data = json.loads(match.group(1))
                 return JSONNormalizer._unwrap_common_formats(data)
-            except json.JSONDecodeError:
-                # Truncated JSON - log and return None
-                logger.warning(
-                    f"Found JSON-like structure but failed to parse. "
-                    f"Likely truncated. Length: {len(match.group(1))} chars"
+            except json.JSONDecodeError as e:
+                # Try to fix truncated JSON
+                logger.debug(
+                    f"Initial JSON parse failed: {e}. Attempting to fix truncated JSON..."
                 )
+                fixed_json = JSONNormalizer._attempt_fix_truncated_json(match.group(1))
+                if fixed_json:
+                    try:
+                        data = json.loads(fixed_json)
+                        logger.info("Successfully fixed truncated JSON")
+                        return JSONNormalizer._unwrap_common_formats(data)
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            f"Failed to fix truncated JSON. Original length: {len(match.group(1))} chars"
+                        )
+                        return None
                 return None
+
+        # Step 4: Try to find incomplete JSON at end of text
+        incomplete_json_pattern = r"(\{[\s\S]*$)"
+        match = re.search(incomplete_json_pattern, raw_text)
+        if match:
+            logger.debug("Found incomplete JSON at end of text, attempting to fix...")
+            fixed_json = JSONNormalizer._attempt_fix_truncated_json(match.group(1))
+            if fixed_json:
+                try:
+                    data = json.loads(fixed_json)
+                    logger.info("Successfully fixed incomplete JSON")
+                    return JSONNormalizer._unwrap_common_formats(data)
+                except json.JSONDecodeError:
+                    pass
 
         logger.error(f"No valid JSON found in LLM response: {raw_text[:200]}...")
         return None
@@ -98,6 +122,65 @@ class JSONNormalizer:
 
         # Return as-is if no known wrapper detected
         return data
+
+    @staticmethod
+    def _attempt_fix_truncated_json(json_str: str) -> Optional[str]:
+        """
+        Attempt to fix truncated JSON by adding missing closing brackets.
+
+        Strategy:
+        1. Count opening and closing brackets/braces
+        2. Add missing closing characters in reverse order of opening
+        3. Handle truncated strings by adding closing quote
+
+        Returns:
+            Fixed JSON string or None if unfixable
+        """
+        if not json_str:
+            return None
+
+        # Track what's open
+        stack = []
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(json_str):
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == "\\":
+                escape_next = True
+                continue
+
+            if char == '"' and not in_string:
+                in_string = True
+            elif char == '"' and in_string:
+                in_string = False
+            elif not in_string:
+                if char == "{":
+                    stack.append("}")
+                elif char == "[":
+                    stack.append("]")
+                elif char == "}":
+                    if stack and stack[-1] == "}":
+                        stack.pop()
+                elif char == "]":
+                    if stack and stack[-1] == "]":
+                        stack.pop()
+
+        # If we're in a string at the end, close it
+        if in_string:
+            json_str += '"'
+
+        # Add all missing closing brackets/braces
+        if stack:
+            closing = "".join(reversed(stack))
+            fixed = json_str + closing
+            logger.debug(f"Added {len(stack)} closing characters: {closing}")
+            return fixed
+
+        return json_str if json_str else None
 
 
 def normalize_llm_json(raw_text: str) -> Optional[Dict[str, Any]]:
