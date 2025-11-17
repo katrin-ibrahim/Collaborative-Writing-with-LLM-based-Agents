@@ -577,6 +577,15 @@ class WriterV4(BaseAgent):
             logger.debug(f"Reviewer queries: {reviewer_queries}")
             self._execute_search_phase(reviewer_queries)
             self.shared_memory.state["reviewer_suggested_queries"] = None
+            if (
+                "all_searched_queries" in self.shared_memory.state
+                and self.shared_memory.state["all_searched_queries"] is not None
+            ):
+                self.shared_memory.state["all_searched_queries"].update(
+                    reviewer_queries
+                )
+            else:
+                self.shared_memory.state["all_searched_queries"] = set(reviewer_queries)
 
         article = self.shared_memory.get_current_draft_as_article()
         if not article:

@@ -190,8 +190,8 @@ class MissingCriticalFact(BaseModel):
 
 
 class FactCheckValidationModel(BaseModel):
-    critical_contradictions: List[CriticalContradiction]
-    missing_critical_facts: List[MissingCriticalFact]
+    critical_contradictions: List[CriticalContradiction] = Field(default_factory=list)
+    missing_critical_facts: List[MissingCriticalFact] = Field(default_factory=list)
 
 
 class FeedbackValidationModel(BaseModel):
@@ -376,25 +376,6 @@ class ResearchGateDecision(BaseModel):
     reasoning: str = Field(default="", description="Brief explanation of decision")
 
 
-class ChunkSelectionValidationModel(BaseModel):
-    """The list of chunk IDs that are most relevant for writing the current section."""
-
-    chunk_ids: List[str] = Field(
-        ...,
-        min_length=1,
-        max_length=5,
-        description="A list of up to 5 chunk_ids for the current section.",
-    )
-
-    @field_validator("chunk_ids", mode="before")
-    @classmethod
-    def coerce_chunk_ids_to_strings(cls, v: Any) -> List[str]:
-        """Coerce chunk IDs to strings (LLMs often return them as integers)."""
-        if not isinstance(v, list):
-            return v
-        return [str(item) for item in v]
-
-
 # --------- Verifier → validation ----------
 class VerifierStatusUpdate(BaseModel):
     id: str = Field(description="Existing feedback item id.")
@@ -489,51 +470,6 @@ class VerificationValidationModel(BaseModel):
             raise ValueError("updates must be a list or dict")
 
 
-class SectionChunkSelection(BaseModel):
-    """Model for chunk selection for a single section."""
-
-    section_heading: str = Field(description="The section heading.")
-    chunk_ids: List[str] = Field(
-        description="List of selected chunk IDs for this section."
-    )
-
-    @field_validator("chunk_ids", mode="before")
-    @classmethod
-    def coerce_chunk_ids_to_strings(cls, v: Any) -> List[str]:
-        """Coerce chunk IDs to strings."""
-        if not isinstance(v, list):
-            return v
-        return [str(item) for item in v]
-
-
-class BatchChunkSelectionModel(BaseModel):
-    """Model for batch chunk selection across multiple sections."""
-
-    selections: List[SectionChunkSelection] = Field(
-        description="List of chunk selections, one per section."
-    )
-
-    @field_validator("selections", mode="before")
-    @classmethod
-    def filter_malformed_selections(cls, v: Any) -> List[dict]:
-        """
-        Filter out malformed selection items that are strings or incomplete objects.
-        This handles cases where the LLM response gets truncated.
-        """
-        if not isinstance(v, list):
-            return v
-
-        filtered = []
-        for item in v:
-            if isinstance(item, dict):
-                if "section_heading" in item and "chunk_ids" in item:
-                    filtered.append(item)
-            elif hasattr(item, "section_heading") and hasattr(item, "chunk_ids"):
-                filtered.append(item)
-
-        return filtered
-
-
 class SectionContentModel(BaseModel):
     """Model for a single section's content."""
 
@@ -574,14 +510,3 @@ class BatchSectionWritingModel(BaseModel):
 
 
 # endregion Reviewer Feedback Models
-
-
-# ======================== QUERY SUGGESTION MODEL ========================
-
-
-class QuerySuggestionModel(BaseModel):
-    """Model for reviewer's suggested search queries based on Wikipedia categories."""
-
-    suggested_queries: List[str] = Field(
-        description="List of Wikipedia page titles to search (3-5 queries max)"
-    )
