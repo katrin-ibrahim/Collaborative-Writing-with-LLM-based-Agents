@@ -2,24 +2,24 @@
 
 import logging
 from langgraph.graph import END, StateGraph
-from typing import Dict, List, Optional, TypedDict
+from typing import Dict, Optional, TypedDict
 
 from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.reviewer_templates import (
-    build_review_prompt,
+    build_fact_check_prompt_v2,
+    build_review_prompt_v2,
     build_verification_prompt,
 )
 from src.collaborative.memory.memory import SharedMemory
-from src.collaborative.tom.theory_of_mind import AgentRole
 from src.collaborative.utils.models import (
+    FactCheckValidationModel,
     ReviewerTaskValidationModel,
     VerificationValidationModel,
 )
 from src.collaborative.utils.reviewer_utils import (
-    build_ref_map,
-    extract_citations,
+    build_reference_map,
+    extract_citation_ids,
     finalize_feedback_items,
-    validate_citations,
 )
 from src.collaborative.utils.writer_utils import build_formatted_chunk_summaries
 from src.config.config_context import ConfigContext
@@ -39,7 +39,7 @@ class MinimalState(TypedDict):
 # ======================== REVIEWER AGENT ========================
 
 
-class ReviewerV2(BaseAgent):
+class ReviewerV3(BaseAgent):
     """
     Reviewer agent methods mapped to LangGraph nodes:
     Graph Flow:
@@ -134,7 +134,7 @@ class ReviewerV2(BaseAgent):
         else:
             self.flow_type = "VERIFICATION_FLOW"
             logger.info(
-                f"Router: VERIFICATION_FLOW (will verify iteration {self.iteration-1} feedback)"
+                f"Router: VERIFICATION_FLOW (will verify iteration {self.iteration - 1} feedback)"
             )
 
         return state  # Pass through minimal state
@@ -222,10 +222,10 @@ class ReviewerV2(BaseAgent):
     # ======================== FACT CHECK NODE ========================
     def _fact_check(self, state: MinimalState) -> MinimalState:
         """
-        Citation extraction, validation, and claim verification.
-        Validates both citation existence and claim accuracy against chunk content.
+        UNIFIED factual verification using BOTH infobox (ground truth) and cited chunks.
+        Extracts key claims from article and verifies against both sources.
         """
-        logger.info("Running fact check (citation validation + claim verification)...")
+        logger.info("Running unified factual verification (infobox + chunks)...")
 
         try:
             # Get article from SharedMemory
@@ -233,44 +233,72 @@ class ReviewerV2(BaseAgent):
             if not article:
                 raise RuntimeError("No current draft article found in memory")
 
-            # Step 1: Extract citations
-            structured_claims = extract_citations(article)
-            logger.info(f"Extracted {len(structured_claims)} citation claims")
+            # Step 1: Get infobox facts (ground truth)
+            topic = self.shared_memory.get_topic()
+            infobox_extractor = InfoboxExtractor()
+            infobox_data = infobox_extractor.extract_infobox(topic)
 
-            # Step 2: Build reference map
-            ref_map = build_ref_map(structured_claims)
-            logger.info(f"Built reference map with {len(ref_map)} unique citations")
-
-            # Step 3: Validate citation existence
-            validation_results = validate_citations(
-                structured_claims, ref_map, self.shared_memory
-            )
-            logger.info(
-                f"Citation existence: {validation_results['valid_citations']}/{validation_results['total_citations']} valid, "
-                f"{len(validation_results['missing_chunks'])} missing"
+            # get cited chunks only via regex from memory
+            citation_ids = extract_citation_ids(article.content)
+            cited_chunk_contents = self.shared_memory.get_chunks_by_ids(
+                citation_ids
+            )  # returns Dict[str, ResearchChunk]
+            cited_chunks_str = "\n\n".join(
+                [chunk.content for chunk in cited_chunk_contents.values()]
             )
 
-            # Step 4: Verify claims against chunk content (if citations exist)
-            if validation_results["valid_citations"] > 0:
-                claim_verification = self._verify_claims_against_chunks(
-                    structured_claims, ref_map
-                )
-                validation_results["claim_verification"] = claim_verification
+            reference_map = build_reference_map(article, citation_ids)
+
+            infobox_str = "\n".join(
+                [f"- {key}: {value}" for key, value in infobox_data.items() if value]
+            )
+
+            # Step 4: Run unified verification
+
+            prompt = build_fact_check_prompt_v2(
+                article=article,
+                infobox_data=infobox_str,
+                cited_chunks=cited_chunks_str,
+                ref_map=reference_map,
+            )
+            review_client = self.get_task_client("reviewer")
+            llm_output: FactCheckValidationModel = review_client.call_structured_api(
+                prompt=prompt, output_schema=FactCheckValidationModel
+            )
+            verification_results = {
+                "critical_contradictions": llm_output.critical_contradictions,
+                "missing_critical_facts": llm_output.missing_critical_facts,
+            }
+            if verification_results:
                 logger.info(
-                    f"Claim verification: checked {claim_verification['total_verified']} claims, "
-                    f"found {claim_verification['unsupported_count']} potentially unsupported"
+                    f"Unified factual verification found "
+                    f"{len(verification_results['critical_contradictions'])} critical contradictions and "
+                    f"{len(verification_results['missing_critical_facts'])} missing critical facts."
                 )
 
-            # Store validation results to SharedMemory
-            self.validation_results = validation_results
+                # Log details of critical contradictions
+                if verification_results["critical_contradictions"]:
+                    logger.debug("Critical contradictions found:")
+                    for c in verification_results["critical_contradictions"]:
+                        logger.debug(f"  - Section '{c.section}': {c.claim}")
+                        logger.debug(f"    Evidence: {c.evidence}")
+
+                # Log details of missing critical facts
+                if verification_results["missing_critical_facts"]:
+                    logger.debug("Missing critical facts:")
+                    for m in verification_results["missing_critical_facts"]:
+                        logger.debug(f"  - Section '{m.section}': {m.fact}")
+                        logger.debug(f"    Suggested evidence: {m.suggested_evidence}")
+
+            # Log critical findings
+            self.validation_results = verification_results
 
         except Exception as e:
-            logger.error(f"Fact check failed: {e}", exc_info=True)
+            logger.error(f"Unified factual verification failed: {e}", exc_info=True)
             self.validation_results = {
-                "total_citations": 0,
-                "valid_citations": 0,
-                "missing_chunks": [],
-                "needs_source_count": 0,
+                "verified_claims": [],
+                "critical_contradictions": [],
+                "missing_critical_facts": [],
             }
 
         return state
@@ -292,47 +320,56 @@ class ReviewerV2(BaseAgent):
 
             topic = self.shared_memory.get_topic()
 
-            infobox_extractor = InfoboxExtractor()
-            infobox_data = infobox_extractor.extract_infobox(topic)
-            logger.info(f"Fetched infobox data for '{topic}'")
-
-            all_searched_chunks = self.shared_memory.get_stored_chunks()
-            all_searched_titles = set(
-                chunk.metadata.get("title", "") for chunk in all_searched_chunks
-            )
-
-            # 2. External Scaffold: Categories & Related Articles (as potential queries)
-            category_extractor = CategoryExtractor()
-            categories = category_extractor.get_topic_categories(topic)
-
-            related_articles = []
-            for category in categories[:3]:  # Limit to top 3 categories
-                members = category_extractor.get_category_members(
-                    category, max_members=10
-                )
-                for member in members:
-                    if member != topic and member not in all_searched_titles:
-                        related_articles.append(member)
-            related_articles = related_articles[:15]  # Limit to 15 suggestions
-            logger.info(
-                f"Found {len(related_articles)} potential new research paths from categories."
-            )
-
+            # chunk_summaries so reviewer can suggest chunks to explore
             chunk_summaries = self.shared_memory.get_search_summaries()
-            formatted_chunk_summaries = build_formatted_chunk_summaries(
+            chunk_summaries_str = build_formatted_chunk_summaries(
                 chunk_summaries,
-                max_content_pieces=self.retrieval_config.final_passages,
-                fields=["description"],
+                fields=["description, chunk_id"],
+                max_content_pieces=None,
             )
+
+            # fact_check results
+            fact_check_results_formatted = ""
+            critical_contradictions = self.validation_results.get(
+                "critical_contradictions", []
+            )
+            missing_critical_facts = self.validation_results.get(
+                "missing_critical_facts", []
+            )
+
+            fact_check_results_formatted += "Critical Contradictions:\n"
+            for c in critical_contradictions:
+                fact_check_results_formatted += f"- Section: {c.section}\n  Claim: {c.claim}\n  Evidence: {c.evidence}\n"
+            fact_check_results_formatted += "\nMissing Critical Facts:\n"
+            for m in missing_critical_facts:
+                fact_check_results_formatted += f"- Section: {m.section}\n  Fact: {m.fact}\n  Suggested Evidence: {m.suggested_evidence}\n"
+
+            # Potential related articles from categories that the reviewer can suggest to search next
+            all_searched_titles = self.shared_memory.get_all_searched_queries()
+            category_extractor = CategoryExtractor()
+
+            related_articles = category_extractor.get_related_articles(
+                topic, max_categories=15, max_members_per_category=3
+            )
+
+            # Just filter the final list against your searched titles
+            possible_searches = [
+                article
+                for article in related_articles
+                if article not in all_searched_titles
+            ]
+
+            # Get ToM context if enabled
+            self.tom_context = self._get_tom_context()
+
             max_suggested_queries = self.retrieval_config.num_queries
-            prompt = build_review_prompt(
+            prompt = build_review_prompt_v2(
                 article=article,
-                validation_results=self.validation_results,  # "fact_check stuff"
-                tom_context=self.tom_context,
-                chunk_summaries=formatted_chunk_summaries,
+                fact_check_results=fact_check_results_formatted,
+                chunk_summaries=chunk_summaries_str,
                 max_suggested_queries=max_suggested_queries,
-                infobox_data=infobox_data,
-                related_articles=related_articles,
+                possible_searches=possible_searches,
+                tom_context=self.tom_context,
             )
 
             review_client = self.get_task_client("reviewer")
@@ -341,21 +378,58 @@ class ReviewerV2(BaseAgent):
             )
 
             if llm_output.suggested_queries:
-                # Cap to configured maximum
-                suggested_queries = llm_output.suggested_queries[
+                # Cap to configured maximum and store structured hints
+                suggested_query_hints = llm_output.suggested_queries[
                     : self.retrieval_config.num_queries
                 ]
-                self.shared_memory["reviewer_suggested_queries"] = suggested_queries
+                self.shared_memory["reviewer_suggested_query_hints"] = (
+                    suggested_query_hints
+                )
+
+                # Extract just the query strings for search execution
+                query_strings = [hint.query for hint in suggested_query_hints]
+                self.shared_memory["reviewer_suggested_queries"] = query_strings
+
                 logger.info(
-                    f"Reviewer suggested {len(suggested_queries)} additional queries: {suggested_queries}"
+                    f"Reviewer suggested {len(suggested_query_hints)} queries with structured hints"
+                )
+                logger.debug(
+                    f"Query hints: {[(h.query, h.intent) for h in suggested_query_hints]}"
                 )
             else:
                 logger.info("Reviewer suggested no additional queries")
 
-            logger.info("✓ Stored article-level review data")
-
             # Store individual feedback items
             items = finalize_feedback_items(llm_output, iteration=self.iteration)
+
+            logger.info(f"Generated {len(items)} feedback items")
+
+            # Log feedback by type
+            if items:
+                feedback_by_type = {}
+                for item in items:
+                    feedback_by_type.setdefault(item.type, []).append(item)
+
+                logger.debug("Feedback breakdown by type:")
+                for fb_type, type_items in feedback_by_type.items():
+                    logger.debug(f"  {fb_type}: {len(type_items)} items")
+                    for item in type_items:
+                        logger.debug(f"    - [{item.section}] {item.issue}")
+
+            logger.info("✓ Stored article-level review data")
+
+            # CRITICAL: If LLM generated feedback but ALL items were filtered out due to invalid sections,
+            # this is a system failure
+            if len(llm_output.items) > 0 and len(items) == 0:
+                error_msg = (
+                    f"CRITICAL ERROR: Reviewer generated {len(llm_output.items)} feedback items "
+                    f"but ALL were filtered out due to invalid section names. "
+                    f"This indicates the LLM is not following instructions to use actual section names. "
+                    f"The article should NOT be marked as complete."
+                )
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+
             self.shared_memory.store_feedback_items_for_iteration(self.iteration, items)
 
             logger.info("✓ Stored article-level review data")
@@ -368,10 +442,8 @@ class ReviewerV2(BaseAgent):
 
     # endregion Graph Nodes Definitions
 
-    def _get_tom_context(
-        self, strategy: str, metrics: Dict, validation_results: Dict, iteration: int
-    ) -> Optional[str]:
-        """Generate Theory of Mind context if available."""
+    def _get_tom_context(self) -> Optional[str]:
+        """Generate Theory of Mind prediction for writer's likely response to feedback."""
         if not (
             hasattr(self.shared_memory, "tom_module")
             and self.shared_memory.tom_module
@@ -380,92 +452,45 @@ class ReviewerV2(BaseAgent):
             return None
 
         try:
-
-            tom_prediction = self.shared_memory.tom_module.predict_agent_response(
-                predictor=AgentRole.REVIEWER,
-                target=AgentRole.WRITER,
-                context={
-                    "review_strategy": strategy,
-                    "article_metrics": metrics,
-                    "citation_validation": validation_results,
-                    "iteration": iteration,
-                    "action": "feedback_response",
-                },
+            from src.collaborative.agents.writer_templates import (
+                build_reviewer_tom_prediction_prompt,
             )
+            from src.collaborative.tom.theory_of_mind import AgentRole
+
+            # Get last observed writer action from memory
+            last_writer_action = self.shared_memory.state.get(
+                "tom_writer_last_observed_state"
+            )
+
+            # Build feedback context (we're about to provide feedback)
+            feedback_context = {
+                "feedback_count": "pending",  # We don't know yet
+                "iteration": self.shared_memory.get_iteration(),
+            }
+
+            # Build prediction prompt
+            prediction_prompt = build_reviewer_tom_prediction_prompt(
+                last_writer_action=last_writer_action,
+                feedback_context=feedback_context,
+            )
+
+            # Get reviewer's LLM client and make prediction
+            client = self.get_task_client("reviewer")
+            tom_prediction = self.shared_memory.tom_module.predict_agent_response(
+                llm_client=client,
+                prompt=prediction_prompt,
+            )
+
+            # Store prediction for later evaluation
+            self.shared_memory.tom_module.store_prediction(
+                predictor_role=AgentRole.REVIEWER,
+                target_role=AgentRole.WRITER,
+                prediction=tom_prediction,
+            )
+
+            # Return reasoning to inject into review prompt
             return tom_prediction.reasoning
+
         except Exception as e:
             logger.warning(f"ToM prediction failed: {e}")
             return None
-
-    def _verify_claims_against_chunks(
-        self, structured_claims: List, ref_map: Dict
-    ) -> Dict:
-        """
-        Verify claims against cited chunk content using LLM.
-        Returns verification results with potentially unsupported claims.
-        """
-        from src.collaborative.agents.reviewer_templates import (
-            CLAIM_VERIFICATION_PROMPT,
-        )
-
-        unsupported_claims = []
-        total_verified = 0
-
-        # Sample claims to verify (avoid token overflow - max 5 claims)
-        sample_size = min(5, len(structured_claims))
-        claims_to_verify = (
-            structured_claims[:sample_size]
-            if len(structured_claims) > sample_size
-            else structured_claims
-        )
-
-        for claim_obj in claims_to_verify:
-            claim_text = claim_obj.get("sentence", "")
-            chunk_ids = claim_obj.get("chunks", [])
-
-            if not claim_text or not chunk_ids:
-                continue
-
-            total_verified += 1
-
-            # Get chunk content
-            chunks = self.shared_memory.get_chunks_by_ids(chunk_ids)
-            chunk_contents = []
-            for chunk_id, chunk_model in chunks.items():
-                chunk_contents.append(
-                    f"[Chunk {chunk_id}]: {chunk_model.content[:300]}..."
-                )
-
-            if not chunk_contents:
-                continue
-
-            # Build verification prompt
-            verification_prompt = CLAIM_VERIFICATION_PROMPT.format(
-                claim=claim_text, chunks="\n\n".join(chunk_contents)
-            )
-
-            try:
-                review_client = self.get_task_client("reviewer")
-                result = review_client.call_api(prompt=verification_prompt)
-
-                # Check if LLM says claim is unsupported
-                if "not supported" in result.lower() or "unsupported" in result.lower():
-                    unsupported_claims.append(
-                        {
-                            "claim": claim_text[:200],
-                            "chunk_ids": chunk_ids,
-                            "reason": result[:200],
-                        }
-                    )
-                    logger.info(
-                        f"Claim verification: UNSUPPORTED claim found - {claim_text[:100]}"
-                    )
-            except Exception as e:
-                logger.warning(f"Claim verification failed for claim: {e}")
-                continue
-
-        return {
-            "total_verified": total_verified,
-            "unsupported_count": len(unsupported_claims),
-            "unsupported_claims": unsupported_claims,
-        }
