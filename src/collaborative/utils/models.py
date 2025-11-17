@@ -8,7 +8,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from typing import Any, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 # --- Configuration Values ---
 
@@ -24,13 +24,17 @@ class SearchSummary(BaseModel):
 
 
 class ArticleOutlineValidationModel(BaseModel):
-    """The title and hierarchical structure for the article."""
+    """The title and hierarchical structure for the article with chunk selection."""
 
     headings: List[str] = Field(
         ...,
         min_length=3,
         max_length=MAX_HEADING_COUNT,
         description=f"A list of up to {MAX_HEADING_COUNT} main section headings as plain strings (not objects).",
+    )
+    chunk_map: Dict[str, List[str]] = Field(
+        ...,
+        description="Mapping of section heading to list of relevant chunk IDs for that section.",
     )
 
     @field_validator("headings", mode="before")
@@ -165,13 +169,40 @@ class FeedbackStatus(str, Enum):
 #  endregion Enums
 
 
+class CriticalContradiction(BaseModel):
+    """A factual contradiction found in the article."""
+
+    section: str = Field(description="Section name where the issue appears")
+    claim: str = Field(description="The problematic claim from the article")
+    evidence: str = Field(
+        description="Why it's wrong (what the ground truth/chunks actually say)"
+    )
+
+
+class MissingCriticalFact(BaseModel):
+    """An important fact that is missing from the article."""
+
+    section: str = Field(description="Section where this fact should be added")
+    fact: str = Field(description="Description of what's missing")
+    suggested_evidence: str = Field(
+        description="Where this information comes from (infobox or chunks)"
+    )
+
+
+class FactCheckValidationModel(BaseModel):
+    critical_contradictions: List[CriticalContradiction]
+    missing_critical_facts: List[MissingCriticalFact]
+
+
 class FeedbackValidationModel(BaseModel):
     """
     ONE item as emitted by the Reviewer LLM.
     No id, no status, no iteration — Python adds those.
     """
 
-    section: str = Field(description="Target section or '_overall'.")
+    section: Union[str, List[str]] = Field(
+        description="Section name(s) this applies to. Can be a single section name or a list of section names for cross-cutting issues."
+    )
     type: FeedbackType = Field(description="Feedback category.")
     issue: str = Field(description="What is wrong?")
     suggestion: str = Field(
@@ -207,6 +238,31 @@ class FeedbackValidationModel(BaseModel):
         return v
 
 
+class ReviewerQueryHint(BaseModel):
+    """
+    Structured query hint for intelligent chunk filtering during revision.
+    """
+
+    query: str = Field(
+        description="Wikipedia page title (exact when possible) or search query string."
+    )
+    intent: str = Field(
+        description="Purpose of this query (e.g., 'fill_venue_details', 'add_player_stats', 'expand_background')."
+    )
+    expected_fields: List[str] = Field(
+        default_factory=list,
+        description="Short canonical field names or concepts to look for (e.g., ['stadium', 'capacity', 'location']).",
+    )
+    keywords: List[str] = Field(
+        default_factory=list,
+        description="Optional fallback matching tokens or phrases for filtering chunks.",
+    )
+    note: Optional[str] = Field(
+        default=None,
+        description="Optional human-readable explanation of why this query is needed.",
+    )
+
+
 class ReviewerTaskValidationModel(BaseModel):
     """
     Reviewer LLM output: section-level feedback items and suggested search queries.
@@ -215,9 +271,9 @@ class ReviewerTaskValidationModel(BaseModel):
     items: List[FeedbackValidationModel] = Field(
         description="A list of specific feedback items, one for each issue found. Must not be empty."
     )
-    suggested_queries: List[str] = Field(
+    suggested_queries: List[ReviewerQueryHint] = Field(
         default_factory=list,
-        description="Search queries suggested based on gaps in coverage (entities, topics, categories).",
+        description="Structured search query hints with intent and filtering keywords for targeted chunk retrieval.",
     )
 
 
@@ -225,13 +281,15 @@ class ReviewerTaskValidationModel(BaseModel):
 class FeedbackStoredModel(BaseModel):
     """
     Canonical stored feedback item. Mirrors validation fields, plus id/status/writer_comment.
-    Iteration is NOT a field — it’s the container key in memory: feedback_by_iteration[iteration][id] = item.
+    Iteration is NOT a field — it's the container key in memory: feedback_by_iteration[iteration][id] = item.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     # from validation
-    section: str = Field(description="Target section or '_overall'.")
+    section: Union[str, List[str]] = Field(
+        description="Section name(s) this applies to. Can be a single section name or a list of section names."
+    )
     type: FeedbackType = Field(description="Feedback category.")
     issue: str = Field(description="What is wrong?")
     suggestion: str = Field(
@@ -287,14 +345,12 @@ class WriterStatusUpdate(BaseModel):
 class WriterValidationModel(BaseModel):
     """Model for writer's feedback status updates."""
 
+    section_name: str = Field(description="The section name this update applies to.")
     updates: List[WriterStatusUpdate] = Field(
         description="Per-item status updates from the writer."
     )
     updated_content: str = Field(
-        description="The revised content after addressing feedback."
-    )
-    content_type: Literal["full_article", "partial_section"] = Field(
-        description="Indicates if the updated_content is a full article or a partial revision."
+        description="The revised section content after addressing feedback."
     )
 
 
@@ -304,6 +360,39 @@ class WriterValidationBatchModel(BaseModel):
     items: List[WriterValidationModel] = Field(
         description="List of writer validation models for batch processing."
     )
+
+
+class ResearchGateDecision(BaseModel):
+    action: Literal["continue", "retry"] = Field(
+        description="continue to outline, or retry to do more research"
+    )
+    delete_chunk_ids: List[str] = Field(
+        default_factory=list, description="Chunk IDs to delete"
+    )
+    new_queries: List[str] = Field(
+        default_factory=list,
+        description="New Wikipedia page titles to search (only if action=retry)",
+    )
+    reasoning: str = Field(default="", description="Brief explanation of decision")
+
+
+class ChunkSelectionValidationModel(BaseModel):
+    """The list of chunk IDs that are most relevant for writing the current section."""
+
+    chunk_ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=5,
+        description="A list of up to 5 chunk_ids for the current section.",
+    )
+
+    @field_validator("chunk_ids", mode="before")
+    @classmethod
+    def coerce_chunk_ids_to_strings(cls, v: Any) -> List[str]:
+        """Coerce chunk IDs to strings (LLMs often return them as integers)."""
+        if not isinstance(v, list):
+            return v
+        return [str(item) for item in v]
 
 
 # --------- Verifier → validation ----------
@@ -450,6 +539,9 @@ class SectionContentModel(BaseModel):
 
     section_heading: str = Field(description="The section heading being written.")
     content: str = Field(description="The written content for this section.")
+    summary: str = Field(
+        description="A brief 1-2 sentence summary of what this section covers, for maintaining coherence in subsequent sections."
+    )
 
 
 class BatchSectionWritingModel(BaseModel):

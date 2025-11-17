@@ -15,7 +15,7 @@ class BaseAgent(ABC):
         self.logger = logging.getLogger(self.__class__.__name__)
 
         # Use OllamaClient with model config if provided
-        self.api_client = ConfigContext.get_client("writing")
+        self.api_client = ConfigContext.get_client("writer")
 
     @abstractmethod
     def process(self) -> None:

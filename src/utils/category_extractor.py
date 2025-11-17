@@ -1,6 +1,7 @@
 import concurrent.futures
 
 import logging
+import re
 import wikipediaapi
 from typing import List, Optional, Set
 
@@ -41,7 +42,22 @@ class CategoryExtractor:
     @staticmethod
     def _is_relevant_category(cat_name: str) -> bool:
         """Filter out Wikipedia maintenance and meta categories."""
-        lower = cat_name.lower()
+        name_clean = cat_name.replace("Category:", "").strip()
+        lower = name_clean.lower()
+        MONTHS = [
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+        ]
 
         # Filter meta/maintenance categories
         meta_keywords = [
@@ -61,11 +77,18 @@ class CategoryExtractor:
             "short description",
             "wikidata",
             "commons category",
+            "use",
         ]
 
         for keyword in meta_keywords:
             if keyword in lower:
                 return False
+
+        if re.match(r"\d{4}s in", lower):
+            return False
+
+        if any(lower.startswith(m) for m in MONTHS):
+            return False
 
         return True
 

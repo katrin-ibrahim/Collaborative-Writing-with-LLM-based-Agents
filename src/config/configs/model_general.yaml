@@ -21,7 +21,7 @@ temperatures:
 token_limits:
   research: 6192
   outline: 6192
-  writer: 8192
-  revision: 8192
-  self_refine: 8192
-  reviewer: 8192
+  writer: 6192
+  revision: 6192
+  self_refine: 6192
+  reviewer: 6192

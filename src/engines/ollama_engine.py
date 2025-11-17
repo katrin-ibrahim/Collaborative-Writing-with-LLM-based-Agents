@@ -226,9 +226,7 @@ class OllamaEngine(BaseEngine):
             options = {
                 "temperature": temperature or self.temperature,
                 "num_predict": max_tokens or self.max_tokens,
-                # CRITICAL: Set context window large enough for prompt + completion
-                # Otherwise the model will truncate output when context fills up
-                "num_ctx": 16384,  # Increased context window to prevent truncation
+                "num_ctx": 8192,  # Increased context window to prevent truncation, no retry, if it fails it does not recover anyway
             }
             if stop:
                 options["stop"] = stop

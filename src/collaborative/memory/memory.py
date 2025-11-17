@@ -11,7 +11,6 @@ from src.collaborative.utils.models import (
     SearchSummary,
     WriterStatusUpdate,
 )
-from src.collaborative.utils.writer_utils import build_full_article_content
 from src.utils.data import Outline, ResearchChunk
 from src.utils.data.models import Article
 
@@ -32,7 +31,6 @@ class MemoryState(TypedDict):
     ]  # query -> search results with summaries
     # Structure: feedback_items[(section, iteration, item_id)] = item_data
     current_draft: str
-    drafts_by_iteration: Dict[str, str]  # iteration -> full draft content
     current_sections: Dict[str, str]  # section_name -> content
     article_sections_by_iteration: Dict[
         str, Dict[str, str]
@@ -49,6 +47,9 @@ class MemoryState(TypedDict):
     reviewer_suggested_queries: Optional[
         List[str]
     ]  # Queries suggested by reviewer based on gaps
+    # ToM last observed actions
+    tom_writer_last_observed_state: Optional[str]  # Last observed writer action
+    tom_reviewer_last_observed_state: Optional[str]  # Last observed reviewer action
 
 
 class SharedMemory:
@@ -91,7 +92,6 @@ class SharedMemory:
 
         if raw_data.get("topic"):
             # Use existing data as TypedDict
-            ensure_key(raw_data, "drafts_by_iteration", {})
             ensure_key(raw_data, "article_sections_by_iteration", {})
             ensure_key(raw_data, "research_chunks", {})
             ensure_key(raw_data, "search_summaries", {})
@@ -108,7 +108,6 @@ class SharedMemory:
                 research_chunks={},
                 search_summaries={},
                 article_sections_by_iteration={},
-                drafts_by_iteration={},
                 current_draft="",
                 current_sections={},
                 initial_outline=None,
@@ -117,6 +116,8 @@ class SharedMemory:
                 item_index={},
                 all_searched_queries=set(),
                 reviewer_suggested_queries=None,
+                tom_writer_last_observed_state=None,
+                tom_reviewer_last_observed_state=None,
             )
 
         # Persist if new state
@@ -222,6 +223,10 @@ class SharedMemory:
         return (
             self.state["article_sections_by_iteration"].get(str(iteration), {}).copy()
         )
+
+    def get_all_searched_queries(self) -> Set[str]:
+        """Get all queries searched by the writer across iterations."""
+        return self.state["all_searched_queries"].copy()
 
     # endregion Getters for State Fields
 
@@ -427,16 +432,37 @@ class SharedMemory:
         Returns section -> [FeedbackStoredModel] for this iteration.
         If filter_by is provided, only items with status == filter_by are included.
         If filter_by is None, all items are included.
+
+        Handles feedback items with multiple sections by adding the item to each section's list.
         """
         bucket = self.state["feedback_by_iteration"].get(iteration, {})
         out: dict[str, list[FeedbackStoredModel]] = {}
         for item in bucket.values():
             item_status = getattr(item, "status", None)
-            # Normalize both to string for robust comparison
-            if filter_by is None or (
-                item_status is not None and str(item_status) == str(filter_by)
-            ):
-                out.setdefault(item.section, []).append(item)
+            # Normalize both to string values for robust comparison
+            # Handle both enum values and string values
+            if filter_by is None:
+                matches = True
+            elif item_status is None:
+                matches = False
+            else:
+                item_status_str = (
+                    item_status.value
+                    if hasattr(item_status, "value")
+                    else str(item_status)
+                )
+                filter_by_str = (
+                    filter_by.value if hasattr(filter_by, "value") else str(filter_by)
+                )
+                matches = item_status_str == filter_by_str
+
+            if matches:
+                # Handle both single section (str) and multiple sections (list)
+                sections = (
+                    item.section if isinstance(item.section, list) else [item.section]
+                )
+                for section in sections:
+                    out.setdefault(section, []).append(item)
         return out
 
     def update_feedback_item_status(self, item_id: str, status: str) -> bool:
@@ -484,36 +510,6 @@ class SharedMemory:
                 ok = False
             results[upd.id] = ok
         return results
-
-    def replace_section_text(
-        self,
-        section: str,
-        new_text: str,
-        rebuild_and_persist: bool = True,
-    ) -> "Article":
-        """
-        Replace the text of a single section. If section == '_overall', treat as full article replacement.
-        Rebuilds full content from sections (when applicable) and persists.
-        """
-        article = self.get_current_draft_as_article()
-        if not article:
-            raise RuntimeError("No current draft to modify.")
-
-        if section == "_overall":
-            article.content = new_text
-            # optional: do not try to sync sections here
-        else:
-            article.sections = dict(article.sections or {})
-            article.sections[section] = new_text
-            if rebuild_and_persist:
-                article.content = build_full_article_content(
-                    article.title, article.sections
-                )
-
-        if rebuild_and_persist:
-            self.update_article_state(article)
-
-        return article
 
     # endregion Typed Feedback Management
 
@@ -570,7 +566,6 @@ class SharedMemory:
         # Case 3: Neither draft nor sections provided -> sections_to_use remains the existing self.state["current_sections"]
 
         # --- 1. Update History ---
-        self.state["drafts_by_iteration"][iteration_key] = new_draft_content
         self.state["article_sections_by_iteration"][iteration_key] = sections_to_use
 
         # --- 2. Update Cache ---

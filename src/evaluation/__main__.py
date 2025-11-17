@@ -277,6 +277,16 @@ Examples:
         default="http://10.167.31.201:11434",
         help="Ollama server URL (default: UKP server http://10.167.31.201:11434)",
     )
+    parser.add_argument(
+        "--force_judge",
+        action="store_true",
+        help="Force re-run LLM judge even if scores already exist",
+    )
+    parser.add_argument(
+        "--force_metrics",
+        action="store_true",
+        help="Force re-compute evaluation metrics (ROUGE, entity recall, etc.) even if they already exist",
+    )
 
     return parser.parse_args()
 
@@ -544,11 +554,28 @@ def main():
 
                 logger.debug(f"Evaluating {method} for {topic}")
 
-                # Skip if already evaluated (resume mode - always on)
-                if "evaluation" in method_data or "metrics" in method_data:
+                # Skip if already evaluated (unless force flags are set)
+                has_evaluation = "evaluation" in method_data or "metrics" in method_data
+                has_llm_judge = "llm_judge" in method_data
+
+                skip_metrics = has_evaluation and not args.force_metrics
+                skip_judge = has_llm_judge and not args.force_judge
+
+                if skip_metrics and skip_judge:
                     logger.debug(f"Skipping {method}/{topic} - already evaluated")
                     skipped_existing += 1
                     continue
+
+                if skip_metrics and not skip_judge:
+                    logger.debug(
+                        f"Re-running LLM judge for {method}/{topic} (--force_judge)"
+                    )
+                elif skip_judge and not skip_metrics:
+                    logger.debug(
+                        f"Re-computing metrics for {method}/{topic} (--force_metrics)"
+                    )
+                else:
+                    logger.debug(f"Full evaluation for {method}/{topic}")
 
                 # Get article content
                 article_content = None
@@ -582,80 +609,82 @@ def main():
 
                 article = Article(title=topic, content=article_content)
 
-                # Evaluate the article
-                try:
-                    logger.debug(f"Running evaluation for {method}/{topic}")
-                    total_evaluations += 1
-                    eval_results = evaluator.evaluate_article(article, freshwiki_entry)
-
-                    if eval_results:
-                        method_data["evaluation"] = eval_results
-                        successful_evaluations += 1
-
-                        # Ensure word count is present
-                        if "word_count" not in method_data:
-                            method_data["word_count"] = len(article_content.split())
-
-                        logger.debug(f"✅ Evaluation completed for {method}/{topic}")
-                        logger.debug(
-                            f"   ROUGE-1: {eval_results.get('rouge_1', 0):.1f}%"
-                        )
-                        logger.debug(
-                            f"   HSR: {eval_results.get('heading_soft_recall', 0):.1f}%"
-                        )
-                        logger.debug(
-                            f"   HER: {eval_results.get('heading_entity_recall', 0):.1f}%"
-                        )
-                        logger.debug(
-                            f"   AER: {eval_results.get('article_entity_recall', 0):.1f}%"
+                # Evaluate the article (skip if already done and not forcing)
+                if not skip_metrics:
+                    try:
+                        logger.debug(f"Running evaluation for {method}/{topic}")
+                        total_evaluations += 1
+                        eval_results = evaluator.evaluate_article(
+                            article, freshwiki_entry
                         )
 
-                        # Run LLM judge unconditionally
-                        try:
-                            logger.debug(f"Running LLM judge for {method}/{topic}")
-                            llm_results = score_articles(
-                                article_texts=[article_content],
-                                model=args.llm_judge_model,
-                                host=args.llm_judge_host,
-                                temperature=0.0,
+                        if eval_results:
+                            method_data["evaluation"] = eval_results
+                            successful_evaluations += 1
+
+                            # Ensure word count is present
+                            if "word_count" not in method_data:
+                                method_data["word_count"] = len(article_content.split())
+
+                            logger.debug(
+                                f"✅ Evaluation completed for {method}/{topic}"
                             )
-                            if llm_results and "error" not in llm_results[0]:
-                                method_data["llm_judge"] = llm_results[0]
-                                logger.debug(
-                                    f"✅ LLM judge completed for {method}/{topic}"
-                                )
-                                logger.debug(
-                                    f"   Interest: {llm_results[0].get('interest_level', 0)}/5"
-                                )
-                                logger.debug(
-                                    f"   Coherence: {llm_results[0].get('coherence_organization', 0)}/5"
-                                )
-                            else:
-                                logger.warning(
-                                    f"LLM judge failed for {method}/{topic}: {llm_results[0].get('error', 'Unknown error')}"
-                                )
-                        except Exception as e:
-                            logger.warning(f"LLM judge error for {method}/{topic}: {e}")
-                    else:
-                        logger.error(f"Evaluation returned None for {method}/{topic}")
+                            logger.debug(
+                                f"   ROUGE-1: {eval_results.get('rouge_1', 0):.1f}%"
+                            )
+                            logger.debug(
+                                f"   HSR: {eval_results.get('heading_soft_recall', 0):.1f}%"
+                            )
+                            logger.debug(
+                                f"   HER: {eval_results.get('heading_entity_recall', 0):.1f}%"
+                            )
+                            logger.debug(
+                                f"   AER: {eval_results.get('article_entity_recall', 0):.1f}%"
+                            )
+                        else:
+                            logger.error(
+                                f"Evaluation returned None for {method}/{topic}"
+                            )
+                            method_data["evaluation_error"] = "Evaluation returned None"
+
+                    except Exception as e:
+                        logger.error(f"Evaluation failed for {method}/{topic}: {e}")
+                        method_data["evaluation_error"] = str(e)
+
+                # Run LLM judge (skip if already done and not forcing)
+                if not skip_judge:
+                    try:
+                        logger.debug(f"Running LLM judge for {method}/{topic}")
+
+                        llm_results = score_articles(
+                            article_texts=[article_content],
+                            model=args.llm_judge_model,
+                            host=args.llm_judge_host,
+                            temperature=0.0,
+                        )
+                        if llm_results and "error" not in llm_results[0]:
+                            method_data["llm_judge"] = llm_results[0]
+                            logger.debug(f"✅ LLM judge completed for {method}/{topic}")
+
+                        else:
+                            logger.error(
+                                f"Evaluation returned None for {method}/{topic}"
+                            )
+                    except Exception as e:
+                        logger.warning(f"LLM judge error for {method}/{topic}: {e}")
                         method_data["evaluation_error"] = "Evaluation returned None"
 
-                except Exception as e:
-                    logger.error(f"Evaluation failed for {method}/{topic}: {e}")
-                    # Record error only; do not create a zeroed 'evaluation' block
-                    method_data["evaluation_error"] = str(e)
-                finally:
-                    # Count this pair as completed (success or failure)
-                    _mark_progress()
-                    # Periodically persist progress for resume capability
-                    try:
-                        if (
-                            autosave_every == 1
-                            or (completed_evaluations % autosave_every) == 0
-                        ):
-                            save_results(results_dir, data)
-                    except Exception as _e:
-                        logger.debug(f"Autosave failed: {_e}")
+                # Count this pair as completed (success or failure)
+                _mark_progress()
+                # Periodically persist progress for resume capability
+                try:
+                    if (
+                        autosave_every == 1
+                        or (completed_evaluations % autosave_every) == 0
+                    ):
+                        save_results(results_dir, data)
+                except Exception as _e:
+                    logger.debug(f"Autosave failed: {_e}")
 
         # Update results data with evaluation timestamp
         data["evaluation_timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")

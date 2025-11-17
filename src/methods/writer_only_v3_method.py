@@ -11,7 +11,7 @@ import time
 
 import logging
 
-from src.collaborative.agents.writer_v3 import WriterV3
+from src.collaborative.agents.writer_v4 import WriterV4
 from src.collaborative.memory.memory import SharedMemory
 from src.config.config_context import ConfigContext
 from src.methods.base_method import BaseMethod
@@ -75,7 +75,7 @@ class WriterOnlyV3Method(BaseMethod):
             ConfigContext.set_memory_instance(memory)
 
             # Initialize WriterV3 agent
-            writer = WriterV3()
+            writer = WriterV4()
 
             # Initialize article state in memory
             seed_article = Article(
@@ -141,13 +141,6 @@ class WriterOnlyV3Method(BaseMethod):
                         "word_count": len(final_draft.split()) if final_draft else 0,
                     },
                     "research_metrics": self._get_research_metrics(memory),
-                    "workflow_steps": [
-                        "direct_search",
-                        "generate_queries",
-                        "secondary_searches",
-                        "create_outline",
-                        "write_sections",
-                    ],
                     "token_usage": token_usage,
                 },
             )

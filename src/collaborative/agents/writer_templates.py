@@ -1,26 +1,27 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.collaborative.utils.models import FeedbackStoredModel
 from src.utils.data import Article
 
 # ---------------------------------------- Writer Templates ----------------------------------------
 # region Writer Prompt Templates
-HEADING_COUNT = 15  # Must match MAX_HEADING_COUNT in models.py
+HEADING_COUNT = 15
 
 
-def outline_prompt(topic: str, chunk_summaries: str) -> str:
+def build_outline_prompt(topic: str, chunk_summaries: str) -> str:
     """
     Generates the prompt for creating a structured article outline using LLM.
+    Also asks LLM to select relevant chunks for each section
 
     Args:
         topic: The main subject of the article.
-        chunk_summaries: The formatted summaries of all stored research chunks.
+        chunk_summaries: The formatted summaries of all stored research chunks (with chunk_ids).
 
     Returns:
-        The prompt string instructing the LLM to output a structured JSON outline.
+        The prompt string instructing the LLM to output outline + chunk selections.
     """
     return f"""
-    Generate a Wikipedia-style article outline for the topic: "{topic}".
+    Generate a Wikipedia-style article outline for the topic: "{topic}" AND select relevant research chunks for each section.
 
     CRITICAL TOPIC FOCUS:
     - This article MUST be specifically about "{topic}" - not related topics, background events, or similar subjects.
@@ -37,7 +38,7 @@ def outline_prompt(topic: str, chunk_summaries: str) -> str:
     Use the research context to identify key entities such as people, organizations, events, locations, and outcomes.
     Headings should reflect these specific entities and capture factual, verifiable aspects of the topic.
 
-    RESEARCH CONTEXT:
+    RESEARCH CONTEXT (with chunk_ids):
     ---
     {chunk_summaries}
     ---
@@ -66,113 +67,29 @@ def outline_prompt(topic: str, chunk_summaries: str) -> str:
     - Ensure exactly {HEADING_COUNT} headings in total.
     - Headings must be a flat list of strings — no objects, no key–value pairs, no nested arrays, no annotations.
 
+    CHUNK SELECTION TASK:
+    For EACH section heading you create, select the most relevant chunk IDs from the research context above.
+    - Select at least 1-3 chunks per section (use chunk_id field from research context)
+    - Prioritize chunks that directly discuss the section's topic
+    - Use ONLY the literal chunk IDs provided in the research context
+    - DO NOT invent, shorten, or modify chunk IDs
+    - If no perfect matches exist, select the most INDIRECTLY relevant chunks
+
+
     OUTPUT FORMAT:
-    Return a JSON object with one field:
-    - "headings": A list of exactly {HEADING_COUNT} section headings as strings
-
-    Example: {{"headings": ["Background", "Teams and Players", "Match Summary", "Aftermath", ...]}}
-    """
-
-
-# Core selection prompt rules
-CORE_SELECTION_RULES = """
-CRITICAL SELECTION RULES:
-1. **Relevance:** Select chunks most relevant and necessary for the section(s)
-2. **Temporal Relevance:** If the topic has a specific year, prioritize chunks from that year over other years
-3. **Minimum:** You MUST select AT LEAST ONE chunk per section (never return empty lists)
-4. **ID Integrity:** Use only the literal chunk IDs provided - do not shorten, invent, or modify
-5. **No Chatter:** Return ONLY the JSON object, no explanations, reasoning, or markdown
-
-CRITICAL: If no perfect matches exist, select the most INDIRECTLY relevant chunks:
-- General background on the topic that could inform the section
-- Related entities, events, or concepts mentioned in the section heading
-- Chronological context if the section involves a specific time period
-
-DO NOT return empty lists. Always select at least the best available option(s).
-"""
-
-
-def _build_temporal_awareness(topic: str) -> str:
-    """Extract year from topic and build temporal awareness instructions."""
-    import re
-
-    year_match = re.search(r"\b(19|20)\d{2}\b", topic)
-    if not year_match:
-        return ""
-
-    topic_year = year_match.group(0)
-    return f"""
-TEMPORAL AWARENESS:
-The topic is about {topic_year}. When selecting chunks:
-- STRONGLY PREFER chunks that mention {topic_year} or events from {topic_year}
-- PENALIZE chunks about different years (e.g., {int(topic_year)-1}, {int(topic_year)+1}) unless they provide essential background
-- If chunks mention specific years, they should align with {topic_year}
-"""
-
-
-def select_section_chunks_prompt(
-    section_heading: str, topic: str, chunk_summaries: str, num_chunks: int
-) -> str:
-    """Generate prompt for selecting relevant research chunks for a section."""
-    temporal_awareness = _build_temporal_awareness(topic)
-
-    return f"""
-You are a Research Editor selecting chunks to write "{section_heading}" for an article on "{topic}".
-
-{temporal_awareness}
-
-RESEARCH CONTEXT:
----
-{chunk_summaries}
----
-
-{CORE_SELECTION_RULES}
-
-TASK: Select up to {num_chunks} chunk IDs for the section "{section_heading}".
-
-OUTPUT FORMAT (JSON only):
-{{
-  "chunk_ids": ["chunk_id_1", "chunk_id_2", ...]
-}}
-"""
-
-
-def select_sections_chunks_batch_prompt(
-    section_headings: List[str], topic: str, chunk_summaries: str, num_chunks: int
-) -> str:
-    """Generate prompt for batch selecting chunks for multiple sections."""
-    sections_list = "\n".join(f"{i+1}. {h}" for i, h in enumerate(section_headings))
-    temporal_awareness = _build_temporal_awareness(topic)
-
-    return f"""
-You are a Research Editor selecting chunks for {len(section_headings)} sections of an article on "{topic}".
-
-SECTIONS TO PROCESS:
-{sections_list}
-
-{temporal_awareness}
-
-RESEARCH CONTEXT:
----
-{chunk_summaries}
----
-
-{CORE_SELECTION_RULES}
-
-TASK: For EACH section above, select up to {num_chunks} chunk IDs (per section, not total).
-
-OUTPUT FORMAT (JSON only):
-{{
-  "selections": [
+    Return a JSON object with TWO fields:
     {{
-      "section_heading": "exact heading from above",
-      "chunk_ids": ["chunk_id_1", "chunk_id_2", ...]
+      "headings": ["Background", "History", "Match Summary", ...],
+      "chunk_map": {{
+        "Background": ["chunk_id_1", "chunk_id_2"],
+        "History": ["chunk_id_3", "chunk_id_5"],
+        "Match Summary": ["chunk_id_4", "chunk_id_6"],
+        ...
+      }}
     }}
-  ]
-}}
 
-NOTICE: Each section gets its OWN list of up to {num_chunks} chunks. This is PER SECTION!
-"""
+    CRITICAL: Every heading in "headings" must have a corresponding entry in "chunk_map" with at least 1 chunk ID.
+    """
 
 
 # Core reusable components
@@ -187,19 +104,20 @@ WRITING STYLE - ENGAGING ENCYCLOPEDIA:
 - Include context that helps readers understand why events matter
 
 REQUIREMENTS:
-- Write 2-3 well-structured paragraphs of encyclopedia-style content
-- Ground your content in the provided research information
-- Include specific details and examples from the sources
-- Maintain an informative, objective tone
+- Write AT LEAST 2-3 substantive, detailed paragraphs of encyclopedia-style content per section
+- Each paragraph should be 4-6 sentences with rich factual detail
+- Ground ALL statements in the provided research information
+- Include as many specific details and examples from the sources as possible
+- Maintain an informative, objective tone while being comprehensive
 - Ensure smooth transitions and logical flow
 - Start directly with the content, no preamble or introduction
+- NEVER write placeholder content like "Information is unavailable" - use ALL relevant research provided
 """
 
 CORE_CITATION_RULES = """
 CITATION RULES - CRITICAL:
 • Research chunks start with their ID (e.g., "abc123 {content: ...}")
 • Cite using EXACT chunk ID in tags: <c cite="abc123"/>
-• For claims needing sources: <needs_source/>
 • NEVER invent chunk IDs not in the research above
 • NEVER use placeholders like [1], chunk_id_1, source_1, etc.
 • If no research provided, write WITHOUT citations
@@ -222,22 +140,20 @@ CRITICAL: Write ONLY the article content. Do NOT include:
 """
 
 
-def _build_section_writing_prompt(
-    topic: str,
+def build_write_section_prompt(
     section_heading: str,
+    topic: str,
     relevant_info: str,
-    mode: str = "single",  # "single" or "revision"
-    feedback_context: str = "",
+    previous_summaries: Optional[List[dict]] = None,
 ) -> str:
     """
-    Core section writing prompt builder.
+    Simple section writing prompt for fallback mode (when batch writing fails).
 
     Args:
-        topic: Article topic
         section_heading: Section heading to write
+        topic: Article topic
         relevant_info: Research chunks (formatted with IDs)
-        mode: "single" for initial write, "revision" for feedback-driven update
-        feedback_context: Optional feedback items to address (revision mode only)
+        previous_summaries: Optional list of dicts with 'section_heading' and 'summary' from already-written sections
     """
     research_block = (
         f"RESEARCH INFORMATION:\n{relevant_info}"
@@ -245,48 +161,74 @@ def _build_section_writing_prompt(
         else "RESEARCH INFORMATION: None provided."
     )
 
-    if mode == "revision":
-        task = f'Revise the section "{section_heading}" to address the feedback below.'
-        extra_instructions = f"""
-{feedback_context}
+    # Build previous context section if available
+    context_section = ""
+    if previous_summaries:
+        context_items = [
+            f"- **{item['section_heading']}**: {item['summary']}"
+            for item in previous_summaries
+        ]
+        context_section = f"""
+PREVIOUSLY WRITTEN SECTIONS (for coherence):
+{chr(10).join(context_items)}
 
-REVISION RULES:
-- Address ONLY the feedback items listed above
-- Set status='addressed' ONLY if you genuinely made the change
-- Set status='wont_fix' if you cannot/should not make the change (explain why)
-- The reviewer WILL VERIFY your work - be honest
-- Keep length roughly similar unless feedback requests otherwise
+IMPORTANT: Build on this context naturally. Avoid repeating information already covered.
+Reference earlier sections where appropriate (e.g., "As mentioned in the Background...").
+
 """
-    else:
-        task = f'Write a comprehensive section titled "{section_heading}" for an article about "{topic}".'
-        extra_instructions = ""
 
     return f"""
-{task}
+Write a comprehensive section titled "{section_heading}" for an article about "{topic}".
 
-{CORE_TOPIC_FOCUS.format(topic=topic)}
+{context_section}{CORE_TOPIC_FOCUS.format(topic=topic)}
 {CORE_NO_METACOMMENTARY}
 {research_block}
 {CORE_WRITING_RULES}
 {CORE_CITATION_RULES}
-{extra_instructions}
+
+REQUIREMENTS:
+- Write AT LEAST 300 words (approximately 2-4 substantive, detailed paragraphs)
+- Write in a vivid, engaging, and comprehensive style that captures reader interest
+- Use narrative techniques where appropriate: vivid descriptions, compelling details, smooth transitions
+- Extract and incorporate ALL relevant facts, details, names, dates, and statistics from the research
+
+OUTPUT FORMAT (JSON):
+{{
+  "section_heading": "{section_heading}",
+  "content": "Multiple detailed paragraphs with comprehensive coverage of the research provided",
+  "summary": "Brief 1-2 sentence summary of this section's main points"
+}}
 """
 
 
-def write_section_content_prompt(
-    section_heading: str, topic: str, relevant_info: str
+def build_write_sections_batch_prompt(
+    sections_with_chunks: List[dict],
+    topic: str,
+    previous_summaries: Optional[List[dict]] = None,
 ) -> str:
-    """Generate prompt for initial section writing."""
-    return _build_section_writing_prompt(
-        topic=topic,
-        section_heading=section_heading,
-        relevant_info=relevant_info,
-        mode="single",
-    )
+    """
+    Generate prompt for batch writing multiple sections at once.
 
+    Args:
+        sections_with_chunks: List of dicts with 'section_heading' and 'relevant_info' (chunks)
+        topic: Article topic
+        previous_summaries: Optional list of dicts with 'section_heading' and 'summary' from already-written sections
+    """
+    # Build previous context section if available
+    context_section = ""
+    if previous_summaries:
+        context_items = [
+            f"- **{item['section_heading']}**: {item['summary']}"
+            for item in previous_summaries
+        ]
+        context_section = f"""
+PREVIOUSLY WRITTEN SECTIONS (for coherence):
+{chr(10).join(context_items)}
 
-def write_sections_batch_prompt(sections_with_chunks: List[dict], topic: str) -> str:
-    """Generate prompt for batch writing multiple sections at once."""
+IMPORTANT: Build on this context naturally. Avoid repeating information already covered.
+Reference earlier sections where appropriate (e.g., "As mentioned in the Background...").
+"""
+
     sections_info = []
     for i, item in enumerate(sections_with_chunks, 1):
         section_heading = item["section_heading"]
@@ -301,6 +243,8 @@ Research chunks: {relevant_info if relevant_info else "None provided."}"""
     return f"""
 Write encyclopedia-style content for {len(sections_with_chunks)} sections of an article about "{topic}".
 
+{context_section}
+
 {sections_text}
 
 {CORE_TOPIC_FOCUS.format(topic=topic)}
@@ -309,108 +253,28 @@ Write encyclopedia-style content for {len(sections_with_chunks)} sections of an 
 {CORE_CITATION_RULES}
 
 BATCH OUTPUT REQUIREMENTS:
-- For EACH section above, write 2-3 well-structured paragraphs
+- For EACH section above, write AT LEAST 300 words (approximately 2-4 substantive, detailed paragraphs)
+- Write in a vivid, engaging, and comprehensive style that captures reader interest (not just dry recitation of facts)
+- Use narrative techniques where appropriate: descriptions, compelling details, smooth transitions between ideas, while still maintaining encyclopedic tone
+- Extract and incorporate ALL relevant facts, details, names, dates, and statistics from the research chunks
 - Use ONLY the research chunks provided for that specific section
+- Each section should be comprehensive and information-rich, not brief summaries
 - Avoid repetition between sections
+- Generate a brief 1-2 sentence summary of what each section covers (for subsequent batches)
+- NEVER write placeholder content or state that information is unavailable - fully utilize provided research
 
-OUTPUT FORMAT (JSON):
+OUTPUT FORMAT (JSON), OUTPUT EXACTLY, make sure to include ALL KEYS:
 {{
   "sections": [
     {{
       "section_heading": "exact heading from above",
-      "content": "2-3 paragraphs of content here"
+      "content": "Multiple detailed paragraphs with comprehensive coverage of the research provided",
+      "summary": "Brief 1-2 sentence summary of this section's main points"
     }}
   ]
 }}
 
-Write content for ALL {len(sections_with_chunks)} sections listed above.
-"""
-
-
-def write_full_article_prompt(
-    topic: str, headings: List[str], relevant_info: str
-) -> str:
-    """Generate prompt for full-article writing consistent with section prompt rules."""
-    headings_hint = (
-        "\n".join(f"{i+1}. {h}" for i, h in enumerate(headings)) if headings else ""
-    )
-    research_context = ""
-    if relevant_info:
-        research_context = f"Use this possibly relevant information gathered during research: {relevant_info}"
-
-    example_format = f"""
-EXAMPLE OUTPUT FORMAT:
-## {headings[0] if headings else "First Section"}
-
-Paragraph 1 content here with proper encyclopedia-style writing...
-
-Paragraph 2 continues with more details and examples...
-
-Paragraph 3 wraps up this section with additional context...
-
-## {headings[1] if len(headings) > 1 else "Second Section"}
-
-Paragraph 1 of second section begins here...
-
-CRITICAL: Notice that EACH section must:
-1. Start with EXACTLY "## " followed by the heading text
-2. Have 2-4 paragraphs of content after the heading
-3. Use the EXACT heading text from the outline below
-"""
-
-    return f"""
-Write a high-quality encyclopedia-style article about "{topic}".
-
-You MUST structure the article with the following sections in this exact order:
-{headings_hint}
-
-{example_format}
-
-MANDATORY FORMATTING RULES (FAILURE TO FOLLOW WILL RESULT IN UNUSABLE OUTPUT):
-
-1. **Section Headers:** EVERY section MUST start with its exact heading prefixed by '## ' (Markdown H2).
-   - Correct: "## Early life and education"
-   - WRONG: "Early life and education" (missing ##)
-   - WRONG: "# Early life" (wrong number of #)
-   - WRONG: "## Early Life" (different capitalization)
-
-2. **Section Content:** After each ## heading, write 2–4 coherent paragraphs.
-
-3. **Complete Coverage:** Include ALL {len(headings)} sections from the outline above.
-
-4. **No Extras:** Do NOT add extra sections or change heading wording.
-
-5. **Start Immediately:** Begin directly with the first ## heading. NO title, NO preamble.
-
-{research_context}
-
-CRITICAL: Write ONLY the article content. Do NOT include:
-- Conversational language or meta-commentary
-- Questions to the user
-- Placeholder text or requests for clarification
-- A separate title line (the first ## is the first section)
-
-Requirements:
-- Ground content in the provided research information where applicable
-- Include specific details and examples from sources
-- Maintain an informative, objective tone with smooth transitions
-- Avoid repetition and avoid any preambles or summaries outside the article text
-
-CITATION INSTRUCTIONS - CRITICAL:
-- The research information above contains chunk IDs at the start of each piece of information (format: "chunk_id {{content: ...}}")
-- When referencing information from the research chunks, cite using the EXACT chunk ID in citation tags: <c cite="chunk_id"/>
-- For claims that need additional sourcing, mark with: <needs_source/>
-- ABSOLUTELY FORBIDDEN: Making up chunk IDs, URLs, or references not in the research data
-- ABSOLUTELY FORBIDDEN: Using generic citations like [1], [2], [source_1], [chunk_1]
-- ABSOLUTELY FORBIDDEN: Inventing fake URLs or fake chunk IDs like "chunk_42", "chunk_77"
-- If no research chunk IDs are provided, do NOT include any citations - write content without citation tags
-
-OUTPUT CHECKLIST:
-✓ Every section starts with ## followed by exact heading
-✓ {len(headings)} sections total
-✓ 2-4 paragraphs per section
-✓ No title line before first section
-✓ Citations use <c cite="chunk_id"/> format only
+Write detailed, comprehensive content for ALL {len(sections_with_chunks)} sections listed above.
 """
 
 
@@ -437,247 +301,6 @@ def fmt_feedback_line(it: "FeedbackStoredModel") -> str:
     if it.location_hint:
         parts.append(f"loc={it.location_hint}")
     return " | ".join(parts)
-
-
-def enhance_prompt_with_tom(base_prompt: str, tom_context: Optional[str]) -> str:
-    """Enhance prompt with Theory of Mind context if available."""
-    if not tom_context:
-        return base_prompt
-    return f"{base_prompt}\n\n{tom_context}"
-
-
-def build_directive_tom_context_for_writer(
-    predicted_action: str, confidence: float, reasoning: str
-) -> str:
-    """Build directive ToM context for writer based on predicted reviewer behavior."""
-    action_to_strategy = {
-        "provide_extensive_feedback": (
-            "The reviewer will provide extensive, detailed feedback.",
-            "Focus on thoroughness and detail in your revisions. Expect comprehensive suggestions across multiple dimensions.",
-        ),
-        "provide_moderate_feedback": (
-            "The reviewer will provide moderate, balanced feedback.",
-            "Maintain a balance between depth and breadth in your revisions. Address key issues without over-engineering.",
-        ),
-        "approve_with_minor_suggestions": (
-            "The reviewer will mostly approve with only minor suggestions.",
-            "Focus on polishing and refinement. Small adjustments will likely be sufficient.",
-        ),
-        "focus_on_accuracy_refinement": (
-            "The reviewer will focus primarily on factual accuracy and citations.",
-            "Prioritize fact-checking, adding citations, and ensuring claims are well-supported. Accuracy is paramount.",
-        ),
-        "request_major_expansion": (
-            "The reviewer will request significant content expansion.",
-            "Be prepared to substantially expand content. Consider adding new sections or significantly deepening existing ones.",
-        ),
-    }
-
-    prediction, strategy = action_to_strategy.get(
-        predicted_action,
-        (
-            f"The reviewer will likely take action: {predicted_action}",
-            "Adapt your approach based on reviewer expectations.",
-        ),
-    )
-
-    confidence_level = (
-        "high" if confidence >= 0.75 else "moderate" if confidence >= 0.5 else "low"
-    )
-
-    return f"""COLLABORATIVE INTELLIGENCE (Theory of Mind):
-Based on past interactions, I predict: {prediction}
-Confidence: {confidence_level} ({confidence:.1%})
-Reasoning: {reasoning}
-
-STRATEGIC ADAPTATION:
-{strategy}
-
-Use this prediction to proactively shape your work to align with reviewer expectations."""
-
-
-def build_directive_tom_context_for_reviewer(
-    predicted_action: str, confidence: float, reasoning: str
-) -> str:
-    """Build directive ToM context for reviewer based on predicted writer behavior."""
-    action_to_strategy = {
-        "accept_most_feedback": (
-            "The writer will accept most of your feedback.",
-            "Be comprehensive and detailed in your feedback. The writer is receptive and will implement most suggestions.",
-        ),
-        "partially_accept_maintain_creative_vision": (
-            "The writer will partially accept feedback while maintaining their creative vision.",
-            "Focus on high-priority issues and provide clear justification. The writer may selectively implement suggestions.",
-        ),
-        "contest_some_feedback": (
-            "The writer may contest or reject some feedback.",
-            "Ensure your feedback is well-justified and specific. Be prepared for pushback on lower-priority items.",
-        ),
-        "request_justification": (
-            "The writer will request additional justification for feedback.",
-            "Provide detailed rationale and specific examples. Anticipate questions about your suggestions.",
-        ),
-    }
-
-    prediction, strategy = action_to_strategy.get(
-        predicted_action,
-        (
-            f"The writer will likely take action: {predicted_action}",
-            "Adjust your feedback approach based on writer tendencies.",
-        ),
-    )
-
-    confidence_level = (
-        "high" if confidence >= 0.75 else "moderate" if confidence >= 0.5 else "low"
-    )
-
-    return f"""COLLABORATIVE INTELLIGENCE (Theory of Mind):
-Based on past interactions, I predict: {prediction}
-Confidence: {confidence_level} ({confidence:.1%})
-Reasoning: {reasoning}
-
-STRATEGIC ADAPTATION:
-{strategy}
-
-Calibrate your feedback style and volume to maximize collaborative effectiveness."""
-
-
-def build_single_section_revision_prompt(
-    article: "Article",
-    section: str,
-    items: list["FeedbackStoredModel"],
-    research_ctx: str,
-) -> str:
-    """Generate revision prompt for a single section."""
-    current_text = (
-        article.content
-        if section == "_overall"
-        else (article.sections or {}).get(section, "")
-    )
-
-    feedback_lines = [f"- {fmt_feedback_line(it)}" for it in items]
-    feedback_context = f"""
-PENDING FEEDBACK TO ADDRESS:
-{chr(10).join(feedback_lines)}
-
-CRITICAL HONESTY REQUIREMENT:
-For EACH feedback item you MUST:
-1. READ the feedback carefully and understand what is being asked
-2. MAKE THE CHANGE in the updated_content
-3. SET STATUS HONESTLY:
-   - Set 'addressed' ONLY if you genuinely made the requested change
-   - Set 'wont_fix' if you cannot/should not make the change (explain why in writer_comment)
-4. The reviewer WILL VERIFY your work - dishonest claims will be caught
-
-DO NOT claim 'addressed' unless you actually did the work. Be honest.
-"""
-
-    core_prompt = _build_section_writing_prompt(
-        topic=article.title,
-        section_heading=section,
-        relevant_info=safe_trim(research_ctx),
-        mode="revision",
-        feedback_context=feedback_context,
-    )
-
-    output_rules = """
-OUTPUT RULES:
-- Return a single JSON object matching WriterValidationModel exactly
-- content_type MUST be 'partial_section'
-- If section is '_overall', updated_content MUST be the FULL article with title heading (# Title) and all section headings (## Section Name)
-- If section is NOT '_overall', updated_content MUST be ONLY that section's text, starting with the markdown H2 heading (## Section Name)
-- updates MUST include a status for EVERY feedback id listed (addressed or wont_fix)
-- Keep tone neutral, factual, precise; no conversational preambles
-- Preserve correct facts; NEVER invent citations or sources
-- Keep length roughly similar unless feedback asks otherwise
-
-CURRENT TEXT TO REVISE:
-{current_text}
-
-Return EXACTLY this JSON shape:
-{{
-  "updates": [
-    {{"id":"<fid>","status":"addressed|wont_fix","writer_comment":"<short note or empty>"}}
-  ],
-  "updated_content": "<full replacement text for this section>",
-  "content_type": "partial_section"
-}}
-"""
-
-    return f"{core_prompt}\n{output_rules.format(current_text=safe_trim(current_text))}"
-
-
-def build_revision_batch_prompt(
-    article: "Article",
-    pending_by_section: dict[str, list["FeedbackStoredModel"]],
-    research_ctx: str,
-) -> str:
-    """Generate revision prompt for multiple sections at once."""
-    sections_info = []
-    for section, items in pending_by_section.items():
-        current_text = (
-            article.content
-            if section == "_overall"
-            else (article.sections or {}).get(section, "")
-        )
-        feedback_lines = [f"  - {fmt_feedback_line(it)}" for it in items]
-        sections_info.append(
-            f"""=== Section: {section} ===
-Current text: {safe_trim(current_text)}
-
-Pending feedback:
-{chr(10).join(feedback_lines)}"""
-        )
-
-    sections_text = "\n\n".join(sections_info)
-
-    return f"""
-Revise {len(pending_by_section)} sections of an article about "{article.title}" to address PENDING feedback.
-
-{sections_text}
-
-RESEARCH CONTEXT:
-{safe_trim(research_ctx)}
-
-{CORE_TOPIC_FOCUS.format(topic=article.title)}
-{CORE_NO_METACOMMENTARY}
-{CORE_WRITING_RULES}
-{CORE_CITATION_RULES}
-
-CRITICAL HONESTY REQUIREMENT:
-For EACH feedback item you MUST:
-1. READ the feedback carefully and understand what is being asked
-2. MAKE THE CHANGE in the updated_content
-3. SET STATUS HONESTLY:
-   - Set 'addressed' ONLY if you genuinely made the requested change
-   - Set 'wont_fix' if you cannot/should not make the change (explain why in writer_comment)
-4. The reviewer WILL VERIFY your work - dishonest claims will be caught
-
-DO NOT claim 'addressed' unless you actually did the work. Be honest.
-
-BATCH OUTPUT RULES:
-- Return a single JSON object matching WriterValidationBatchModel exactly
-- Provide ONE item per section listed above
-- For each item:
-  • content_type MUST be 'partial_section'
-  • updated_content MUST be the FULL replacement text for that section
-  • If section is NOT '_overall', START updated_content with the markdown H2 heading: ## Section Name
-  • updates MUST include a status for EVERY feedback id listed for that section (addressed or wont_fix)
-- Keep tone neutral, factual; no conversational preambles
-- Preserve correct facts; NEVER invent citations or sources
-- Keep length roughly similar unless feedback asks otherwise
-
-Return EXACTLY this JSON shape:
-{{
-  "items": [
-    {{
-      "updates": [{{"id":"<fid>","status":"addressed|wont_fix","writer_comment":"<note>"}}],
-      "updated_content": "<full replacement text for this section>",
-      "content_type": "partial_section"
-    }}
-  ]
-}}
-"""
 
 
 def build_self_refine_prompt(title: str, current_text: str) -> str:
@@ -798,6 +421,250 @@ Output format:
     "delete_chunk_ids": ["id1", "id2", ...],
     "new_queries": ["Exact Wikipedia Page Title 1", "Exact Wikipedia Page Title 2"],
     "reasoning": "Brief explanation (1-2 sentences)"
+}}
+"""
+
+
+def build_writer_tom_prediction_prompt(
+    last_reviewer_action: Optional[str],
+    current_draft_info: dict,
+) -> str:
+    """
+    Build Theory of Mind prediction prompt for Writer predicting Reviewer's next action.
+
+    Args:
+        last_reviewer_action: Last observed reviewer action (from ReviewerAction enum)
+        current_draft_info: Dict with word_count, section_count, iteration
+
+    Returns:
+        Prompt for writer to predict reviewer's likely feedback focus
+    """
+    word_count = current_draft_info.get("word_count", "unknown")
+    section_count = current_draft_info.get("section_count", "unknown")
+    iteration = current_draft_info.get("iteration", 0)
+
+    reviewer_actions = [
+        "focus_on_accuracy",
+        "focus_on_content_expansion",
+        "focus_on_structure",
+        "focus_on_clarity",
+        "focus_on_style",
+        "balanced_feedback",
+    ]
+
+    history_hint = ""
+    if last_reviewer_action:
+        history_hint = (
+            f"\nHINT: The reviewer's last observed action was: {last_reviewer_action}"
+        )
+
+    return f"""You are a WRITER agent predicting the REVIEWER's next feedback focus.
+
+CURRENT SITUATION:
+- Draft iteration: {iteration}
+- Article word count: {word_count}
+- Number of sections: {section_count}{history_hint}
+
+PREDICTION TASK:
+Based on the article state and any observed reviewer patterns, predict which aspect of the article the reviewer will focus their feedback on.
+
+AVAILABLE REVIEWER ACTIONS:
+{reviewer_actions}
+
+PREDICTION GUIDELINES:
+- Consider the article's completeness (word count, sections)
+- Consider any patterns in past reviewer behavior
+- Consider what improvements the article still needs
+
+OUTPUT:
+- predicted_action: ONE of the actions from the list above
+- confidence: 0.0 to 1.0 based on how certain you are
+- reasoning: 2-3 sentences explaining your prediction
+
+Your prediction will help you prepare the appropriate revisions."""
+
+
+def build_reviewer_tom_prediction_prompt(
+    last_writer_action: Optional[str],
+    feedback_context: dict,
+) -> str:
+    """
+    Build Theory of Mind prediction prompt for Reviewer predicting Writer's response.
+
+    Args:
+        last_writer_action: Last observed writer action (from WriterAction enum)
+        feedback_context: Dict with feedback_count, feedback_types, iteration
+
+    Returns:
+        Prompt for reviewer to predict writer's likely response to feedback
+    """
+    feedback_count = feedback_context.get("feedback_count", "unknown")
+    iteration = feedback_context.get("iteration", 0)
+
+    writer_actions = [
+        "accept_most_feedback",
+        "partially_accept_feedback",
+        "contest_some_feedback",
+    ]
+
+    history_hint = ""
+    if last_writer_action:
+        history_hint = (
+            f"\nHINT: The writer's last observed action was: {last_writer_action}"
+        )
+
+    return f"""You are a REVIEWER agent predicting the WRITER's response to feedback.
+
+CURRENT SITUATION:
+- Draft iteration: {iteration}
+- Feedback items being provided: {feedback_count}{history_hint}
+
+PREDICTION TASK:
+Based on the writer's past behavior and the nature of your feedback, predict how the writer will respond.
+
+AVAILABLE WRITER ACTIONS:
+{writer_actions}
+
+PREDICTION GUIDELINES:
+- accept_most_feedback: Writer typically addresses 70%+ of feedback
+- partially_accept_feedback: Writer addresses 40-70% of feedback selectively
+- contest_some_feedback: Writer addresses <40% of feedback
+
+Consider:
+- The writer's historical acceptance patterns
+- The volume and nature of your current feedback
+- The iteration stage (earlier = more open to changes)
+
+OUTPUT:
+- predicted_action: ONE of the actions from the list above
+- confidence: 0.0 to 1.0 based on how certain you are
+- reasoning: 2-3 sentences explaining your prediction
+
+Your prediction will help you calibrate the tone and volume of your feedback."""
+
+
+def build_revision_batch_prompt_v2(
+    article: "Article",
+    sections_to_revise: List[Dict[str, Any]],
+    research_context: str,
+    tom_context: Optional[str] = None,
+) -> str:
+    """
+    Generate revision prompt for multiple sections with comprehensive context.
+
+    Args:
+        article: The article being revised
+        sections_to_revise: List of dicts with keys:
+            - section_name: str
+            - section_content: str
+            - section_summary: str
+            - pending_feedback: List[FeedbackStoredModel]
+            - resolved_feedback: List[FeedbackStoredModel]
+        research_context: Formatted research chunks
+        tom_context: Optional theory of mind context
+    """
+    sections_info = []
+    for section_data in sections_to_revise:
+        section_name = section_data["section_name"]
+        section_content = section_data["section_content"]
+        section_summary = section_data.get("section_summary", "")
+        pending_feedback = section_data.get("pending_feedback", [])
+        resolved_feedback = section_data.get("resolved_feedback", [])
+
+        # Build feedback sections
+        resolved_lines = []
+        if resolved_feedback:
+            resolved_lines.append(
+                "RESOLVED FEEDBACK (for context - already addressed):"
+            )
+            for item in resolved_feedback:
+                resolved_lines.append(f"  - {fmt_feedback_line(item)} [RESOLVED]")
+
+        pending_lines = []
+        if pending_feedback:
+            pending_lines.append("PENDING FEEDBACK (must address in this revision):")
+            for item in pending_feedback:
+                pending_lines.append(f"  - {fmt_feedback_line(item)}")
+
+        section_info = f"""=== Section: {section_name} ===
+Summary: {section_summary}
+
+Current text:
+{section_content}
+
+{chr(10).join(resolved_lines) if resolved_lines else ""}
+
+{chr(10).join(pending_lines) if pending_lines else ""}"""
+
+        sections_info.append(section_info)
+
+    sections_text = "\n\n".join(sections_info)
+
+    tom_section = ""
+    if tom_context:
+        tom_section = f"""
+STRATEGIC CONTEXT (Theory of Mind):
+{tom_context}
+
+"""
+
+    return f"""
+Revise {len(sections_to_revise)} sections of an article about "{article.title}" to address PENDING feedback.
+
+{sections_text}
+
+{tom_section}
+RESEARCH CONTEXT:
+{safe_trim(research_context)}
+
+{CORE_TOPIC_FOCUS.format(topic=article.title)}
+{CORE_NO_METACOMMENTARY}
+{CORE_WRITING_RULES}
+{CORE_CITATION_RULES}
+
+CRITICAL REVISION PHILOSOPHY:
+**EXPAND, DON'T CONDENSE**: When adding new information, PRESERVE existing factual details.
+- If feedback requests adding missing information → ADD it while keeping current content
+- If feedback identifies incorrect information → CORRECT it and ADD proper context
+- ONLY remove content if feedback explicitly identifies it as wrong or irrelevant
+- Aim to INCREASE section length when incorporating new research
+- Think: "How can I make this MORE comprehensive?" not "How can I make this shorter?"
+
+CRITICAL HONESTY REQUIREMENT:
+For EACH feedback item you MUST:
+1. READ the feedback carefully and understand what is being asked
+2. MAKE THE CHANGE in the updated_content
+3. SET STATUS HONESTLY:
+   - Set 'addressed' ONLY if you genuinely made the requested change
+   - Set 'wont_fix' if you cannot/should not make the change (explain why in writer_comment)
+4. The reviewer WILL VERIFY your work - dishonest claims will be caught
+
+DO NOT claim 'addressed' unless you actually did the work. Be honest.
+
+BATCH OUTPUT RULES:
+- Return a single JSON object matching WriterValidationBatchModel exactly
+- **MANDATORY**: You MUST provide EXACTLY {len(sections_to_revise)} items in your response - one for EACH section listed above
+- If a section is listed above, you MUST include an item for it in your response
+- Only change the parts of the section that are necessary to address feedback, to make sure you preserve existing content as much as possible
+- You may add new paragraphs, sentences, or details as needed to address feedback(It is encouraged to EXPAND content when adding new information)
+- For each item:
+  • updated_content MUST be the FULL replacement text for that section
+  • START updated_content with the markdown H2 heading: ## Section Name
+  • updates MUST include a status for EVERY feedback id listed for that section (addressed or wont_fix)
+- Keep tone neutral, factual; no conversational preambles
+- Preserve correct facts; NEVER invent citations or sources
+- When adding information from research, INTEGRATE it naturally with existing content
+
+Return EXACTLY this JSON shape with {len(sections_to_revise)} items:
+{{
+  "items": [
+    {{
+      "section_name": "<exact section name from above>",
+      "updates": [{{"id":"<fid>","status":"addressed|wont_fix","writer_comment":"<note>"}}],
+      "updated_content": "<full replacement text for this section>"
+    }},
+    ... (repeat for ALL {len(sections_to_revise)} sections)
+  ]
 }}
 """
 

@@ -3,134 +3,6 @@ from typing import Dict, List, Optional
 from src.utils.data import Article
 
 
-def build_review_prompt(
-    article: Article,
-    validation_results: Dict,
-    tom_context: Optional[str],
-    chunk_summaries: Optional[str] = None,
-    max_suggested_queries: int = 5,
-    infobox_data: Optional[Dict] = None,
-    related_articles: Optional[List[str]] = None,
-) -> str:
-    """Builds the single, holistic review prompt for the agent."""
-
-    # Format citation validation results
-    validation_text = f"""
-Citation Validation (for `accuracy` checking):
-- Total citations: {validation_results.get('total_citations', 0)}
-- Valid citations: {validation_results.get('valid_citations', 0)}
-- Missing chunks: {len(validation_results.get('missing_chunks', []))}
-- Needs source tags: {validation_results.get('needs_source_count', 0)}
-"""
-
-    infobox_context_str = ""
-    if infobox_data:
-        infobox_context_str += (
-            "TOPIC INFOBOX: The following are key facts from the article's Infobox:\n"
-        )
-        infobox_items = [
-            f"- {key}: {value}" for key, value in infobox_data.items() if value
-        ]
-        if infobox_items:
-            infobox_context_str = "\n".join(infobox_items)
-
-    related_articles_str = "No related articles found."
-    if related_articles:
-        related_articles_str = "\n".join([f"- {name}" for name in related_articles])
-
-    # Include research context if provided (now chunk summaries)
-    research_section = ""
-    if chunk_summaries:
-        research_section = f"""
-        ## CHUNK SUMMARIES AND VALIDATION RESULTS
-        {validation_text}
-        {chunk_summaries}
-        """
-    else:
-        research_section = f"""
-        ## CHUNK SUMMARIES
-        {validation_text}
-        No research chunk summaries found in memory.
-        """
-
-    guidelines = f"""
-You are a world-class editor reviewing an article on "{article.title}".
-Your goal is to provide holistic, actionable feedback. You must check for **Relevance (Gaps)** and **Coherence (Style)** at the same time.
-
-**REVIEW TASKS (Do all as needed):**
-
-1.  **Check for Factual Gaps & Relevance :**
-    * **Compare to `Infobox`:** If a simple fact is missing (e.g., a winner, date), create a `content_expansion` item. In the `suggestion`, write the *exact fact* to add. In the `section` field, name the section where it belongs (e.g., "Event Details").
-    * **Compare to `Chunk Summaries`:** If the writer missed a detail that's already in the research, create a `content_expansion` or `clarity` item. In the `suggestion`, list the *exact `chunk_ids`* to re-examine. In the `section` field, name the section where it belongs.
-    * **Compare to `Potential New Research Paths`:** If a section is lacking depth, **decide** if a new search using only up to {max_suggested_queries} from {related_articles_str} can fix it. If yes, add *one* of the related article names (e.g., "History of the Venue") to the `suggested_queries` list.
-
-2.  **Check for Accuracy & Verifiability:**
-    * Review the `Citation Validation` report above.
-    * If a claim is factually wrong, unverified, or contradicts a source, create an `accuracy` item.
-
-3.  **Check for Coherence & Style:**
-    * Review the article's flow, organization, and tone.
-    * Create `structure` items for confusing order or bad flow.
-    * Create `clarity` items for confusing writing.
-    * Create `style` items for repetitive text or non-encyclopedic tone.
-
-Use any of the 5 allowed feedback types as needed to cover all issues.
-The section will be indicated by H2 headings in the article.
-"""
-
-    # ToM context if available
-    tom_section = ""
-    if tom_context:
-        tom_section = f"\n\nCollaborative Context (Theory of Mind):\n{tom_context}\n"
-
-    return f"""You are reviewing an article an article about "{article.title}".
-
-ARTICLE TO REVIEW:
-{article.content}
-
-REVIEW GUIDELINES:
-{guidelines}
-{infobox_context_str}
-{research_section}
-
-{tom_section}
-
-REQUIRED OUTPUT FORMAT:
-Your response must be a valid JSON object with the following structure:
-{{
-  "items": [
-    {{
-      "section": "The EXACT name of the section this feedback applies to. MUST NOT be '_overall'.",
-      "type": "MUST be exactly one of these 5 values: accuracy, content_expansion, structure, clarity, style",
-      "issue": "clear description of what is wrong",
-      "suggestion": "specific actionable recommendation to fix it",
-      "priority": "high, medium, or low",
-      "quote": "optional: exact text excerpt related to the issue",
-      "paragraph_number": "optional: 1-indexed paragraph number",
-      "location_hint": "optional: additional location context"
-    }}
-  ],
-  "suggested_queries": []
-}}
-
-CRITICAL RULES:
-- The "type" field MUST be EXACTLY one of these 5 strings:
-1. accuracy
-2. content_expansion
-3. structure
-4. clarity
-5. style
-- The "section" field MUST be one of the section names from the list above.".
-- If you are suggesting new content (`content_expansion`), set the "section" field to the name of the section where this new content should be placed.
-
-GUIDELINES:
-- Create one item per distinct issue found
-- Assign priority based on impact: high (critical), medium (important), low (minor)
-- Use the 'quote' field when referencing specific text
-- Be specific and actionable in your suggestions
-"""
-
-
 def build_verification_prompt(
     previous_iteration: int,
     addressed_items: List[str],
@@ -189,27 +61,189 @@ CRITICAL: USE ONLY THE KEY 'updates' IN YOUR OUTPUT JSON, WHICH MUST BE A LIST O
 
 # endregion Reviewer Prompt Templates
 
-# ---------------------------------------- Claim Verification Template ---------------------------------------
-CLAIM_VERIFICATION_PROMPT = """You are verifying whether a claim is supported by the provided source chunks.
+# ---------------------------------------- Unified Factual Verification Template ---------------------------------------
 
-CLAIM:
-{claim}
 
-SOURCE CHUNKS:
-{chunks}
+def build_fact_check_prompt_v2(
+    article: Article,
+    infobox_data: str,
+    cited_chunks: str,
+    ref_map: Dict[str, str],
+) -> str:
+    """
+    Unified fact checking prompt that verifies article claims against both infobox and cited chunks.
 
-Task: Determine if the claim is SUPPORTED or NOT SUPPORTED by the source chunks.
+    Args:
+        article: The article to fact-check
+        infobox_data: Formatted infobox facts (ground truth)
+        cited_chunks: Content of all cited chunks
+        ref_map: Mapping of citations to chunk IDs
+    """
+    return f"""
+You are a fact-checker verifying an article about "{article.title}".
 
-Rules:
-- The claim is SUPPORTED if the chunks provide direct evidence for it
-- The claim is NOT SUPPORTED if:
-  * The chunks don't contain information about the claim
-  * The chunks contradict the claim
-  * The chunks provide only tangential or unrelated information
+ARTICLE CONTENT:
+{article.content}
 
-Respond with one of:
-- "SUPPORTED: The chunks provide evidence for this claim."
-- "NOT SUPPORTED: [brief reason why chunks don't support claim]"
+GROUND TRUTH INFOBOX FACTS:
+{infobox_data if infobox_data else "No infobox data available."}
 
-Keep your response concise (1-2 sentences).
+CITED RESEARCH CHUNKS:
+{cited_chunks if cited_chunks else "No citations found."}
+
+CITATION MAP (which chunks are cited where):
+{ref_map if ref_map else "No citations mapped."}
+
+TASK: Identify factual issues in TWO categories:
+
+1. CRITICAL CONTRADICTIONS:
+   - Claims that directly contradict the infobox ground truth
+   - Claims not supported by the cited chunks
+   - Incorrect facts (dates, names, scores, locations, etc.)
+
+   For each contradiction, provide:
+   - section: Section name where the issue appears
+   - claim: The problematic claim from the article
+   - evidence: Why it's wrong (what the ground truth/chunks actually say)
+
+2. MISSING CRITICAL FACTS:
+   - Important facts from the infobox that should be in the article but aren't
+   - Key information that would improve factual completeness
+
+   For each missing fact, provide:
+   - section: Section where this fact should, if it is not in a single specific section you may suggest multiple sections
+   - fact: Description of what's missing
+   - suggested_evidence: Where this information comes from (infobox or chunks)
+
+GUIDELINES:
+- Be strict about factual accuracy - any deviation is a contradiction
+- Focus on the most important facts first
+- If ground truth and article match, no contradiction
+- Only flag truly missing critical facts, not minor details
+- Limit to top 5 most critical issues per category
+
+Return a JSON object matching the FactCheckValidationModel schema:
+{{
+  "critical_contradictions": [
+    {{"section": "...", "claim": "...", "evidence": "..."}}
+  ],
+  "missing_critical_facts": [
+    {{"section": "...", "fact": "...", "suggested_evidence": "..."}}
+  ]
+}}
+"""
+
+
+def build_review_prompt_v2(
+    article: Article,
+    fact_check_results: str,
+    chunk_summaries: str,
+    max_suggested_queries: int,
+    possible_searches: List[str],
+    tom_context: Optional[str] = None,
+) -> str:
+    """
+    Generate review feedback prompt with fact-check results and research context.
+
+    Args:
+        article: The article being reviewed
+        fact_check_results: Formatted fact-check results from unified verification
+        chunk_summaries: Available research chunks
+        max_suggested_queries: Maximum number of search queries to suggest
+        possible_searches: Potential new searches from category extraction
+        tom_context: Optional theory of mind context
+    """
+    tom_section = ""
+    if tom_context:
+        tom_section = f"""
+STRATEGIC CONTEXT (Theory of Mind):
+{tom_context}
+
+Use this to calibrate your feedback volume and tone.
+"""
+
+    possible_searches_str = (
+        "\n".join(f"- {s}" for s in possible_searches[:15])
+        if possible_searches
+        else "None available"
+    )
+
+    return f"""
+You are a world-class editor reviewing an article about "{article.title}".
+
+ARTICLE CONTENT:
+{article.content}
+
+FACT-CHECK RESULTS:
+{fact_check_results}
+
+AVAILABLE RESEARCH CHUNKS (for suggesting improvements or expansions):
+{chunk_summaries}
+
+POTENTIAL NEW SEARCHES (from category analysis):
+{possible_searches_str}
+
+{tom_section}
+
+YOUR TASK:
+1. Review the fact-check results - address all critical contradictions and missing facts first
+2. Provide constructive feedback on content quality (structure, clarity, completeness)
+3. Suggest specific research chunks that could improve sections
+4. Suggest up to {max_suggested_queries} new Wikipedia searches with structured hints for filtering
+
+FEEDBACK GUIDELINES:
+- Priority 1: Factual correctness (address all contradictions first)
+- Priority 2: Missing critical information
+- Priority 3: Structure, clarity, and encyclopedic quality
+- Be specific about which section needs improvement
+- Reference specific chunk IDs when suggesting research
+- Keep feedback actionable and constructive
+- Provide 3-5 high-impact feedback items per iteration (focus on quality over quantity)
+
+CRITICAL: SECTION ASSIGNMENT RULES:
+- For existing content issues: Assign to the specific section name where the problem exists
+- For new content/missing information: Assign to the section where you think it should go
+- For issues affecting multiple sections: Use a JSON array: ["Section1", "Section2"]
+- DO NOT OUTPUT FEEDBACK WITHOUT A VALID SECTION NAME(S)
+
+EXAMPLES:
+- "Introduction is missing the date" → section: "Introduction"
+- "Add information about X suggestion: "Add to section Y and Z with information about X from chunk_123"
+- "Sections Y and Z have inconsistent tone" → section: ["Y", "Z"]
+
+STRUCTURED QUERY HINTS:
+When suggesting searches, provide structured hints to enable intelligent filtering:
+- query: Exactly as seen in POTENTIAL NEW SEARCHES
+- intent: Short purpose description (e.g., "fill_venue_details", "add_player_stats")
+- expected_fields: List of canonical concepts to look for (e.g., ["capacity", "location", "attendance"])
+- keywords: Optional fallback terms for matching (e.g., ["stadium", "venue", "crisis"])
+- note: Optional explanation of why this search is needed
+
+OUTPUT FORMAT:
+Return a JSON object matching ReviewerTaskValidationModel schema:
+{{
+  "items": [
+    {{
+      "section": "section name",
+      "type": "accuracy|content_expansion|structure|clarity|style",
+      "issue": "description of the problem",
+      "suggestion": "specific actionable suggestion",
+      "priority": "high|medium|low",
+      "quote": "optional exact quote from article",
+      "paragraph_number": 1,
+      "location_hint": "optional location hint"
+    }}
+  ],
+  "suggested_queries": [ // max {max_suggested_queries}
+    {{
+      "query": "Wikipedia page title (from potential searches only)",
+      "intent": "purpose_description",
+      "expected_fields": ["field1", "field2"],
+      "keywords": ["keyword1", "keyword2"],
+      "note": "optional explanation"
+    }}
+  ]
+}}
+
+Focus on quality over quantity - provide thorough feedback on the most important issues.
 """

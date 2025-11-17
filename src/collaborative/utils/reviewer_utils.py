@@ -1,8 +1,7 @@
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Dict, List
 
-from src.collaborative.memory.memory import SharedMemory
 from src.collaborative.utils.models import (
     FeedbackStatus,
     FeedbackStoredModel,
@@ -13,112 +12,20 @@ from src.utils.data.models import Article
 logger = logging.getLogger(__name__)
 
 
-def get_article_metrics(article_content: str) -> Dict[str, Any]:
-    """Get objective metrics about article structure."""
-    try:
-        metrics = {
-            "word_count": len(article_content.split()),
-            "heading_count": len(
-                re.findall(r"^#+\s+(.+)$", article_content, re.MULTILINE)
-            ),
-            "paragraph_count": len(
-                [p for p in article_content.split("\n\n") if p.strip()]
-            ),
-        }
-
-        return {"success": True, "metrics": metrics}
-    except Exception as e:
-        return {"success": False, "error": str(e), "metrics": {}}
-
-
-def extract_citations(article: Article) -> List[Dict]:
-    """Extract all <c cite="..."/> tags from article text."""
-    structured_claims = []
+def extract_citation_ids(text: str) -> List[str]:
+    """Extract citation IDs from text containing <c cite="..."/> tags."""
     citation_pattern = r'<c cite="([^"]+)"/>'
-
-    sections = article.sections if article.sections else {"General": article.content}
-
-    for section_name, section_content in sections.items():
-        sentences = split_into_sentences(section_content)
-
-        for sentence in sentences:
-            matches = re.findall(citation_pattern, sentence)
-            if matches:
-                clean_sentence = re.sub(citation_pattern, "", sentence).strip()
-                structured_claims.append(
-                    {
-                        "section": section_name,
-                        "sentence": clean_sentence,
-                        "chunks": matches,
-                        "original_sentence": sentence,
-                    }
-                )
-
-    return structured_claims
+    return re.findall(citation_pattern, text)
 
 
-def build_ref_map(structured_claims: List[Dict]) -> Dict[str, int]:
-    """Build mapping of chunk IDs to reference numbers."""
-    ref_map = {}
-    ref_counter = 1
-
-    for claim in structured_claims:
-        for chunk_id in claim["chunks"]:
-            if chunk_id not in ref_map:
-                ref_map[chunk_id] = ref_counter
-                ref_counter += 1
-
-    return ref_map
-
-
-def validate_citations(
-    structured_claims: List[Dict], ref_map: Dict[str, int], shared_memory: SharedMemory
-) -> Dict:
-    """Validate citations and flag issues."""
-    validation_results = {
-        "total_citations": len(ref_map),
-        "valid_citations": 0,
-        "missing_chunks": [],
-        "needs_source_count": 0,
-        "duplicate_citations": 0,
-    }
-
-    # Check for needs_source tags
-    article_content = shared_memory.get_current_draft()
-    needs_source_matches = re.findall(r"<needs_source/>", article_content)
-    validation_results["needs_source_count"] = len(needs_source_matches)
-
-    # Validate chunk existence
-    try:
-        chunks_data = shared_memory.get_chunks_by_ids(list(ref_map.keys()))
-        found_chunk_ids = set(chunks_data.keys())
-
-        for chunk_id in ref_map.keys():
-            if chunk_id in found_chunk_ids:
-                validation_results["valid_citations"] += 1
-            else:
-                validation_results["missing_chunks"].append(chunk_id)
-    except Exception as e:
-        logger.warning(f"Citation validation failed: {e}")
-
-    # Check for duplicates
-    chunk_counts = {}
-    for claim in structured_claims:
-        for chunk_id in claim["chunks"]:
-            chunk_counts[chunk_id] = chunk_counts.get(chunk_id, 0) + 1
-
-    validation_results["duplicate_citations"] = sum(
-        1 for count in chunk_counts.values() if count > 1
-    )
-
-    return validation_results
-
-
-def split_into_sentences(text: str) -> List[str]:
-    """Split text into sentences."""
-    # Simple sentence splitting (can be improved with nltk)
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    return [s.strip() for s in sentences if s.strip()]
+def build_reference_map(article: Article, references: List[str]) -> Dict[str, str]:
+    reference_map = {}
+    for section in article.sections:
+        # check if references exist in section
+        for ref in references:
+            if ref in section and ref not in reference_map:
+                reference_map[ref] = section
+    return reference_map
 
 
 def slug(s: str) -> str:
@@ -133,17 +40,24 @@ def finalize_feedback_items(
     """
     Build IDs + set status='pending'. Limits to max_items by prioritizing high priority feedback.
     Validates that section names are real (not '_overall' or 'N/A').
+    Handles both single section strings and lists of sections.
     in:  ReviewerTaskValidationModel (LLM items without id/status)
     out: List[FeedbackStoredModel] (ready to store, limited to max_items)
     """
+    invalid_section_names = ("_overall", "N/A", "n/a", "NA", "na", "")
+
     # Filter out invalid section names
     valid_items = []
     invalid_count = 0
     for item in validation.items:
-        if item.section in ("_overall", "N/A", "n/a", "NA", "na"):
+        # Handle both str and List[str]
+        sections = item.section if isinstance(item.section, list) else [item.section]
+
+        # Check if any section is invalid
+        if any(sec in invalid_section_names for sec in sections):
             invalid_count += 1
             logger.warning(
-                f"Skipping feedback item with invalid section name '{item.section}': {item.issue[:50]}..."
+                f"Skipping feedback item with invalid section name(s) '{item.section}': {item.issue[:50]}..."
             )
             continue
         valid_items.append(item)
@@ -172,14 +86,16 @@ def finalize_feedback_items(
     counters: dict[str, int] = {}
     out: list[FeedbackStoredModel] = []
     for it in items_to_process:
-        sec_slug = slug(it.section)
+        # For multi-section items, use first section for ID generation
+        first_section = it.section[0] if isinstance(it.section, list) else it.section
+        sec_slug = slug(first_section)
         counters[sec_slug] = counters.get(sec_slug, 0) + 1
         idx = counters[sec_slug] - 1
         item_id = f"{sec_slug}_iter{iteration}_item{idx}"
         out.append(
             FeedbackStoredModel(
                 id=item_id,
-                section=it.section,
+                section=it.section,  # Keep as list or str
                 type=it.type,
                 issue=it.issue,
                 suggestion=it.suggestion,
