@@ -66,7 +66,12 @@ def load_configurations(args):
             writing_mode=args.writing_mode,
             revise_mode=args.revise_mode,
             should_self_refine=not args.no_self_refine,
-            ground_reviewer_with_research=not args.no_reviewer_grounding,
+            adaptive_iterations=getattr(args, "adaptive_iterations", None),
+            adaptive_extension_max=getattr(args, "adaptive_extension_max", None),
+            adaptive_improvement_threshold=getattr(
+                args, "adaptive_improvement_threshold", None
+            ),
+            adaptive_check_iteration=getattr(args, "adaptive_check_iteration", None),
         )
         logger.info(f"Loaded collaboration config: {args.collaboration_config}")
 

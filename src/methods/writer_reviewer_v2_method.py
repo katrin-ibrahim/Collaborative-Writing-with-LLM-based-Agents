@@ -55,6 +55,20 @@ class WriterReviewerV2Method(BaseMethod):
         self.priority_weights = {"high": 3, "medium": 2, "low": 1}
         self.small_tail_max = getattr(self.collaboration_config, "small_tail_max", 5)
 
+        # Adaptive iteration parameters
+        self.adaptive_iterations = getattr(
+            self.collaboration_config, "adaptive_iterations", False
+        )
+        self.adaptive_extension_max = getattr(
+            self.collaboration_config, "adaptive_extension_max", self.max_iterations
+        )
+        self.adaptive_improvement_threshold = getattr(
+            self.collaboration_config, "adaptive_improvement_threshold", 0.02
+        )
+        self.adaptive_check_iteration = getattr(
+            self.collaboration_config, "adaptive_check_iteration", 2
+        )
+
         # Instantiate convergence checker with required arguments
         self.convergence_checker = ConvergenceChecker(
             max_iterations=self.max_iterations,
@@ -132,6 +146,7 @@ class WriterReviewerV2Method(BaseMethod):
                 memory.update_article_state(seed_article)
 
             # Collaborative improvement loop - let convergence checker handle all termination logic
+            resolution_progress_history = []  # track resolution rate per iteration
             while True:
                 # WriterV2 processes (initial draft or revision based on iteration)
                 try:
@@ -212,6 +227,22 @@ class WriterReviewerV2Method(BaseMethod):
                     f"Convergence check: {len(pending_items)} pending items out of {len(all_items)} total across {current_iteration + 1} iterations"
                 )
 
+                # Calculate current resolution rate and store
+                current_resolution_rate = self.convergence_checker.resolution_rate(
+                    pending_items, all_items
+                )
+                resolution_progress_history.append(current_resolution_rate)
+                if current_iteration > 0:
+                    prev_rate = resolution_progress_history[current_iteration - 1]
+                    improvement = current_resolution_rate - prev_rate
+                    logger.info(
+                        f"Resolution rate: {current_resolution_rate:.3f} (Δ {improvement:+.3f} from iteration {current_iteration - 1})"
+                    )
+                else:
+                    logger.info(
+                        f"Resolution rate: {current_resolution_rate:.3f} (initial)"
+                    )
+
                 converged, convergence_reason = (
                     self.convergence_checker.check_convergence(
                         iteration=current_iteration,
@@ -222,6 +253,27 @@ class WriterReviewerV2Method(BaseMethod):
                 if converged:
                     logger.info(f"Convergence achieved: {convergence_reason}")
                     break
+
+                # Adaptive extension check (only once at specified iteration)
+                if (
+                    self.adaptive_iterations
+                    and current_iteration == self.adaptive_check_iteration
+                    and self.max_iterations < self.adaptive_extension_max
+                    and current_iteration > 0
+                ):
+                    prev_rate = resolution_progress_history[current_iteration - 1]
+                    improvement = current_resolution_rate - prev_rate
+                    if improvement >= self.adaptive_improvement_threshold:
+                        old_max = self.max_iterations
+                        self.max_iterations = self.adaptive_extension_max
+                        self.convergence_checker.max_iterations = self.max_iterations
+                        logger.info(
+                            f"Adaptive extension triggered: improvement {improvement:.3f} >= threshold {self.adaptive_improvement_threshold:.3f}. max_iterations {old_max} -> {self.max_iterations}"
+                        )
+                    else:
+                        logger.info(
+                            f"Adaptive extension skipped: improvement {improvement:.3f} < threshold {self.adaptive_improvement_threshold:.3f}"
+                        )
 
                 # Move to next iteration for writer revision
                 memory.next_iteration()

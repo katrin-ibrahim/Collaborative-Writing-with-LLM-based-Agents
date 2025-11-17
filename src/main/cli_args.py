@@ -235,6 +235,27 @@ def parse_arguments() -> argparse.Namespace:
         type=int,
         help="Override small tail max (max remaining low/medium items for convergence)",
     )
+    # Adaptive iteration strategy options
+    parser.add_argument(
+        "--adaptive_iterations",
+        action="store_true",
+        help="Enable adaptive iteration extension based on mid-run improvement",
+    )
+    parser.add_argument(
+        "--adaptive_extension_max",
+        type=int,
+        help="Upper bound for iterations if adaptation triggers",
+    )
+    parser.add_argument(
+        "--adaptive_improvement_threshold",
+        type=float,
+        help="Required improvement to trigger adaptive extension (fraction, e.g. 0.02)",
+    )
+    parser.add_argument(
+        "--adaptive_check_iteration",
+        type=int,
+        help="Iteration (0-based) at which to evaluate adaptive extension condition",
+    )
     parser.add_argument(
         "--writing_mode",
         "-wm",

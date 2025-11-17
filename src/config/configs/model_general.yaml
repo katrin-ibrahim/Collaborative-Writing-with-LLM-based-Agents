@@ -19,9 +19,9 @@ temperatures:
   reviewer: 0.15
 
 token_limits:
-  research: 6192
-  outline: 6192
-  writer: 6192
-  revision: 6192
-  self_refine: 6192
-  reviewer: 6192
+  research: 4096
+  outline: 4096
+  writer: 4096
+  revision: 4096
+  self_refine: 4096
+  reviewer: 4096
