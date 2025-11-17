@@ -68,7 +68,7 @@ def parse_arguments() -> argparse.Namespace:
         "-m",
         nargs="+",
         choices=[
-            "writer_v3",
+            "writer",
             "writer_reviewer",
             "writer_reviewer_tom",
             "direct",
