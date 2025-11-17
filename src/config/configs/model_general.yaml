@@ -3,7 +3,7 @@ mode: 'ollama'
 override_model: null
 ollama_host: 'http://10.167.31.201:11434/'
 
-research_model: 'qwen2.5:14b'
+research_model: 'qwen2.5:32b'
 outline_model: 'qwen2.5:32b'
 writer_model: 'gemma3:27b'
 revision_model: 'qwen2.5:32b'
