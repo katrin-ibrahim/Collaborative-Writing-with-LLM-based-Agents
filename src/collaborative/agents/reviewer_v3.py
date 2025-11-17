@@ -8,9 +8,11 @@ from src.collaborative.agents.base_agent import BaseAgent
 from src.collaborative.agents.reviewer_templates import (
     build_fact_check_prompt_v2,
     build_review_prompt_v2,
+    build_reviewer_tom_prediction_prompt,
     build_verification_prompt,
 )
 from src.collaborative.memory.memory import SharedMemory
+from src.collaborative.tom.theory_of_mind import AgentRole
 from src.collaborative.utils.models import (
     FactCheckValidationModel,
     ReviewerTaskValidationModel,
@@ -452,15 +454,6 @@ class ReviewerV3(BaseAgent):
             return None
 
         try:
-            from src.collaborative.agents.writer_templates import (
-                build_reviewer_tom_prediction_prompt,
-            )
-            from src.collaborative.tom.theory_of_mind import AgentRole
-
-            # Get last observed writer action from memory
-            last_writer_action = self.shared_memory.state.get(
-                "tom_writer_last_observed_state"
-            )
 
             # Build feedback context (we're about to provide feedback)
             feedback_context = {
@@ -470,8 +463,10 @@ class ReviewerV3(BaseAgent):
 
             # Build prediction prompt
             prediction_prompt = build_reviewer_tom_prediction_prompt(
-                last_writer_action=last_writer_action,
                 feedback_context=feedback_context,
+                interaction_history=self.shared_memory.state.get(
+                    "tom_observation_history", []
+                ),
             )
 
             # Get reviewer's LLM client and make prediction
@@ -486,6 +481,7 @@ class ReviewerV3(BaseAgent):
                 predictor_role=AgentRole.REVIEWER,
                 target_role=AgentRole.WRITER,
                 prediction=tom_prediction,
+                iteration=self.shared_memory.get_iteration(),
             )
 
             # Return reasoning to inject into review prompt

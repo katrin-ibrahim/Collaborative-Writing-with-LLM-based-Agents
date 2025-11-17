@@ -67,6 +67,7 @@ class IntentPrediction:
     timestamp: float = field(default_factory=time.time)
     actual_outcome: Optional[str] = None
     accuracy: PredictionAccuracy = PredictionAccuracy.UNKNOWN
+    iteration: Optional[int] = None  # Iteration when prediction was made
 
 
 class TheoryOfMindModule:
@@ -116,6 +117,7 @@ class TheoryOfMindModule:
         predictor_role: AgentRole,
         target_role: AgentRole,
         prediction: ToMPredictionModel,
+        iteration: Optional[int] = None,
     ) -> str:
         """Store a prediction for later accuracy evaluation."""
         intent_prediction = IntentPrediction(
@@ -124,6 +126,7 @@ class TheoryOfMindModule:
             predicted_action=prediction.predicted_action,
             confidence=prediction.confidence,
             reasoning=prediction.reasoning,
+            iteration=iteration,
         )
         self.prediction_history.append(intent_prediction)
         logger.info(f"ToM: Stored prediction {intent_prediction.id}")

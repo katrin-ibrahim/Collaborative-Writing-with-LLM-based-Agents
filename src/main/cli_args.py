@@ -270,13 +270,6 @@ def parse_arguments() -> argparse.Namespace:
         default="pending",
         help="Set the revise mode: 'pending' = batch mode (fast, 1 LLM call), 'section' = sequential (slow, 1 call per section)",
     )
-    parser.add_argument(
-        "--no_self_refine",
-        "-nsr",
-        action="store_false",
-        dest="no_self_refine",
-        help="Disable self-refinement by writers (default: self-refine enabled)",
-    )
 
     parser.add_argument(
         "--no_reviewer_grounding",

@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import logging
@@ -47,9 +48,8 @@ class MemoryState(TypedDict):
     reviewer_suggested_queries: Optional[
         List[str]
     ]  # Queries suggested by reviewer based on gaps
-    # ToM last observed actions
-    tom_writer_last_observed_state: Optional[str]  # Last observed writer action
-    tom_reviewer_last_observed_state: Optional[str]  # Last observed reviewer action
+    # Theory of Mind structured observation history (chronological list of observations)
+    tom_observation_history: List[Dict[str, Any]]
 
 
 class SharedMemory:
@@ -97,7 +97,17 @@ class SharedMemory:
             ensure_key(raw_data, "search_summaries", {})
             ensure_key(raw_data, "metadata", {})
             ensure_key(raw_data, "item_index", {})
-            ensure_key(raw_data, "all_searched_queries", set())
+            # Convert stored all_searched_queries (may be list from JSON) back to set
+            if "all_searched_queries" in raw_data:
+                if isinstance(raw_data["all_searched_queries"], list):
+                    raw_data["all_searched_queries"] = set(
+                        raw_data["all_searched_queries"]
+                    )
+                elif not isinstance(raw_data["all_searched_queries"], set):
+                    raw_data["all_searched_queries"] = set()
+            else:
+                raw_data["all_searched_queries"] = set()
+            ensure_key(raw_data, "tom_observation_history", [])
             self.state: MemoryState = MemoryState(**raw_data)
         else:
             # Create new state with defaults
@@ -116,8 +126,7 @@ class SharedMemory:
                 item_index={},
                 all_searched_queries=set(),
                 reviewer_suggested_queries=None,
-                tom_writer_last_observed_state=None,
-                tom_reviewer_last_observed_state=None,
+                tom_observation_history=[],
             )
 
         # Persist if new state
@@ -258,18 +267,21 @@ class SharedMemory:
         self.storage.save_session(serializable_state)
 
     def _make_serializable(self, obj):
-        """Convert objects to JSON-serializable format."""
+        """Convert objects to JSON-serializable format.
+
+        Sets are converted to sorted lists to ensure deterministic ordering for reproducible experiments.
+        """
         if hasattr(obj, "model_dump"):
             return obj.model_dump()
-        elif isinstance(obj, dict):
+        if isinstance(obj, dict):
             return {key: self._make_serializable(value) for key, value in obj.items()}
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             return [self._make_serializable(item) for item in obj]
-        elif isinstance(obj, (str, int, float, bool, type(None))):
+        if isinstance(obj, set):
+            return [self._make_serializable(item) for item in sorted(list(obj))]
+        if isinstance(obj, (str, int, float, bool, type(None))):
             return obj
-        else:
-            # For other objects, try to convert to string
-            return str(obj)
+        return str(obj)
 
     def next_iteration(self) -> None:
         """Move to next iteration."""
@@ -278,6 +290,44 @@ class SharedMemory:
         logger.info(
             f"Moving from iteration {old_iteration} to {self.state['iteration']}"
         )
+        self._persist()
+
+    # =================== Theory of Mind Observation Management ===================
+    def append_tom_observation(
+        self,
+        agent: str,
+        observed_action: str,
+        iteration: int,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Append a structured Theory of Mind observation to history and persist.
+
+        Observation structure:
+        {
+            'iteration': int,
+            'agent': 'writer' | 'reviewer',
+            'observed_action': str,
+            'timestamp': float,
+            'details': {.. optional contextual fields ..}
+        }
+        """
+        if (
+            "tom_observation_history" not in self.state
+            or self.state["tom_observation_history"] is None
+        ):
+            self.state["tom_observation_history"] = []
+        observation = {
+            "iteration": iteration,
+            "agent": agent,
+            "observed_action": observed_action,
+            "timestamp": time.time(),
+            "details": details or {},
+        }
+        # Trim very large histories to retain recent context (keep last 200)
+        history: List[Dict[str, Any]] = self.state["tom_observation_history"]
+        history.append(observation)
+        if len(history) > 200:
+            self.state["tom_observation_history"] = history[-200:]
         self._persist()
 
     # endregion Session Management

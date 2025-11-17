@@ -120,6 +120,24 @@ class OllamaEngine(BaseEngine):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        # Approximate token calculation (heuristic: 1 token ≈ 4 chars)
+        def _approx_tokens(text: str) -> int:
+            if not text:
+                return 0
+            # Prefer whitespace split length bounded by char heuristic to detect excessive compression
+            word_tokens = len(text.split())
+            char_tokens = max(1, int(len(text) / 4))
+            return max(word_tokens, char_tokens)
+
+        prompt_token_estimate = _approx_tokens(prompt)
+        system_token_estimate = _approx_tokens(system_prompt) if system_prompt else 0
+        combined_token_estimate = prompt_token_estimate + system_token_estimate
+        logger.info(
+            f"LLM CALL START task={self.task} model={model or self.model} type=simple "
+            f"prompt_chars={len(prompt)} approx_prompt_tokens={prompt_token_estimate} "
+            f"system_tokens={system_token_estimate} total_est_tokens={combined_token_estimate} max_predict={max_tokens or self.max_tokens}"
+        )
+
         try:
             options = {
                 "temperature": temperature or self.temperature,
@@ -175,6 +193,12 @@ class OllamaEngine(BaseEngine):
             ]
 
             final_content = "\n".join(content_lines) if content_lines else content
+            output_token_estimate = _approx_tokens(final_content)
+            logger.info(
+                f"LLM CALL END task={self.task} model={model or self.model} output_chars={len(final_content)} "
+                f"approx_output_tokens={output_token_estimate} prompt_est_tokens={combined_token_estimate} "
+                f"requested_max_predict={max_tokens or self.max_tokens} usage_meta={self.last_usage}"
+            )
             return final_content.strip() if isinstance(final_content, str) else ""
 
         except Exception as e:
@@ -235,6 +259,23 @@ class OllamaEngine(BaseEngine):
                 f"Calling Ollama with num_predict={options['num_predict']}, temperature={options['temperature']}, num_ctx={options['num_ctx']}"
             )
 
+            # Approx token logging BEFORE call (includes guard + schema instruction overhead)
+            def _approx_tokens(text: str) -> int:
+                if not text:
+                    return 0
+                return max(len(text.split()), max(1, int(len(text) / 4)))
+
+            user_message = messages[-1]["content"] if messages else ""
+            system_messages = [
+                m["content"] for m in messages if m.get("role") == "system"
+            ]
+            total_prompt_concat = "\n".join(system_messages + [user_message])
+            approx_prompt_tokens = _approx_tokens(total_prompt_concat)
+            logger.info(
+                f"LLM CALL START task={self.task} model={model or self.model} type=structured schema={output_schema.__name__} "
+                f"prompt_chars={len(total_prompt_concat)} approx_prompt_tokens={approx_prompt_tokens} requested_max_predict={options['num_predict']}"
+            )
+
             # 4. Call Ollama API with JSON format
             response = self.client.chat(
                 model=model or self.model,
@@ -271,6 +312,12 @@ class OllamaEngine(BaseEngine):
                 response.message.content.strip()
                 if response.message.content is not None
                 else ""
+            )
+
+            approx_output_tokens = _approx_tokens(raw_json_string)
+            logger.info(
+                f"LLM CALL OUTPUT task={self.task} model={model or self.model} type=structured raw_chars={len(raw_json_string)} "
+                f"approx_output_tokens={approx_output_tokens} prompt_est_tokens={approx_prompt_tokens} requested_max_predict={options['num_predict']} usage_meta={self.last_usage}"
             )
 
             # 5. Normalize and validate the JSON against the Pydantic model
@@ -310,6 +357,10 @@ class OllamaEngine(BaseEngine):
                         f"Validation failed even after normalization. "
                         f"Normalized data: {normalized_data}. "
                         f"Error: {norm_error}"
+                    )
+                    logger.info(
+                        f"LLM CALL VALIDATION_FAIL task={self.task} model={model or self.model} norm_chars={len(str(normalized_data))} "
+                        f"approx_output_tokens={_approx_tokens(str(normalized_data))}"
                     )
                     raise norm_error
 

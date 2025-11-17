@@ -303,60 +303,6 @@ def fmt_feedback_line(it: "FeedbackStoredModel") -> str:
     return " | ".join(parts)
 
 
-def build_self_refine_prompt(title: str, current_text: str) -> str:
-    """
-    Generate prompt for self-refinement (internal polishing).
-    This represents the self-correction approach where the writer
-    internally improves their work without external critique.
-    """
-    return f"""You are refining an encyclopedia article through careful internal polishing.
-
-ARTICLE TITLE: {title}
-
-CURRENT DRAFT:
-{current_text}
-
-SELF-REFINEMENT TASK:
-Perform LIGHT polishing to improve quality WITHOUT removing content:
-
-1. FACTUAL CONSISTENCY (PRIMARY FOCUS):
-   - Check if the article contains any contradicting statements
-   - If two statements directly conflict, keep the more specific/supported one
-   - Example: If article says both "Event occurred in 2022" and "Event occurred in 2023", resolve the conflict
-   - DO NOT remove content just because it seems uncertain - only remove clear contradictions
-
-2. LANGUAGE & FLOW:
-   - Improve transitions between paragraphs
-   - Fix awkward phrasing or unclear sentences
-   - Enhance readability while preserving all information
-   - Maintain encyclopedic tone (objective, informative)
-
-3. TECHNICAL POLISH:
-   - Fix grammar, spelling, and punctuation errors
-   - Ensure consistent terminology throughout
-   - Preserve all citation markers (e.g., <c cite="..."/>)
-   - Remove any non-English text unless it's proper nouns
-
-CRITICAL CONSTRAINTS:
-- PRESERVE ALL SECTIONS: Do not delete or merge sections
-- PRESERVE ALL FACTS: Do not remove information unless it directly contradicts other facts
-- ADD NOTHING NEW: Do not add facts or information not in the original
-- LIGHT TOUCH: Focus on polishing, not rewriting
-- When in doubt, KEEP the content rather than removing it
-
-This is a POLISH step, not an editorial review. The goal is to improve presentation of existing content, not to restructure or reduce it.
-- DO resolve factual conflicts by choosing the most relevant/supported claim
-- Do NOT change section headings
-- Do NOT include meta-commentary ("I have refined...", etc.)
-- Output ONLY the refined article text
-- Article length may decrease if removing contradictions/redundancy
-
-PRIORITY: Factual consistency and relevance are more important than length.
-
-OUTPUT: The complete refined article with all improvements applied.
-"""
-
-
 def build_research_gate_prompt(
     topic: str,
     chunks_formatted: str,
@@ -426,14 +372,14 @@ Output format:
 
 
 def build_writer_tom_prediction_prompt(
-    last_reviewer_action: Optional[str],
+    interaction_history: List[Dict[str, Any]],
     current_draft_info: dict,
 ) -> str:
     """
     Build Theory of Mind prediction prompt for Writer predicting Reviewer's next action.
 
     Args:
-        last_reviewer_action: Last observed reviewer action (from ReviewerAction enum)
+        interaction_history: List of all past observed agent actions
         current_draft_info: Dict with word_count, section_count, iteration
 
     Returns:
@@ -452,95 +398,43 @@ def build_writer_tom_prediction_prompt(
         "balanced_feedback",
     ]
 
-    history_hint = ""
-    if last_reviewer_action:
-        history_hint = (
-            f"\nHINT: The reviewer's last observed action was: {last_reviewer_action}"
-        )
+    history_lines = []
+    if interaction_history:
+        for obs in interaction_history:
+            history_lines.append(
+                f"- Iteration {obs.get('iteration')}: {obs.get('agent')} observed doing '{obs.get('action')}'"
+            )
+    history_log = "\n".join(history_lines) if history_lines else "No history yet."
 
     return f"""You are a WRITER agent predicting the REVIEWER's next feedback focus.
 
 CURRENT SITUATION:
-- Draft iteration: {iteration}
+- You are about to submit your draft for iteration {iteration}.
 - Article word count: {word_count}
-- Number of sections: {section_count}{history_hint}
+- Number of sections: {section_count}
+
+INTERACTION HISTORY:
+{history_log}
 
 PREDICTION TASK:
-Based on the article state and any observed reviewer patterns, predict which aspect of the article the reviewer will focus their feedback on.
+Analyze the sequence of past interactions to identify patterns in the Reviewer's behavior.
+Based on this history and the current article state, predict which aspect the Reviewer will focus their *next* round of feedback on.
 
 AVAILABLE REVIEWER ACTIONS:
 {reviewer_actions}
 
 PREDICTION GUIDELINES:
-- Consider the article's completeness (word count, sections)
-- Consider any patterns in past reviewer behavior
-- Consider what improvements the article still needs
+- Consider the article's completeness (word count, sections).
+- Consider any patterns in the Reviewer's past behavior.
+- e.g., If the Reviewer focused on 'accuracy' last time, will they continue or move to 'style'?
+- e.g., If the article is new (iteration 0), what is the most likely initial focus?
 
 OUTPUT:
 - predicted_action: ONE of the actions from the list above
 - confidence: 0.0 to 1.0 based on how certain you are
-- reasoning: 2-3 sentences explaining your prediction
+- reasoning: 2-3 sentences explaining your prediction based on the history.
 
 Your prediction will help you prepare the appropriate revisions."""
-
-
-def build_reviewer_tom_prediction_prompt(
-    last_writer_action: Optional[str],
-    feedback_context: dict,
-) -> str:
-    """
-    Build Theory of Mind prediction prompt for Reviewer predicting Writer's response.
-
-    Args:
-        last_writer_action: Last observed writer action (from WriterAction enum)
-        feedback_context: Dict with feedback_count, feedback_types, iteration
-
-    Returns:
-        Prompt for reviewer to predict writer's likely response to feedback
-    """
-    feedback_count = feedback_context.get("feedback_count", "unknown")
-    iteration = feedback_context.get("iteration", 0)
-
-    writer_actions = [
-        "accept_most_feedback",
-        "partially_accept_feedback",
-        "contest_some_feedback",
-    ]
-
-    history_hint = ""
-    if last_writer_action:
-        history_hint = (
-            f"\nHINT: The writer's last observed action was: {last_writer_action}"
-        )
-
-    return f"""You are a REVIEWER agent predicting the WRITER's response to feedback.
-
-CURRENT SITUATION:
-- Draft iteration: {iteration}
-- Feedback items being provided: {feedback_count}{history_hint}
-
-PREDICTION TASK:
-Based on the writer's past behavior and the nature of your feedback, predict how the writer will respond.
-
-AVAILABLE WRITER ACTIONS:
-{writer_actions}
-
-PREDICTION GUIDELINES:
-- accept_most_feedback: Writer typically addresses 70%+ of feedback
-- partially_accept_feedback: Writer addresses 40-70% of feedback selectively
-- contest_some_feedback: Writer addresses <40% of feedback
-
-Consider:
-- The writer's historical acceptance patterns
-- The volume and nature of your current feedback
-- The iteration stage (earlier = more open to changes)
-
-OUTPUT:
-- predicted_action: ONE of the actions from the list above
-- confidence: 0.0 to 1.0 based on how certain you are
-- reasoning: 2-3 sentences explaining your prediction
-
-Your prediction will help you calibrate the tone and volume of your feedback."""
 
 
 def build_revision_batch_prompt_v2(
@@ -605,6 +499,16 @@ Current text:
         tom_section = f"""
 STRATEGIC CONTEXT (Theory of Mind):
 {tom_context}
+
+STRATEGIC GUIDANCE FOR WRITER:
+Based on the predicted reviewer behavior, prioritize your revision approach:
+- If reviewer likely to focus on accuracy: Prioritize fact-checking and citation accuracy; verify all claims against research
+- If reviewer likely to focus on expansion: Add missing details and context; expand sections with available research
+- If reviewer likely to focus on structure: Ensure logical flow and clear organization; improve transitions
+- If reviewer likely to focus on clarity: Simplify complex sentences; ensure accessibility while maintaining accuracy
+- If reviewer likely to focus on style: Polish tone and encyclopedic voice; ensure consistency
+
+Use this prediction to preemptively address the most likely concerns in your revision.
 
 """
 

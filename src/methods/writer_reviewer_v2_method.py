@@ -661,9 +661,20 @@ class WriterReviewerV2Method(BaseMethod):
             else:
                 observed_action = WriterAction.CONTEST_SOME.value
 
-            # Store in memory
-            memory.state["tom_writer_last_observed_state"] = observed_action
-            memory._persist()
+            # Append structured observation to history
+            try:
+                memory.append_tom_observation(
+                    agent="writer",
+                    observed_action=observed_action,
+                    iteration=iteration,
+                    details={
+                        "acceptance_rate": acceptance_rate,
+                        "addressed_count": addressed_count,
+                        "total_feedback": len(all_items),
+                    },
+                )
+            except Exception as obs_exc:
+                logger.warning(f"ToM: Failed to append writer observation: {obs_exc}")
 
             logger.info(
                 f"ToM: Writer action observed - {observed_action} "
@@ -751,9 +762,20 @@ class WriterReviewerV2Method(BaseMethod):
                 else:
                     observed_action = ReviewerAction.BALANCED_FEEDBACK.value
 
-            # Store in memory
-            memory.state["tom_reviewer_last_observed_state"] = observed_action
-            memory._persist()
+            # Append structured observation to history
+            try:
+                memory.append_tom_observation(
+                    agent="reviewer",
+                    observed_action=observed_action,
+                    iteration=current_iteration,
+                    details={
+                        "total_feedback": total,
+                        "type_counts": type_counts,
+                        "type_percentages": type_percentages,
+                    },
+                )
+            except Exception as obs_exc:
+                logger.warning(f"ToM: Failed to append reviewer observation: {obs_exc}")
 
             logger.info(
                 f"ToM: Reviewer action observed - {observed_action} "

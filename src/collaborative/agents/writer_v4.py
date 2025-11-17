@@ -8,7 +8,6 @@ from src.collaborative.agents.writer_templates import (
     build_outline_prompt,
     build_research_gate_prompt,
     build_revision_batch_prompt_v2,
-    build_self_refine_prompt,
     build_write_section_prompt,
     build_write_sections_batch_prompt,
     build_writer_tom_prediction_prompt,
@@ -66,7 +65,6 @@ class WriterV4(BaseAgent):
         self.retrieval_manager = create_retrieval_manager(
             rm_type=self.retrieval_config.retrieval_manager
         )
-        self.needs_refine = getattr(self.config, "should_self_refine", False)
 
         self._research_retries: int = 0
         self._tried_queries: set = set()
@@ -99,7 +97,6 @@ class WriterV4(BaseAgent):
         workflow.add_node("outline", self._outline)  # Initial Flow Only
         workflow.add_node("write", self._write_draft)  # Initial Flow Only
         workflow.add_node("revise", self._revise_draft)  # Revision Flow Only
-        workflow.add_node("self_refine", self._self_refine)  # Both Flows (Optional)
 
         workflow.set_entry_point("router")
 
@@ -126,10 +123,8 @@ class WriterV4(BaseAgent):
         # 4. Outline Refinement -> Write
         workflow.add_edge("outline", "write")
 
-        # 5. Post-Content Edges (Shared for write and revise)
-        workflow.add_conditional_edges(
-            "write", self._should_self_refine, {"refine": "self_refine", "done": END}
-        )
+        # 5. Post-Content Edges
+        workflow.add_edge("write", END)
         workflow.add_edge("revise", END)
 
         return workflow.compile()
@@ -274,14 +269,6 @@ class WriterV4(BaseAgent):
             logger.info("Max research retries (2) reached, proceeding to outline")
 
         return "continue"
-
-    # ======================== SELF-REFINE GATE NODE ========================
-    def _should_self_refine(self, state: MinimalState) -> str:
-        """Conditional: Checks if self-refine is configured and needed (Post-content)."""
-        if getattr(self.config, "should_self_refine", False) and self.needs_refine:
-            logger.info("Self-refinement flag is set. Rerouting to self_refine.")
-            return "refine"
-        return "done"
 
     # endregion Graph Conditionals
 
@@ -532,30 +519,6 @@ class WriterV4(BaseAgent):
         )
 
         self.shared_memory.update_article_state(article)
-        return state
-
-    # ======================== SELF-REFINE NODE ========================
-    def _self_refine(self, state: MinimalState) -> MinimalState:
-        """Self-refine node: refine the full article content."""
-        article = self.shared_memory.get_current_draft_as_article()
-        if not article or not (article.content or "").strip():
-            return state  # nothing to polish
-
-        client = self.get_task_client("self_refine")
-        prompt = build_self_refine_prompt(
-            title=article.title,
-            current_text=article.content,
-        )
-
-        try:
-            refined = (client.call_api(prompt=prompt) or "").strip()
-            if refined:
-                # Replace ONLY the full-text body; do not touch sections for speed.
-                article.content = refined
-                self.shared_memory.update_article_state(article)
-        except Exception as e:
-            logger.warning(f"[self_refine] failed: {e}")
-
         return state
 
     # endregion Initial Flow Nodes
@@ -867,11 +830,6 @@ class WriterV4(BaseAgent):
 
         try:
 
-            # Get last observed reviewer action from memory
-            last_reviewer_action = self.shared_memory.state.get(
-                "tom_reviewer_last_observed_state"
-            )
-
             # Build current draft info
             article = self.shared_memory.get_current_draft_as_article()
             current_draft_info = {
@@ -884,8 +842,10 @@ class WriterV4(BaseAgent):
 
             # Build prediction prompt
             prediction_prompt = build_writer_tom_prediction_prompt(
-                last_reviewer_action=last_reviewer_action,
                 current_draft_info=current_draft_info,
+                interaction_history=self.shared_memory.state.get(
+                    "tom_observation_history", []
+                ),
             )
 
             # Get writer's LLM client and make prediction
@@ -900,6 +860,7 @@ class WriterV4(BaseAgent):
                 predictor_role=AgentRole.WRITER,
                 target_role=AgentRole.REVIEWER,
                 prediction=tom_prediction,
+                iteration=self.shared_memory.get_iteration(),
             )
 
             # Return reasoning to inject into revision prompt
@@ -1057,63 +1018,5 @@ class WriterV4(BaseAgent):
         self.shared_memory.store_search_summary(search_id, search_result)
 
         return search_result
-
-    # endregion WriterV2 Helpers
-    #     self,
-    #     article: "Article",
-    #     pending_by_section: dict[str, list["FeedbackStoredModel"]],
-    # ) -> None:
-    #     """
-    #     Mini-batch mode: process sections in small batches of 2-3 to balance speed and avoid truncation.
-    #     Aggregates ALL pending feedback across all iterations for comprehensive revision.
-    #
-    #     The "batch" refers to processing 2-3 SECTIONS in one LLM call.
-    #     Each section may have multiple feedback items.
-    #
-    #     LLM returns ONE WriterValidationModel per SECTION with:
-    #     - updates: status for each feedback item in that section
-    #     - updated_content: the revised section text
-    #     - content_type: always "partial_section" (we revise individual sections)
-    #     """
-    #     # Collect ALL pending feedback across all iterations, not just previous one
-    #     iteration = self.shared_memory.get_iteration()
-    #     all_pending_by_section: dict[str, list["FeedbackStoredModel"]] = {}
-    #
-    #     for past_iter in range(iteration):
-    #         iter_pending = self.shared_memory.get_feedback_items_for_iteration(
-    #             past_iter, FeedbackStatus.PENDING
-    #         )
-    #         for section, items in iter_pending.items():
-    #             all_pending_by_section.setdefault(section, []).extend(items)
-    #
-    #     if not all_pending_by_section:
-    #         logger.info("[revise/batch] No pending feedback found across all iterations")
-    #         return
-    #
-    #     logger.info(
-    #         f"[revise/batch] Collected {sum(len(items) for items in all_pending_by_section.values())} "
-    #         f"pending feedback items across {iteration} iterations for {len(all_pending_by_section)} sections"
-    #     )
-    #
-    #     research_summary = self.shared_memory.get_search_summaries()
-    #     research_ctx = build_formatted_chunk_summaries(
-    #         research_summary,
-    #         max_content_pieces=self.retrieval_config.final_passages,
-    #         fields=["description"],
-    #     )
-    #
-    #     # Process sections in mini-batches of 2-3
-    #     MINI_BATCH_SIZE = 3
-    #     section_list = list(all_pending_by_section.items())
-    #
-    #     for i in range(0, len(section_list), MINI_BATCH_SIZE):
-    #         mini_batch = dict(section_list[i:i + MINI_BATCH_SIZE])
-    #         batch_num = (i // MINI_BATCH_SIZE) + 1
-    #         total_batches = (len(section_list) + MINI_BATCH_SIZE - 1) // MINI_BATCH_SIZE
-    #
-    #         logger.info(
-    #             f"[revise/batch] Processing mini-batch {batch_num}/{total_batches} "
-    #             f"with {len(mini_batch)} sections: {list(mini_batch.keys())}"
-    #         )
 
     # endregion WriterV2 Helpers

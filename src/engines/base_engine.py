@@ -37,6 +37,8 @@ class BaseEngine(ABC):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        # Store optional task label for logging/instrumentation
+        self.task = task
 
         # Store backend-specific kwargs for child classes
         self.backend_kwargs = kwargs

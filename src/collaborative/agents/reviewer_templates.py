@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.utils.data import Article
 
@@ -159,7 +159,13 @@ def build_review_prompt_v2(
 STRATEGIC CONTEXT (Theory of Mind):
 {tom_context}
 
-Use this to calibrate your feedback volume and tone.
+STRATEGIC GUIDANCE FOR REVIEWER:
+Based on the predicted writer behavior, adjust your feedback strategy:
+- If writer likely to accept most feedback: Provide comprehensive, detailed feedback covering multiple dimensions
+- If writer likely to partially accept: Prioritize high-impact items; focus on critical accuracy and missing facts first
+- If writer likely to contest: Be extra specific with evidence; reduce volume to highest-priority issues only
+
+Calibrate feedback volume and specificity to maximize acceptance rate and collaboration efficiency.
 """
 
     possible_searches_str = (
@@ -247,3 +253,68 @@ Return a JSON object matching ReviewerTaskValidationModel schema:
 
 Focus on quality over quantity - provide thorough feedback on the most important issues.
 """
+
+
+def build_reviewer_tom_prediction_prompt(
+    interaction_history: List[Dict[str, Any]],
+    feedback_context: dict,
+) -> str:
+    """
+    Build Theory of Mind prediction prompt for Reviewer predicting Writer's response.
+
+    Args:
+        interaction_history: List of all past observed agent actions
+        feedback_context: Dict with feedback_count, feedback_types, iteration
+
+    Returns:
+        Prompt for reviewer to predict writer's likely response to feedback
+    """
+    feedback_count = feedback_context.get("feedback_count", "unknown")
+    iteration = feedback_context.get("iteration", 0)
+
+    writer_actions = [
+        "accept_most_feedback",
+        "partially_accept_feedback",
+        "contest_some_feedback",
+    ]
+
+    history_lines = []
+    if interaction_history:
+        for obs in interaction_history:
+            history_lines.append(
+                f"- Iteration {obs.get('iteration')}: {obs.get('agent')} observed doing '{obs.get('action')}'"
+            )
+    history_log = "\n".join(history_lines) if history_lines else "No history yet."
+
+    return f"""You are a REVIEWER agent predicting the WRITER's response to your feedback.
+
+CURRENT SITUATION:
+- You are about to provide feedback for iteration {iteration}.
+- Feedback items being provided: {feedback_count}
+
+INTERACTION HISTORY:
+{history_log}
+
+PREDICTION TASK:
+Analyze the sequence of past interactions to identify patterns in the Writer's behavior.
+Based on this history and the feedback you are *about to provide*, predict how the writer will respond.
+
+AVAILABLE WRITER ACTIONS:
+{writer_actions}
+
+PREDICTION GUIDELINES:
+- accept_most_feedback: Writer typically addresses 70%+ of feedback
+- partially_accept_feedback: Writer addresses 40-70% of feedback selectively
+- contest_some_feedback: Writer addresses <40% of feedback
+
+Consider:
+- The Writer's historical acceptance patterns (e.g., "accept_most_feedback").
+- The volume and nature of your *current* feedback (e.g., {feedback_count} items).
+- The iteration stage (later iterations might see more 'contest').
+
+OUTPUT:
+- predicted_action: ONE of the actions from the list above
+- confidence: 0.0 to 1.0 based on how certain you are
+- reasoning: 2-3 sentences explaining your prediction based on the history.
+
+Your prediction will help you calibrate the tone and volume of your feedback."""
