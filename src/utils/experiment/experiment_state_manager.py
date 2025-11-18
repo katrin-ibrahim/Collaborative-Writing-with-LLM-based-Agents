@@ -94,8 +94,12 @@ class ExperimentStateManager:
         safe_topic = topic.replace(" ", "_").replace("/", "_")
         article_file = articles_dir / f"{method}_{safe_topic}.md"
         metadata_file = articles_dir / f"{method}_{safe_topic}_metadata.json"
+        memory_file = self.output_dir / f"memory/{method}_{safe_topic}.json"
 
         if not article_file.exists():
+            # Check for orphaned memory file (article never completed)
+            if memory_file.exists():
+                return "in_progress"
             return "not_started"
 
         try:

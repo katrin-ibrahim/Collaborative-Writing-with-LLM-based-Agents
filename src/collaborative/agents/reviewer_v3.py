@@ -351,7 +351,7 @@ class ReviewerV3(BaseAgent):
             category_extractor = CategoryExtractor()
 
             related_articles = category_extractor.get_related_articles(
-                topic, max_categories=15, max_members_per_category=3
+                topic, max_categories=10, max_members_per_category=3
             )
 
             # Just filter the final list against your searched titles

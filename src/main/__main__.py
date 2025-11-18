@@ -65,7 +65,6 @@ def load_configurations(args):
             small_tail_max=getattr(args, "small_tail_max", None),
             writing_mode=args.writing_mode,
             revise_mode=args.revise_mode,
-            should_self_refine=not args.no_self_refine,
             adaptive_iterations=getattr(args, "adaptive_iterations", None),
             adaptive_extension_max=getattr(args, "adaptive_extension_max", None),
             adaptive_improvement_threshold=getattr(

@@ -56,6 +56,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--methods",
+        nargs="+",
+        help="Filter to specific methods (e.g., writer writer_reviewer). For method comparison only.",
+    )
+
+    parser.add_argument(
         "--output",
         default="results/visualizations",
         help="Output directory (default: results/visualizations)",
@@ -120,7 +126,7 @@ def main():
                 logger.error("Method comparison requires --experiments")
                 return 1
             experiments = expand_wildcards(args.experiments)
-            visualizer.compare_methods(experiments)
+            visualizer.compare_methods(experiments, method_filter=args.methods)
 
         logger.info(f"Visualizations saved to: {args.output}")
         return 0

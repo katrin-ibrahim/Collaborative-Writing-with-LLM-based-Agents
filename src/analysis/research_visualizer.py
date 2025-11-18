@@ -3,6 +3,7 @@ from pathlib import Path
 import logging
 import matplotlib.pyplot as plt
 import pandas as pd
+import re
 import seaborn as sns
 from typing import Dict, List, Optional
 
@@ -22,11 +23,12 @@ COLORBREWER_PALETTE = {
 }
 
 METHOD_COLORS = {
-    "direct": COLORBREWER_PALETTE["blue3"],
-    "rag": COLORBREWER_PALETTE["blue1"],
+    "direct": COLORBREWER_PALETTE["red1"],
+    "rag": COLORBREWER_PALETTE["red2"],
     "storm": COLORBREWER_PALETTE["orange1"],
-    "writer_reviewer": COLORBREWER_PALETTE["red2"],
-    "writer_only": COLORBREWER_PALETTE["blue2"],
+    "writer": COLORBREWER_PALETTE["blue1"],
+    "writer_reviewer": COLORBREWER_PALETTE["blue2"],
+    "writer_reviewer_tom": COLORBREWER_PALETTE["blue3"],
 }
 
 REFERENCE_METRICS = [
@@ -109,15 +111,30 @@ class ResearchVisualizer:
                                     llm_judge.get("relevance_focus", 0),
                                     llm_judge.get("broad_coverage", 0),
                                 ]
-                                record["llm_judge_avg"] = sum(judge_scores) / len(
-                                    judge_scores
-                                )
+                                if judge_scores:
+                                    record["llm_judge_avg"] = sum(judge_scores) / len(
+                                        judge_scores
+                                    )
 
                         if "generation_time" in method_data:
                             record["generation_time"] = method_data["generation_time"]
 
                         if "word_count" in method_data:
                             record["word_count"] = method_data["word_count"]
+
+                        # Extract token usage if available
+                        if "token_usage" in method_data:
+                            token_usage = method_data["token_usage"]
+                            if isinstance(token_usage, dict):
+                                record["total_tokens"] = token_usage.get(
+                                    "total_tokens", 0
+                                )
+                                record["prompt_tokens"] = token_usage.get(
+                                    "total_prompt_tokens", 0
+                                )
+                                record["completion_tokens"] = token_usage.get(
+                                    "total_completion_tokens", 0
+                                )
 
                         records.append(record)
 
@@ -588,7 +605,256 @@ class ResearchVisualizer:
 
         logger.info(f"{sweep_type} saved to: {output_dir}")
 
-    def compare_methods(self, experiment_paths: List[str]):
+    def _export_method_summary_csv(self, df: pd.DataFrame, output_path: Path):
+        """Export aggregated summary statistics to CSV."""
+        metrics_to_aggregate = (
+            REFERENCE_METRICS
+            + JUDGE_METRICS
+            + ["generation_time", "total_tokens", "word_count"]
+        )
+
+        # Filter to metrics that exist in the dataframe
+        available_metrics = [m for m in metrics_to_aggregate if m in df.columns]
+
+        print("DEBUG: Unique method_types in DataFrame:", df["method_type"].unique())
+
+        summary = (
+            df.groupby("method_type")[available_metrics]
+            .agg(["mean", "std", "count"])
+            .round(3)
+        )
+
+        # Flatten column names
+        summary.columns = ["_".join(col).strip() for col in summary.columns.values]
+        summary = summary.reset_index()
+
+        summary.to_csv(output_path, index=False)
+        logger.info(f"Summary CSV exported to: {output_path}")
+
+    def _create_time_token_plots(
+        self,
+        df: pd.DataFrame,
+        x_var: str,
+        output_dir: Path,
+        colors: Optional[Dict] = None,
+    ):
+        """Create visualizations for generation time and token consumption."""
+        # Check which metrics are available
+        time_metrics = []
+        if "generation_time" in df.columns:
+            time_metrics.append("generation_time")
+
+        token_metrics = []
+        if "total_tokens" in df.columns:
+            token_metrics.append("total_tokens")
+        if "prompt_tokens" in df.columns:
+            token_metrics.append("prompt_tokens")
+        if "completion_tokens" in df.columns:
+            token_metrics.append("completion_tokens")
+
+        # Time visualization
+        if time_metrics:
+            self._create_box_plot(
+                df,
+                time_metrics,
+                x_var,
+                "Generation Time by Method",
+                output_dir / "methods_generation_time.png",
+                colors,
+                "Method",
+            )
+
+        # Token consumption visualization
+        if token_metrics:
+            self._create_box_plot(
+                df,
+                token_metrics,
+                x_var,
+                "Token Consumption by Method",
+                output_dir / "methods_token_consumption.png",
+                colors,
+                "Method",
+            )
+
+        # Combined efficiency plot (time vs tokens)
+        if "generation_time" in df.columns and "total_tokens" in df.columns:
+            self._create_efficiency_scatter(
+                df, x_var, output_dir / "methods_efficiency_scatter.png", colors
+            )
+
+    def _create_efficiency_scatter(
+        self,
+        df: pd.DataFrame,
+        group_var: str,
+        output_path: Path,
+        colors: Optional[Dict] = None,
+    ):
+        """Create scatter plot showing efficiency (time vs tokens)."""
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        groups = df[group_var].unique()
+        for group in groups:
+            group_data = df[df[group_var] == group]
+            color = colors.get(group, COLORBREWER_PALETTE["blue1"]) if colors else None
+            ax.scatter(
+                group_data["total_tokens"],
+                group_data["generation_time"],
+                label=group,
+                alpha=0.6,
+                s=100,
+                color=color,
+            )
+
+        ax.set_xlabel("Total Tokens")
+        ax.set_ylabel("Generation Time (seconds)")
+        ax.set_title("Generation Efficiency: Time vs Token Consumption")
+        ax.legend()
+        ax.grid(alpha=0.3)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close()
+        logger.info(f"Efficiency scatter plot saved to: {output_path}")
+
+    def _create_cost_benefit_scatter(
+        self,
+        df: pd.DataFrame,
+        group_var: str,
+        output_dir: Path,
+        colors: Optional[Dict] = None,
+    ):
+        """Create scatter plot showing cost (tokens) vs benefit (Article Entity Recall)."""
+
+        if (
+            "article_entity_recall" not in df.columns
+            or "total_tokens" not in df.columns
+        ):
+            logger.warning("Required columns missing, skipping cost-benefit plot")
+            return
+
+        # Filter out rows with missing data
+        plot_df = df.dropna(subset=["total_tokens", "article_entity_recall"]).copy()
+
+        if len(plot_df) == 0:
+            logger.warning("No valid data points found.")
+            return
+
+        # DEBUG: Print counts
+        print("\n=== COST-BENEFIT SCATTER DEBUG ===")
+        print("Original df method counts:")
+        print(df["method_type"].value_counts())
+        print("\nFiltered plot_df method counts:")
+        print(plot_df["method_type"].value_counts())
+
+        fig, ax = plt.subplots(figsize=(12, 7))
+
+        groups = sorted(plot_df[group_var].unique())
+
+        # Color mapping
+        default_cycle = [
+            COLORBREWER_PALETTE["blue3"],
+            COLORBREWER_PALETTE["red2"],
+            COLORBREWER_PALETTE["orange1"],
+            COLORBREWER_PALETTE["blue1"],
+            COLORBREWER_PALETTE["yellow"],
+        ]
+        color_map = {}
+        for i, grp in enumerate(groups):
+            if colors and grp in colors:
+                color_map[grp] = colors[grp]
+            else:
+                color_map[grp] = default_cycle[i % len(default_cycle)]
+
+        # Calculate means FROM PLOT_DF ONLY
+        mean_data = []
+        for group in groups:
+            group_data = plot_df[plot_df[group_var] == group]
+            if len(group_data) > 0:
+                mean_tokens = group_data["total_tokens"].mean()
+                mean_aer = group_data["article_entity_recall"].mean()
+
+                # DEBUG
+                print(f"\n{group}:")
+                print(f"  Points: {len(group_data)}")
+                print(f"  Mean tokens: {mean_tokens:.0f}")
+                print(f"  Mean AER: {mean_aer:.2f}")
+
+                mean_data.append(
+                    {
+                        "method": group,
+                        "tokens": mean_tokens,
+                        "aer": mean_aer,
+                        "count": len(group_data),
+                    }
+                )
+
+        # Plot individual points
+        for group in groups:
+            group_data = plot_df[plot_df[group_var] == group]
+            grp_color = color_map[group]
+
+            scatter = ax.scatter(
+                group_data["total_tokens"],
+                group_data["article_entity_recall"],
+                label=f"{group} (n={len(group_data)})",  # Show count in legend
+                alpha=0.6,
+                s=80,
+                c=[grp_color],
+                edgecolors="face",
+            )
+
+        # Plot mean markers
+        for item in mean_data:
+            group = item["method"]
+            grp_color = color_map[group]
+
+            ax.scatter(
+                [item["tokens"]],
+                [item["aer"]],
+                alpha=1.0,
+                s=250,
+                c=[grp_color],
+                edgecolors="black",
+                linewidths=2,
+                marker="D",
+                zorder=10,
+            )
+
+            ax.annotate(
+                f"{item['aer']:.1f}%",
+                (item["tokens"], item["aer"]),
+                xytext=(0, 10),
+                textcoords="offset points",
+                ha="center",
+                fontsize=10,
+                fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.7, ec="none"),
+            )
+
+        ax.set_xlabel("Total Tokens (Cost)", fontsize=12, fontweight="bold")
+        ax.set_ylabel("Article Entity Recall (%)", fontsize=12, fontweight="bold")
+        ax.set_title(
+            f"Cost-Benefit Analysis (n={len(plot_df)} articles)",
+            fontsize=13,
+            fontweight="bold",
+        )
+
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(by_label.values(), by_label.keys(), loc="best", framealpha=0.9)
+
+        ax.grid(alpha=0.3, linestyle="--")
+
+        plt.tight_layout()
+        save_path = output_dir / "methods_cost_benefit_scatter.png"
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.close()
+
+        logger.info(f"Cost-benefit scatter saved to: {save_path}")
+
+    def compare_methods(
+        self, experiment_paths: List[str], method_filter: Optional[List[str]] = None
+    ):
         """Compare different methods (storm, rag, direct, writer_reviewer)."""
         output_dir = self.output_base / "method_comparison"
         output_dir.mkdir(exist_ok=True)
@@ -599,17 +865,57 @@ class ResearchVisualizer:
             df["experiment"] = Path(path).name
             dfs.append(df)
 
+        if not dfs:
+            logger.warning("No results found for comparison")
+            return
+
         df = pd.concat(dfs, ignore_index=True)
 
-        for method_key in METHOD_COLORS.keys():
-            df.loc[
-                df["method"].str.contains(method_key, case=False, na=False),
-                "method_type",
-            ] = method_key
+        # === Robust Method Matching Strategy ===
+        # To avoid greedy substring matching (e.g. 'writer' matching 'writer_reviewer'),
+        # we look for the longest matching key in METHOD_COLORS.
 
-        if "method_type" not in df.columns:
-            df["method_type"] = df["method"]
+        def match_method_type(val):
+            val_lower = str(val).lower()
 
+            # Try exact match first
+            if val_lower in METHOD_COLORS:
+                return val_lower
+
+            # Then try word boundary matching (longest first)
+            sorted_keys = sorted(METHOD_COLORS.keys(), key=len, reverse=True)
+            for k in sorted_keys:
+                # Use word boundaries to avoid partial matches
+                if re.search(rf"\b{re.escape(k)}\b", val_lower):
+                    return k
+
+            # Fallback to substring matching (longest first)
+            for k in sorted_keys:
+                if k in val_lower:
+                    return k
+
+            return val_lower
+
+        df["method_type"] = df["method"].apply(match_method_type)
+        print("\n=== Method Mapping Debug ===")
+        print(df[["method", "method_type"]].drop_duplicates().sort_values("method"))
+        print("\n=== Method Type Counts ===")
+        print(df["method_type"].value_counts())
+
+        # Apply method_filter if provided (for filtering specific methods passed via CLI)
+        if method_filter:
+            # Assume method_filter contains strings that should match the detected method_type
+            # Normalized to match keys in METHOD_COLORS if possible
+            filter_set = set(f.lower() for f in method_filter)
+            df = df[df["method_type"].isin(filter_set)]
+
+            if df.empty:
+                logger.warning(
+                    f"No data left after filtering for methods: {method_filter}"
+                )
+                return
+
+        # Create standard visualizations
         self._create_box_plot(
             df,
             REFERENCE_METRICS,
@@ -652,4 +958,10 @@ class ResearchVisualizer:
             "Method",
             y_max=4,
         )
+
+        # Create Cost-Benefit Scatter Plot
+        self._create_cost_benefit_scatter(
+            df, "method_type", output_dir, colors=METHOD_COLORS
+        )
+
         logger.info(f"Method comparison saved to: {output_dir}")

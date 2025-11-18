@@ -68,7 +68,7 @@ class WriterOnlyV3Method(BaseMethod):
                 topic=topic,
                 storage_dir=output_dir,  # Store memory files in experiment dir
                 tom_enabled=False,  # No collaboration, so no ToM needed
-                experiment_name="writer_only_v3",
+                experiment_name="writer",
             )
 
             # Set memory instance for tools and agent to access
@@ -82,7 +82,7 @@ class WriterOnlyV3Method(BaseMethod):
                 title=topic,
                 content=f"# {topic}\n\n",
                 sections={},
-                metadata={"method": "writer_only_v3"},
+                metadata={"method": "writer"},
             )
             memory.update_article_state(seed_article)
 
