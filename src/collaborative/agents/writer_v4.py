@@ -485,6 +485,7 @@ class WriterV4(BaseAgent):
             except Exception as e:
                 logger.warning(f"Batch writing failed: {e}, falling back to sequential")
                 # Fallback to sequential writing with structured output
+                failed_sections = []
 
                 for item in sections_with_chunks:
                     heading = item["section_heading"]
@@ -503,8 +504,44 @@ class WriterV4(BaseAgent):
                         if section_model.content and section_model.content.strip():
                             sections_out[heading] = section_model.content.strip()
                             section_summaries[heading] = section_model.summary
-                    except Exception:
-                        continue
+                            logger.info(
+                                f"  ✓ Sequential fallback wrote: {heading} ({len(section_model.content)} chars)"
+                            )
+                        else:
+                            failed_sections.append(heading)
+                            logger.error(
+                                f"  ✗ Sequential fallback returned empty content for: {heading}"
+                            )
+                    except Exception as seq_error:
+                        failed_sections.append(heading)
+                        logger.error(
+                            f"  ✗ Sequential fallback failed for '{heading}': {seq_error}"
+                        )
+
+                if failed_sections:
+                    logger.error(
+                        f"Batch {batch_start//batch_size + 1}/{num_batches} failed with {len(failed_sections)} sections "
+                        f"unable to be written even with sequential fallback: {failed_sections}"
+                    )
+
+        # Fail fast if we have too few sections (likely due to batch failures)
+        expected_sections = len(headings)
+        actual_sections = len(sections_out)
+        if actual_sections == 0:
+            error_msg = (
+                f"CRITICAL: Initial draft generation produced 0 sections "
+                f"(expected {expected_sections}). This indicates all batch writing failed. "
+                f"Common causes: CUDA out of memory, model output validation errors. "
+                f"Check logs for 'CUDA error' or validation errors above."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        if actual_sections < expected_sections * 0.5:
+            logger.warning(
+                f"Initial draft incomplete: only {actual_sections}/{expected_sections} sections written. "
+                f"Missing sections may cause poor article quality."
+            )
 
         article = Article(
             title=topic,

@@ -331,19 +331,20 @@ class WriterReviewerV2Method(BaseMethod):
             # Log ToM statistics if enabled
             if self.tom_enabled and memory.tom_module.enabled:
                 tom_metrics = final_article.metadata.get("theory_of_mind", {})
+                prediction_stats = tom_metrics.get("prediction_stats", {})
                 quality_metrics = tom_metrics.get("prediction_quality", {})
 
                 logger.info("=" * 60)
                 logger.info("THEORY OF MIND STATISTICS")
                 logger.info("=" * 60)
                 logger.info(
-                    f"Total predictions made: {tom_metrics.get('total_predictions', 0)}"
+                    f"Total predictions made: {prediction_stats.get('total_predictions', 0)}"
                 )
                 logger.info(
-                    f"Accurate predictions: {tom_metrics.get('accurate_predictions', 0)}"
+                    f"Accurate predictions: {prediction_stats.get('correct_predictions', 0)}"
                 )
                 logger.info(
-                    f"Prediction accuracy rate: {tom_metrics.get('accuracy_rate', 0.0):.1%}"
+                    f"Prediction accuracy rate: {prediction_stats.get('accuracy_rate', 0.0):.1%}"
                 )
 
                 quality_indicators = quality_metrics.get("quality_indicators", {})

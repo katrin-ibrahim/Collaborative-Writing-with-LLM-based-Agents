@@ -365,6 +365,15 @@ class OllamaEngine(BaseEngine):
                     raise norm_error
 
         except Exception as e:
+            error_msg = str(e)
+
+            # Check for CUDA out of memory errors
+            if "CUDA error: out of memory" in error_msg or "cudaSetDevice" in error_msg:
+                cuda_error_msg = (
+                    "Ollama Structured API call failed due to CUDA out of memory. "
+                )
+                raise RuntimeError(cuda_error_msg)
+
             logger.error(f"Ollama Structured API call failed: {e}", exc_info=True)
             raise RuntimeError(f"Ollama Structured API error: {e}")
 

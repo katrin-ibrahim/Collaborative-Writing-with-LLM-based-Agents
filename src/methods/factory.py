@@ -56,8 +56,7 @@ def create_method(method_name: str) -> BaseMethod:
 
     else:
         supported_methods = [
-            "writer_only",
-            "writer_v3",
+            "writer",
             "writer_reviewer",
             "writer_reviewer_tom",
             "direct",
