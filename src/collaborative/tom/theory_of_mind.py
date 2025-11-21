@@ -7,7 +7,7 @@ from enum import Enum
 import logging
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,25 @@ class ReviewerAction(str, Enum):
 
 
 class ToMPredictionModel(BaseModel):
-    """Structured LLM output for predicting an agent's next action/state."""
+    """Structured LLM output for predicting an agent's next action/state.
 
-    predicted_action: str = Field(description="The predicted action/state")
+    Valid predicted_action values:
+    - Writer actions: accept_most_feedback, partially_accept_feedback, contest_some_feedback
+    - Reviewer actions: focus_on_accuracy, focus_on_content_expansion, focus_on_structure,
+                       focus_on_clarity, focus_on_style, balanced_feedback
+    """
+
+    predicted_action: Literal[
+        "accept_most_feedback",
+        "partially_accept_feedback",
+        "contest_some_feedback",
+        "focus_on_accuracy",
+        "focus_on_content_expansion",
+        "focus_on_structure",
+        "focus_on_clarity",
+        "focus_on_style",
+        "balanced_feedback",
+    ] = Field(description="The predicted action/state from the allowed enum values")
     confidence: float = Field(
         description="Confidence level in this prediction (0.0 to 1.0)", ge=0.0, le=1.0
     )
@@ -88,7 +104,7 @@ class TheoryOfMindModule:
         if not self.enabled:
             logger.debug("ToM: Module disabled, returning default prediction")
             return ToMPredictionModel(
-                predicted_action="default_behavior",
+                predicted_action="balanced_feedback",
                 confidence=0.5,
                 reasoning="ToM disabled - using default prediction",
             )
@@ -107,7 +123,7 @@ class TheoryOfMindModule:
         except Exception as e:
             logger.warning(f"ToM: Prediction failed: {e}")
             return ToMPredictionModel(
-                predicted_action="prediction_failed",
+                predicted_action="balanced_feedback",
                 confidence=0.0,
                 reasoning=f"Prediction failed: {str(e)}",
             )
@@ -150,15 +166,16 @@ class TheoryOfMindModule:
             return PredictionAccuracy.UNKNOWN
 
         prediction.actual_outcome = actual_outcome
-        if (
-            prediction.predicted_action in actual_outcome
-            or actual_outcome in prediction.predicted_action
-        ):
+        if prediction.predicted_action == actual_outcome:
             prediction.accuracy = PredictionAccuracy.CORRECT
-            logger.info("ToM: ✓ Correct prediction!")
+            logger.info(
+                f"ToM: ✓ Correct prediction! Predicted: {prediction.predicted_action}, Actual: {actual_outcome}"
+            )
         else:
             prediction.accuracy = PredictionAccuracy.INCORRECT
-            logger.info("ToM: ✗ Incorrect prediction.")
+            logger.info(
+                f"ToM: ✗ Incorrect prediction. Predicted: {prediction.predicted_action}, Actual: {actual_outcome}"
+            )
 
         return prediction.accuracy
 

@@ -108,7 +108,7 @@ class WriterReviewerV2Method(BaseMethod):
 
             # Determine experiment name based on ToM setting
             experiment_name = (
-                "writer_reviewer_tom_v2" if self.tom_enabled else "writer_reviewer_v2"
+                "writer_reviewer_tom" if self.tom_enabled else "writer_reviewer"
             )
 
             # Initialize shared memory with Theory of Mind support

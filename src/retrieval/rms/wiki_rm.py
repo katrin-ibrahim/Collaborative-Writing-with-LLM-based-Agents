@@ -66,8 +66,9 @@ class WikiRM(BaseRetriever):
         max_results: Optional[int] = None,
     ) -> List[ResearchChunk]:
         """
-        Retrieve article by direct page title access.
-        Query should be an exact Wikipedia page title, not a search term.
+        Retrieve article with automatic search fallback.
+        1. Tries exact page title match first.
+        2. If not found, performs a search to find the best matching page.
         """
         if max_results is None:
             if self.retrieval_config is None:
@@ -78,8 +79,31 @@ class WikiRM(BaseRetriever):
         if max_results is None:
             max_results = 5
 
-        # Extract chunks from the resolved page
+        # 1. Try Exact Match first (Default behavior)
         chunks = self._extract_page_content(query)
+
+        # 2. Universal Fallback: If Exact Match failed, try Search
+        if not chunks:
+            logger.info(
+                f"[WikiRM] Exact match failed for '{query}'. Attempting search fallback."
+            )
+            try:
+                # Search for the single best matching page title
+                search_results = wikipedia.search(query, results=1)
+
+                if search_results:
+                    best_match = search_results[0]
+                    logger.info(f"[WikiRM] Fallback search found: '{best_match}'")
+
+                    # Attempt to extract content from the found page
+                    chunks = self._extract_page_content(best_match)
+                else:
+                    logger.warning(
+                        f"[WikiRM] Fallback search returned no results for: '{query}'"
+                    )
+
+            except Exception as e:
+                logger.error(f"[WikiRM] Fallback search failed for '{query}': {e}")
 
         return chunks[:max_results] if chunks else []
 
@@ -93,9 +117,13 @@ class WikiRM(BaseRetriever):
         results: List[ResearchChunk] = []
 
         try:
+            # auto_suggest=False is crucial here so we don't get unexpected redirects
+            # unless we explicitly searched for them.
             p = wpage(page_title, auto_suggest=False, redirect=True)
-        except DisambiguationError:
-            logger.debug(f"[WikiRM] Skipping disambiguation page: '{page_title}'")
+        except DisambiguationError as e:
+            logger.debug(
+                f"[WikiRM] Disambiguation page: '{page_title}'. Options: {e.options[:3]}"
+            )
             return []
         except PageError:
             logger.debug(f"[WikiRM] Page not found: '{page_title}'")

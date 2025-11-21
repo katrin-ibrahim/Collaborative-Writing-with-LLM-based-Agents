@@ -2,7 +2,6 @@
 STORM method implementation using knowledge_storm library.
 """
 
-import tempfile
 import time
 from pathlib import Path
 
@@ -53,26 +52,34 @@ class StormMethod(BaseMethod):
             lm_config = setup_storm_config()
             retrieval_manager = setup_storm_retrieval()
 
-            # Create temporary output directory
-            with tempfile.TemporaryDirectory() as temp_dir:
-                storm_output_dir = Path(temp_dir) / "storm_output"
-                storm_output_dir.mkdir(parents=True, exist_ok=True)
-
-                # Setup STORM runner arguments
-                engine_args = STORMWikiRunnerArguments(output_dir=str(storm_output_dir))
-
-                # Create STORM runner
-                storm_runner = STORMWikiRunner(
-                    engine_args, lm_config, retrieval_manager
+            # Get experiment output directory to persist artifacts
+            experiment_dir = ConfigContext.get_output_dir()
+            if not experiment_dir:
+                raise RuntimeError(
+                    "Output directory is not set in ConfigContext. Cannot persist STORM artifacts."
                 )
 
-                # Run STORM
-                storm_runner.run(topic=topic)
+            # Create persistent directory for STORM artifacts
+            # Structure: results/.../storm_artifacts/{topic_name}/...
+            storm_artifacts_dir = Path(experiment_dir) / "storm_artifacts"
+            storm_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-                # Extract STORM output
-                from src.utils.article import extract_storm_output
+            logger.info(f"STORM artifacts will be saved to: {storm_artifacts_dir}")
 
-                content = extract_storm_output(storm_output_dir, topic)
+            # Setup STORM runner arguments with persistent output directory
+            engine_args = STORMWikiRunnerArguments(output_dir=str(storm_artifacts_dir))
+
+            # Create STORM runner
+            storm_runner = STORMWikiRunner(engine_args, lm_config, retrieval_manager)
+
+            # Run STORM
+            storm_runner.run(topic=topic)
+
+            # Extract STORM output
+            from src.utils.article import extract_storm_output
+
+            # Note: storm_runner creates a subdirectory for the topic inside output_dir
+            content = extract_storm_output(storm_artifacts_dir, topic)
 
             generation_time = time.time() - start_time
             content_words = len(content.split()) if content else 0
@@ -94,6 +101,7 @@ class StormMethod(BaseMethod):
                     "model": writing_engine.model,
                     "temperature": writing_engine.temperature,
                     "token_usage": token_usage,
+                    "artifacts_path": str(storm_artifacts_dir),
                 },
             )
 

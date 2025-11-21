@@ -167,7 +167,25 @@ def save_final_results(
 
             # Check for method_topic.md pattern
             for article_file in articles_dir.glob(f"{method}_*.md"):
-                topic_part = article_file.stem[len(method) + 1 :]
+                # Extract the filename without extension
+                filename = article_file.stem
+
+                # Check if this file actually belongs to a different method
+                # that has this method as a prefix (e.g., writer vs writer_reviewer)
+                # We need to ensure exact method match
+                belongs_to_different_method = False
+                for other_method in methods:
+                    if other_method != method and other_method.startswith(method + "_"):
+                        # Check if this file actually belongs to the longer method name
+                        if filename.startswith(f"{other_method}_"):
+                            belongs_to_different_method = True
+                            break
+
+                if belongs_to_different_method:
+                    continue
+
+                # Extract topic part after method name
+                topic_part = filename[len(method) + 1 :]
 
                 # Keep topic with underscores to match the topics list format
                 if "and_or" in topic_part:
@@ -187,6 +205,15 @@ def save_final_results(
                     try:
                         with open(metadata_file, "r") as f:
                             metadata = json.load(f)
+
+                            # Verify the method recorded in the file matches the method we are processing.
+                            # This is the only way to distinguish 'writer' from 'writer_reviewer'
+                            # when running single-method experiments.
+                            saved_method = metadata.get("method")
+                            if saved_method and saved_method != method:
+                                # Skip this file if it belongs to a different method (e.g. writer_reviewer)
+                                continue
+
                             generation_time = metadata.get("generation_time", 0.0)
                             word_count = metadata.get("word_count", 0)
                             token_usage = metadata.get("token_usage")
